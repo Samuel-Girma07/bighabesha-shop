@@ -11,7 +11,7 @@ export async function renderCatalog(ctx: Context): Promise<void> {
   const products = getAllProducts();
   const keyboard = new InlineKeyboard();
 
-  let text = '*Bighabesha Shop — Products Catalog*\n\n' +
+  let text = '<b>Bighabesha Shop — Products Catalog</b>\n\n' +
     'Select a product or service below to view plans and pricing:\n\n';
 
   for (const prod of products) {
@@ -21,13 +21,13 @@ export async function renderCatalog(ctx: Context): Promise<void> {
       const price = variants[0]?.price_etb || 0;
       const stockBadge = stock > 0 ? `(${stock} available)` : `(Sold Out)`;
 
-      text += `• *${prod.name}* — ${formatPriceETB(price)} _${stockBadge}_\n`;
+      text += `• <b>${prod.name}</b> — ${formatPriceETB(price)} <i>${stockBadge}</i>\n`;
       keyboard.text(`${prod.name} ${stock > 0 ? `• ${formatPriceETB(price)}` : '• Sold Out'}`, `prod_${prod.id}`).row();
     } else if (prod.id === 'telegram_premium') {
-      text += `• *${prod.name}* — from 1,100 ETB _(3, 6, 12 Months)_\n`;
+      text += `• <b>${prod.name}</b> — from 1,100 ETB <i>(3, 6, 12 Months)</i>\n`;
       keyboard.text(`${prod.name} • from 1,100 ETB`, `prod_${prod.id}`).row();
     } else if (prod.id === 'telegram_stars') {
-      text += `• *${prod.name}* — from 125 ETB _(Packages & Custom)_\n`;
+      text += `• <b>${prod.name}</b> — from 125 ETB <i>(Packages & Custom)</i>\n`;
       keyboard.text(`${prod.name} • from 125 ETB`, `prod_${prod.id}`).row();
     } else {
       keyboard.text(prod.name, `prod_${prod.id}`).row();
@@ -42,23 +42,23 @@ export async function renderCatalog(ctx: Context): Promise<void> {
         type: 'photo',
         media: new InputFile(getBannerPngPath('welcome')),
         caption: text,
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
       }, { reply_markup: keyboard });
       return;
     } catch {}
   }
 
   if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   } else {
     try {
       await ctx.replyWithPhoto(new InputFile(getBannerPngPath('welcome')), {
         caption: text,
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         reply_markup: keyboard,
       });
     } catch {
-      await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
     }
   }
 }
@@ -81,11 +81,11 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
     const variant = variants[0];
     const price = variant?.price_etb || 0;
 
-    text = `*${product.name}*\n\n` +
+    text = `<b>${product.name}</b>\n\n` +
       `${product.description}\n\n` +
-      `• *Price:* ${formatPriceETB(price)}\n` +
-      `• *Stock Status:* ${stock > 0 ? `Available (${stock} links in stock)` : 'Sold Out'}\n\n` +
-      `_Automated instant link delivery upon payment confirmation._`;
+      `• <b>Price:</b> ${formatPriceETB(price)}\n` +
+      `• <b>Stock Status:</b> ${stock > 0 ? `Available (${stock} links in stock)` : 'Sold Out'}\n\n` +
+      `<i>Automated instant link delivery upon payment confirmation.</i>`;
 
     if (stock > 0 && variant) {
       keyboard.text(`Purchase Plan — ${formatPriceETB(price)}`, `buy_var_${variant.id}`).row();
@@ -96,7 +96,7 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
     bannerType = 'premium';
     const variants = getProductVariants(product.id);
 
-    text = `*${product.name}*\n\n` +
+    text = `<b>${product.name}</b>\n\n` +
       `${product.description}\n\n` +
       `Select your subscription duration:`;
 
@@ -110,10 +110,10 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
     const minStars = getNumericSetting('stars_min', 10);
     const maxStars = getNumericSetting('stars_max', 100000);
 
-    text = `*${product.name}*\n\n` +
+    text = `<b>${product.name}</b>\n\n` +
       `${product.description}\n\n` +
-      `• *Exchange Rate:* 1 Star = ${etbPerStar} ETB\n` +
-      `• *Custom Range:* ${minStars.toLocaleString()} – ${maxStars.toLocaleString()} Stars\n\n` +
+      `• <b>Exchange Rate:</b> 1 Star = ${etbPerStar} ETB\n` +
+      `• <b>Custom Range:</b> ${minStars.toLocaleString()} – ${maxStars.toLocaleString()} Stars\n\n` +
       `Choose a package or enter a custom amount:`;
 
     for (let i = 0; i < variants.length; i += 2) {
@@ -141,7 +141,7 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
         type: 'photo',
         media: new InputFile(bannerPath),
         caption: text,
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
       }, { reply_markup: keyboard });
       return;
     } catch {}
@@ -151,22 +151,22 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
     try {
       await ctx.replyWithPhoto(new InputFile(bannerPath), {
         caption: text,
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         reply_markup: keyboard,
       });
       await ctx.deleteMessage().catch(() => {});
     } catch {
-      await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
     }
   } else {
     try {
       await ctx.replyWithPhoto(new InputFile(bannerPath), {
         caption: text,
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         reply_markup: keyboard,
       });
     } catch {
-      await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
     }
   }
 }
@@ -184,25 +184,25 @@ export async function promptCustomStars(ctx: Context): Promise<void> {
     data: { minStars, maxStars, etbPerStar },
   });
 
-  const text = `*Custom Telegram Stars Amount*\n\n` +
+  const text = `<b>Custom Telegram Stars Amount</b>\n\n` +
     `Enter the number of Stars you wish to purchase:\n\n` +
     `• Minimum: ${minStars.toLocaleString()} Stars (${formatPriceETB(Math.ceil(minStars * etbPerStar))})\n` +
     `• Maximum: ${maxStars.toLocaleString()} Stars (${formatPriceETB(Math.ceil(maxStars * etbPerStar))})\n` +
     `• Rate: 1 Star = ${etbPerStar} ETB\n\n` +
-    `Please type the amount in chat (e.g. \`750\`):`;
+    `Please type the amount in chat (e.g. <code>750</code>):`;
 
   const keyboard = new InlineKeyboard().text('Cancel', 'prod_telegram_stars');
 
   if (ctx.callbackQuery?.message?.photo) {
     await ctx.editMessageCaption({
       caption: text,
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: keyboard,
     });
   } else if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   } else {
-    await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
   }
 }
 

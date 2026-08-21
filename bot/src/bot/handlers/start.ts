@@ -45,11 +45,11 @@ export async function startHandler(ctx: Context): Promise<void> {
   const config = getConfig();
   const webAppUrl = config.WEBAPP_URL || 'https://capabilities-aims-modular-reward.trycloudflare.com';
 
-  const welcomeText = `*Bighabesha Shop — Official Digital Store*\n\n` +
-    `• *Gemini Pro (18 Months)* — Instant link delivery with 2TB storage\n` +
-    `• *Telegram Premium* — 3, 6, 12-month Fragment gifts\n` +
-    `• *Telegram Stars* — Packages & custom coin quantities\n\n` +
-    `_Instant automated verification via Telebirr, CBE, Abyssinia, Stars & Crypto._`;
+  const welcomeHtml = `<b>Bighabesha Shop — Official Digital Store</b>\n\n` +
+    `• <b>Gemini Pro (18 Months)</b> — Instant link delivery with 2TB storage\n` +
+    `• <b>Telegram Premium</b> — 3, 6, 12-month Fragment gifts\n` +
+    `• <b>Telegram Stars</b> — Packages & custom coin quantities\n\n` +
+    `<i>Instant automated verification via Telebirr, CBE, Abyssinia, Stars & Crypto.</i>`;
 
   const keyboard = new InlineKeyboard()
     .webApp('Open Web App Store', webAppUrl)
@@ -70,19 +70,19 @@ export async function startHandler(ctx: Context): Promise<void> {
     try {
       if (ctx.callbackQuery.message?.photo) {
         await ctx.editMessageCaption({
-          caption: welcomeText,
-          parse_mode: 'Markdown',
+          caption: welcomeHtml,
+          parse_mode: 'HTML',
           reply_markup: keyboard,
         });
       } else {
-        await ctx.editMessageText(welcomeText, {
-          parse_mode: 'Markdown',
+        await ctx.editMessageText(welcomeHtml, {
+          parse_mode: 'HTML',
           reply_markup: keyboard,
         });
       }
     } catch {
-      await ctx.reply(welcomeText, {
-        parse_mode: 'Markdown',
+      await ctx.reply(welcomeHtml, {
+        parse_mode: 'HTML',
         reply_markup: keyboard,
       });
     }
@@ -90,14 +90,14 @@ export async function startHandler(ctx: Context): Promise<void> {
     try {
       const bannerPath = getBannerPngPath('welcome');
       await ctx.replyWithPhoto(new InputFile(bannerPath), {
-        caption: welcomeText,
-        parse_mode: 'Markdown',
+        caption: welcomeHtml,
+        parse_mode: 'HTML',
         reply_markup: keyboard,
       });
     } catch (err) {
       logger.warn({ err }, 'Could not send welcome banner photo, falling back to text');
-      await ctx.reply(welcomeText, {
-        parse_mode: 'Markdown',
+      await ctx.reply(welcomeHtml, {
+        parse_mode: 'HTML',
         reply_markup: keyboard,
       });
     }

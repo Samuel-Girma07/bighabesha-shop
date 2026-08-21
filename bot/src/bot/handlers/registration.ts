@@ -14,12 +14,12 @@ export async function promptPhoneRegistration(ctx: Context): Promise<void> {
     data: {},
   });
 
-  const text = '*Welcome to Bighabesha Shop*\n\n' +
+  const text = '<b>Welcome to Bighabesha Shop</b>\n\n' +
     'To secure your orders and enable instant delivery, please verify your account with your mobile number.\n\n' +
-    'Tap **[Share Phone Number]** below or enter your number (e.g. `0911223344`):';
+    'Tap <b>[Share Phone Number]</b> below or enter your number (e.g. <code>0911223344</code>):';
 
   await ctx.reply(text, {
-    parse_mode: 'Markdown',
+    parse_mode: 'HTML',
     reply_markup: getPhoneRegistrationKeyboard(),
   });
 }
@@ -41,13 +41,13 @@ export async function handleContactMessage(ctx: Context): Promise<boolean> {
     saveUserPhone(userId, formattedPhone);
     clearPendingAction(userId);
 
-    const confirmMsg = `*Account Verified Successfully*\n\n` +
-      `• Phone Number: \`${formattedPhone}\`\n` +
+    const confirmMsg = `<b>Account Verified Successfully</b>\n\n` +
+      `• Phone Number: <code>${formattedPhone}</code>\n` +
       `• Name: ${ctx.from?.first_name || 'User'}\n\n` +
       `You have full access to Bighabesha Shop. Select an option from the menu below:`;
 
     await ctx.reply(confirmMsg, {
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: getMainMenuKeyboard(),
     });
 
@@ -76,13 +76,13 @@ export async function handleManualPhoneText(ctx: Context, text: string): Promise
     saveUserPhone(userId, validation.formatted);
     clearPendingAction(userId);
 
-    const confirmMsg = `*Account Verified Successfully*\n\n` +
-      `• Phone Number: \`${validation.formatted}\`\n` +
+    const confirmMsg = `<b>Account Verified Successfully</b>\n\n` +
+      `• Phone Number: <code>${validation.formatted}</code>\n` +
       `• Name: ${ctx.from?.first_name || 'User'}\n\n` +
       `You have full access to Bighabesha Shop. Select an option from the menu below:`;
 
     await ctx.reply(confirmMsg, {
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: getMainMenuKeyboard(),
     });
 
