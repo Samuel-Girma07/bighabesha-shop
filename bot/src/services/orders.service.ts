@@ -216,6 +216,51 @@ export function approveReceipt(
   return { order: updated, autoDeliveredItem: null };
 }
 
+export function getFulfillmentQueue(): Order[] {
+  try {
+    const db = getDatabase();
+    return db.prepare(`
+      SELECT * FROM orders
+      WHERE status = 'pending_fulfillment'
+      ORDER BY created_at ASC, rowid ASC
+    `).all() as Order[];
+  } catch (err) {
+    logger.error({ err }, 'Failed to fetch fulfillment queue');
+    return [];
+  }
+}
+
+export function fulfillOrderWithProof(
+  orderId: string,
+  adminId: number,
+  proof?: { text?: string; fileId?: string }
+): Order {
+  const order = getOrderById(orderId);
+  if (!order) {
+    throw new Error(`Order ${orderId} not found`);
+  }
+
+  const proofText = proof?.text || (proof?.fileId ? 'Screenshot Proof Attached' : null);
+
+  return updateOrderStatus(orderId, 'fulfilled', {
+    fulfillment_proof: proofText || null,
+    receipt_file_id: proof?.fileId || order.receipt_file_id,
+    admin_notes: `Fulfilled by Admin ${adminId}`,
+  });
+}
+
+export function refundOrder(orderId: string, adminId: number, reason?: string): Order {
+  const order = getOrderById(orderId);
+  if (!order) {
+    throw new Error(`Order ${orderId} not found`);
+  }
+
+  return updateOrderStatus(orderId, 'refunded', {
+    rejection_reason: reason || 'Refunded by administrator',
+    admin_notes: `Refunded by Admin ${adminId}: ${reason || 'Manual refund'}`,
+  });
+}
+
 export function rejectReceipt(orderId: string, adminId: number, reason: string): Order {
   const order = getOrderById(orderId);
   if (!order) {

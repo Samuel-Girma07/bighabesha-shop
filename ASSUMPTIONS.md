@@ -97,5 +97,22 @@ This document records technical and design decisions made throughout the develop
 - `/orders` displays chronological order history with state badges (`✅ Delivered`, `⏳ Processing`, `⏳ Verifying Receipt`, `💳 Awaiting Payment`, `❌ Rejected`).
 - Detail view surfaces delivered activation links, receipt review status, and direct support routing to `@Vweah`.
 
+---
+
+## Phase 4: Fulfillment Queue, Alerts, Broadcast & Hardening
+
+### 1. Oldest-First (FIFO) Fulfillment Queue
+- Pending fulfillment orders (`status = 'pending_fulfillment'`) are queried with `ORDER BY created_at ASC, rowid ASC` to ensure fair, chronological processing of Fragment gifts and Stars transfers.
+- Admins can fulfill with optional screenshot proofs delivered directly to the buyer or perform instant fulfillment without proof.
+
+### 2. Broadcast Engine
+- Language-targeted broadcast dispatcher sending to all users or filtered by user `language_code`.
+- Built-in rate limiting throttling to stay within Telegram API thresholds (30 req/sec) with automated error handling for blocked users.
+
+### 3. Resilience & Rate Limit Recovery
+- Grammy middleware intercepting `GrammyError` 429 and waiting for `parameters.retry_after` seconds.
+- Idempotent state transitions preventing duplicate deliveries during concurrent admin actions.
+
+
 
 

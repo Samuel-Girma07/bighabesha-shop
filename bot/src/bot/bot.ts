@@ -1,4 +1,4 @@
-import { Bot, BotError } from 'grammy';
+import { Bot, BotError, GrammyError } from 'grammy';
 import { logger } from '../logger/index.js';
 import { startHandler } from './handlers/start.js';
 import { healthHandler, pingHandler } from './handlers/health.js';
@@ -14,6 +14,18 @@ import {
   promptStockCSV,
   promptEditSetting,
 } from './handlers/admin.js';
+import {
+  renderAdminOrdersQueue,
+  renderAdminQueueOrderDetail,
+  promptQueueProof,
+  executeDirectFulfill,
+  promptQueueRefund,
+} from './handlers/admin_queue.js';
+import {
+  renderBroadcastTargetSelection,
+  promptBroadcastContent,
+  executeConfirmedBroadcast,
+} from './handlers/broadcast.js';
 import {
   initiateCheckout,
   handleStarsPayment,
@@ -36,7 +48,7 @@ import { t } from '../i18n/index.js';
 export function createBot(token: string): Bot {
   const bot = new Bot(token);
 
-  // Global request logging middleware
+  // Global request logging & 429 retry middleware
   bot.use(async (ctx, next) => {
     const updateId = ctx.update.update_id;
     const fromId = ctx.from?.id;
@@ -44,7 +56,18 @@ export function createBot(token: string): Bot {
 
     logger.debug({ updateId, fromId, text }, 'Incoming Telegram update');
     const start = Date.now();
-    await next();
+    try {
+      await next();
+    } catch (err: any) {
+      if (err instanceof GrammyError && err.error_code === 429) {
+        const retryAfter = err.parameters?.retry_after || 1;
+        logger.warn({ retryAfter }, `Hit Telegram 429 rate limit. Waiting ${retryAfter}s before resuming.`);
+        await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+        await next();
+      } else {
+        throw err;
+      }
+    }
     const duration = Date.now() - start;
     logger.debug({ updateId, duration }, 'Update handled successfully');
   });
@@ -281,6 +304,27 @@ export function createBot(token: string): Bot {
       await ctx.reply('🚨 *Sold Out*: This product is currently unavailable. Please check back soon or contact support.', { parse_mode: 'Markdown' });
     } else if (data === 'admin_menu') {
       await renderAdminMenu(ctx);
+    } else if (data === 'admin_orders_queue') {
+      await renderAdminOrdersQueue(ctx);
+    } else if (data.startsWith('admin_queue_detail_')) {
+      const orderId = data.replace('admin_queue_detail_', '');
+      await renderAdminQueueOrderDetail(ctx, orderId);
+    } else if (data.startsWith('queue_proof_prompt_')) {
+      const orderId = data.replace('queue_proof_prompt_', '');
+      await promptQueueProof(ctx, orderId);
+    } else if (data.startsWith('queue_fulfill_direct_')) {
+      const orderId = data.replace('queue_fulfill_direct_', '');
+      await executeDirectFulfill(ctx, orderId);
+    } else if (data.startsWith('queue_refund_prompt_')) {
+      const orderId = data.replace('queue_refund_prompt_', '');
+      await promptQueueRefund(ctx, orderId);
+    } else if (data === 'admin_broadcast') {
+      await renderBroadcastTargetSelection(ctx);
+    } else if (data.startsWith('broadcast_select_')) {
+      const targetLang = data.replace('broadcast_select_', '');
+      await promptBroadcastContent(ctx, targetLang);
+    } else if (data === 'broadcast_confirm_send') {
+      await executeConfirmedBroadcast(ctx);
     } else if (data === 'admin_products') {
       await renderAdminProducts(ctx);
     } else if (data.startsWith('admin_edit_var_')) {

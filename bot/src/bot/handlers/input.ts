@@ -1,12 +1,14 @@
 import { Context, InlineKeyboard } from 'grammy';
 import { getPendingAction, clearPendingAction } from '../session.js';
 import { validateCustomStarsAmount } from './shop.js';
-import { formatPriceETB, updateVariantPrice, getVariantById } from '../../services/catalog.service.js';
+import { formatPriceETB, updateVariantPrice, getVariantById, getProductById } from '../../services/catalog.service.js';
 import { addStockLink, importStockCSV, getTotalStockCount } from '../../services/stock.service.js';
 import { setSetting } from '../../services/settings.service.js';
 import { isAdmin, renderAdminProducts, renderAdminRates, renderAdminSettings, renderAdminStock } from './admin.js';
-import { submitReceipt, rejectReceipt, getOrderById } from '../../services/orders.service.js';
+import { submitReceipt, rejectReceipt, getOrderById, fulfillOrderWithProof, refundOrder } from '../../services/orders.service.js';
 import { notifyAdminsNewReceipt } from './checkout.js';
+import { previewBroadcastDraft } from './broadcast.js';
+import { renderAdminOrdersQueue } from './admin_queue.js';
 import { logger } from '../../logger/index.js';
 
 export async function handleTextInput(ctx: Context): Promise<boolean> {
@@ -18,6 +20,52 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
 
   const text = ctx.message?.text?.trim();
   if (!text) return false;
+
+  // Handle actions with data.action tags
+  if (session.data?.action === 'compose_broadcast') {
+    clearPendingAction(userId);
+    const targetLang = session.data.targetLang || 'all';
+    await previewBroadcastDraft(ctx, text, undefined, targetLang);
+    return true;
+  }
+
+  if (session.data?.action === 'admin_fulfill_proof') {
+    clearPendingAction(userId);
+    const orderId = session.data.orderId;
+    const order = fulfillOrderWithProof(orderId, userId, { text });
+    const product = getProductById(order.product_id);
+    const prodName = product ? product.name : order.product_id;
+
+    await ctx.reply(`✅ *Order \`${order.id}\` fulfilled with completion note!*`, { parse_mode: 'Markdown' });
+
+    // Notify buyer
+    const buyerMsg = `🎉 *Your Order Has Been Fulfilled!*\n\n` +
+      `Your **${prodName}** order (\`#${order.id}\`) has been delivered to **@${order.username || 'your account'}**.\n\n` +
+      `📝 *Fulfillment Note:* ${text}\n\n` +
+      `Thank you for choosing Bighabesha Shop! 🇪🇹`;
+
+    await ctx.api.sendMessage(order.user_id, buyerMsg, { parse_mode: 'Markdown' }).catch(() => {});
+    await renderAdminOrdersQueue(ctx);
+    return true;
+  }
+
+  if (session.data?.action === 'refund_order') {
+    clearPendingAction(userId);
+    const orderId = session.data.orderId;
+    const order = refundOrder(orderId, userId, text);
+
+    await ctx.reply(`↩️ *Order \`${order.id}\` marked as REFUNDED.*`, { parse_mode: 'Markdown' });
+
+    // Notify buyer
+    const buyerMsg = `↩️ *Order Refund Processed*\n\n` +
+      `Your order \`#${order.id}\` has been refunded.\n\n` +
+      `• *Details:* ${text}\n\n` +
+      `If you have any questions, please contact our support: @Vweah`;
+
+    await ctx.api.sendMessage(order.user_id, buyerMsg, { parse_mode: 'Markdown' }).catch(() => {});
+    await renderAdminOrdersQueue(ctx);
+    return true;
+  }
 
   switch (session.type) {
     case 'stars_custom_amount': {
@@ -168,34 +216,70 @@ export async function handlePhotoInput(ctx: Context): Promise<boolean> {
   if (!userId) return false;
 
   const session = getPendingAction(userId);
-  if (!session || session.type !== 'user_receipt_upload') return false;
+  if (!session) return false;
 
   const photos = ctx.message?.photo;
   if (!photos || photos.length === 0) return false;
 
   const largestPhoto = photos[photos.length - 1];
-  const { orderId } = session.data as { orderId: string };
   const caption = ctx.message?.caption;
 
-  clearPendingAction(userId);
-  try {
-    const updatedOrder = submitReceipt(orderId, largestPhoto.file_id, caption);
-
-    await ctx.reply(
-      `✅ *Receipt Received! (Order #${updatedOrder.id})*\n\n` +
-        `Thank you! Our administrators have been notified and will verify your transfer shortly.\n` +
-        `You will receive a message with your subscription / coins as soon as it is approved.`,
-      { parse_mode: 'Markdown' }
-    );
-
-    // Notify admins
-    await notifyAdminsNewReceipt(ctx, updatedOrder);
-    return true;
-  } catch (err: any) {
-    logger.error({ err, orderId }, 'Failed to process submitted receipt');
-    await ctx.reply(`❌ Could not submit receipt: ${err.message}`);
+  if (session.data?.action === 'compose_broadcast') {
+    clearPendingAction(userId);
+    const targetLang = session.data.targetLang || 'all';
+    await previewBroadcastDraft(ctx, caption || '', largestPhoto.file_id, targetLang);
     return true;
   }
+
+  if (session.data?.action === 'admin_fulfill_proof') {
+    clearPendingAction(userId);
+    const orderId = session.data.orderId;
+    const order = fulfillOrderWithProof(orderId, userId, { fileId: largestPhoto.file_id, text: caption });
+    const product = getProductById(order.product_id);
+    const prodName = product ? product.name : order.product_id;
+
+    await ctx.reply(`✅ *Order \`${order.id}\` fulfilled with screenshot proof!*`, { parse_mode: 'Markdown' });
+
+    // Deliver photo proof to buyer
+    const buyerCaption = `🎉 *Your Order Has Been Fulfilled!*\n\n` +
+      `Your **${prodName}** order (\`#${order.id}\`) has been delivered to **@${order.username || 'your account'}**.\n\n` +
+      `🧾 *Proof attached above.*\n` +
+      (caption ? `📝 *Note:* ${caption}\n\n` : '') +
+      `Thank you for choosing Bighabesha Shop! 🇪🇹`;
+
+    await ctx.api.sendPhoto(order.user_id, largestPhoto.file_id, {
+      caption: buyerCaption,
+      parse_mode: 'Markdown',
+    }).catch(() => {});
+
+    await renderAdminOrdersQueue(ctx);
+    return true;
+  }
+
+  if (session.type === 'user_receipt_upload') {
+    const { orderId } = session.data as { orderId: string };
+    clearPendingAction(userId);
+    try {
+      const updatedOrder = submitReceipt(orderId, largestPhoto.file_id, caption);
+
+      await ctx.reply(
+        `✅ *Receipt Received! (Order #${updatedOrder.id})*\n\n` +
+          `Thank you! Our administrators have been notified and will verify your transfer shortly.\n` +
+          `You will receive a message with your subscription / coins as soon as it is approved.`,
+        { parse_mode: 'Markdown' }
+      );
+
+      // Notify admins
+      await notifyAdminsNewReceipt(ctx, updatedOrder);
+      return true;
+    } catch (err: any) {
+      logger.error({ err, orderId }, 'Failed to process submitted receipt');
+      await ctx.reply(`❌ Could not submit receipt: ${err.message}`);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export async function handleDocumentInput(ctx: Context): Promise<boolean> {

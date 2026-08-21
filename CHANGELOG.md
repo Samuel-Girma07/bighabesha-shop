@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - Phase 4 (2026-08-21)
+### Added
+- Admin Orders Fulfillment Queue with oldest-first (FIFO) sorting for pending Telegram Premium and Stars orders.
+- Queue fulfillment actions supporting optional screenshot proof delivery to the buyer, instant fulfillment without proof, and refunds.
+- Real-time new-order and receipt alerts dispatched to all configured `ADMIN_IDS` with one-tap action buttons.
+- In-chat Broadcast announcement composer with audience filtering (All users vs English speakers), preview step, and throttled dispatch engine.
+- Telegram API 429 rate limit retry middleware with `retry_after` awareness.
+- Comprehensive end-to-end testing manual in `docs/MANUAL_TESTS.md`.
+- Phase 4 test suite covering queue FIFO ordering, proof attachments, broadcast targeting, and admin authorization.
+
 ## [0.4.0] - Phase 3 (2026-08-21)
 ### Added
 - Username Gate mechanism for Telegram Premium and Telegram Stars, preventing order initiation for users without public `@username`.

@@ -19,14 +19,17 @@ export async function renderAdminMenu(ctx: Context): Promise<void> {
   }
 
   const text = '⚙️ *Bighabesha Shop — Admin Control Panel*\n\n' +
-    'Select a section to manage products, pricing, stock inventory, exchange rates, and store settings:';
+    'Select a section to manage products, fulfillment queue, stock inventory, exchange rates, broadcast announcements, and store settings:';
 
   const keyboard = new InlineKeyboard()
+    .text('📋 Orders Queue', 'admin_orders_queue')
     .text('📦 Products & Prices', 'admin_products')
-    .text('🔑 Stock Management', 'admin_stock')
     .row()
+    .text('🔑 Stock Management', 'admin_stock')
     .text('📈 Rates & Exchange', 'admin_rates')
-    .text('🏦 Bank Accounts & Settings', 'admin_settings')
+    .row()
+    .text('📢 Broadcast Announcement', 'admin_broadcast')
+    .text('🏦 Settings & Accounts', 'admin_settings')
     .row()
     .text('« Exit Admin Mode', 'nav_home');
 
