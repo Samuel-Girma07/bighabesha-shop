@@ -21,6 +21,11 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
   const text = ctx.message?.text?.trim();
   if (!text) return false;
 
+  if (session.type === ('user_phone_registration' as any)) {
+    const { handleManualPhoneText } = await import('./registration.js');
+    return await handleManualPhoneText(ctx, text);
+  }
+
   // Handle actions with data.action tags
   if (session.data?.action === 'compose_broadcast') {
     clearPendingAction(userId);

@@ -26,19 +26,33 @@ export const App: React.FC = () => {
   const [gateOpen, setGateOpen] = useState(false);
   const [checkoutOrder, setCheckoutOrder] = useState<OrderItem | null>(null);
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
-  const [selectedRail, setSelectedRail] = useState<'stars' | 'wallet_pay' | 'telebirr' | 'cbe' | 'abyssinia'>('cbe');
+  const [selectedRail, setSelectedRail] = useState<'cbe' | 'telebirr' | 'abyssinia' | 'stars' | 'wallet_pay'>('cbe');
   const [invoiceLink, setInvoiceLink] = useState<string | null>(null);
   const [payUrl, setPayUrl] = useState<string | null>(null);
   const [submittingOrder, setSubmittingOrder] = useState(false);
 
-  // Receipt Upload
+  // Receipt Upload & Copy Feedback
   const [receiptBase64, setReceiptBase64] = useState<string>('');
   const [receiptNote, setReceiptNote] = useState<string>('');
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [receiptSuccess, setReceiptSuccess] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  // Order Detail
+  // Order Detail Modal
   const [selectedDetailOrder, setSelectedDetailOrder] = useState<OrderItem | null>(null);
+
+  const triggerHaptic = () => {
+    try {
+      (window as any).Telegram?.WebApp?.HapticFeedback?.impactOccurred('medium');
+    } catch {}
+  };
+
+  const copyToClipboard = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    triggerHaptic();
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
 
   const loadData = async () => {
     try {
@@ -49,20 +63,25 @@ export const App: React.FC = () => {
       setOrders(ords.orders);
       setErrorMessage(null);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to connect to server');
+      setErrorMessage(err.message || 'Connecting to store...');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    if (window.Telegram?.WebApp) {
+      window.Telegram.WebApp.ready();
+      window.Telegram.WebApp.expand();
+    }
     loadData();
   }, []);
 
   const hasUsername = Boolean(data?.user?.username && data.user.username.trim().length > 0);
 
   const handleStartPurchase = async (productId: string, variantId?: string, customStars?: number, amountETB?: number) => {
-    // Check username gate for Premium and Stars
+    triggerHaptic();
+
     if ((productId === 'telegram_premium' || productId === 'telegram_stars') && !hasUsername) {
       setGateOpen(true);
       return;
@@ -116,10 +135,10 @@ export const App: React.FC = () => {
   };
 
   const handlePayWithStars = () => {
+    triggerHaptic();
     if (invoiceLink && window.Telegram?.WebApp?.openInvoice) {
       window.Telegram.WebApp.openInvoice(invoiceLink, (status) => {
         if (status === 'paid') {
-          alert('⭐️ Stars Payment Successful! Your order has been placed.');
           setCheckoutModalOpen(false);
           loadData();
           setActiveTab('orders');
@@ -131,6 +150,7 @@ export const App: React.FC = () => {
   };
 
   const handlePayWithWallet = () => {
+    triggerHaptic();
     if (payUrl) {
       if (window.Telegram?.WebApp?.openTelegramLink) {
         window.Telegram.WebApp.openTelegramLink(payUrl);
@@ -155,6 +175,7 @@ export const App: React.FC = () => {
     if (!checkoutOrder) return;
     try {
       setUploadingReceipt(true);
+      triggerHaptic();
       await submitReceiptApi({
         orderId: checkoutOrder.id,
         receiptImageBase64: receiptBase64,
@@ -171,8 +192,12 @@ export const App: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ color: 'var(--cta-color)', fontWeight: 600 }}>Loading Bighabesha Shop...</p>
+      <div className="app-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '2rem', marginBottom: '12px' }}>🇪🇹</div>
+          <div style={{ color: 'var(--eth-yellow)', fontWeight: 700, fontSize: '1.1rem' }}>Bighabesha Shop</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '4px' }}>Loading digital catalog...</div>
+        </div>
       </div>
     );
   }
@@ -183,43 +208,67 @@ export const App: React.FC = () => {
   const etbPerStar = parseFloat(data?.settings.etb_per_star || '2.5');
 
   return (
-    <div className="app-container">
-      {/* App Header */}
-      <header className="app-header">
-        <h1 className="brand-title">
-          <span>🇪🇹</span> Bighabesha Shop
-        </h1>
-        <div className="user-badge">
-          {data?.user?.username ? `@${data.user.username}` : data?.user?.firstName || 'Guest'}
+    <div className="app-wrapper">
+      {/* Header */}
+      <header className="header-glass">
+        <div className="brand-badge">
+          <span className="brand-flag">🇪🇹</span>
+          <span className="brand-name">Bighabesha Shop</span>
+        </div>
+        <div className="user-pill">
+          <span className="user-dot"></span>
+          <span>{data?.user?.username ? `@${data.user.username}` : data?.user?.firstName || 'Guest'}</span>
         </div>
       </header>
 
-      {/* Main Content View */}
-      <main className="main-content">
+      {/* Main Content */}
+      <main className="content-body">
         {errorMessage && (
-          <div style={{ backgroundColor: 'rgba(218, 18, 26, 0.2)', border: '1px solid var(--danger-color)', padding: '12px', borderRadius: '10px', marginBottom: '16px', color: '#ff6b6b' }}>
+          <div style={{ background: 'rgba(218, 18, 26, 0.15)', border: '1px solid var(--eth-red)', padding: '12px', borderRadius: 'var(--radius-md)', marginBottom: '16px', color: '#F87171', fontSize: '0.85rem' }}>
             ⚠️ {errorMessage}
           </div>
         )}
+
         {activeTab === 'catalog' && (
           <div>
+            {/* Hero Highlights */}
+            <div className="hero-banner">
+              <div className="hero-text">
+                <h2>Official Ethiopian Store</h2>
+                <p>Instant activation & Fragment gifting</p>
+              </div>
+              <span className="hero-badge">Verified</span>
+            </div>
+
+            <div className="section-title">✨ Featured Products</div>
+
             {/* 1. Gemini Pro 18m Card */}
             {geminiProd && (
-              <div className="product-card">
-                <div className="card-header">
-                  <h2 className="card-title">🤖 {geminiProd.name}</h2>
+              <div className="card-product">
+                <div className="card-top">
+                  <div className="card-header-group">
+                    <div className="product-icon-wrap">🤖</div>
+                    <div>
+                      <h3 className="product-name">{geminiProd.name}</h3>
+                      <div className="product-subtitle">Google AI + 2TB Cloud Storage</div>
+                    </div>
+                  </div>
                   {geminiProd.availableStock && geminiProd.availableStock > 0 ? (
-                    <span className="badge-stock">✅ {geminiProd.availableStock} in stock</span>
+                    <span className="badge-status-green">✅ {geminiProd.availableStock} in stock</span>
                   ) : (
-                    <span className="badge-soldout">🚨 Sold Out</span>
+                    <span className="badge-status-red">Sold Out</span>
                   )}
                 </div>
-                <p className="card-desc">{geminiProd.description}</p>
-                <div style={{ marginBottom: '14px', fontSize: '1.1rem', fontWeight: 700, color: 'var(--cta-color)' }}>
-                  1,500 ETB <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>/ 18 Months</span>
+
+                <p className="card-description">{geminiProd.description}</p>
+
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '16px' }}>
+                  <span style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--eth-yellow)' }}>1,500 ETB</span>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>/ 18 Months (~83 ETB/mo)</span>
                 </div>
+
                 <button
-                  className="btn-primary"
+                  className="btn-cta"
                   disabled={!geminiProd.availableStock || geminiProd.availableStock <= 0 || submittingOrder}
                   onClick={() => handleStartPurchase('gemini_pro_18m')}
                 >
@@ -230,26 +279,38 @@ export const App: React.FC = () => {
 
             {/* 2. Telegram Premium Card */}
             {premProd && (
-              <div className="product-card">
-                <div className="card-header">
-                  <h2 className="card-title">⭐️ {premProd.name}</h2>
-                  <span className="badge-stock">Fragment Delivery</span>
+              <div className="card-product">
+                <div className="card-top">
+                  <div className="card-header-group">
+                    <div className="product-icon-wrap">⭐️</div>
+                    <div>
+                      <h3 className="product-name">{premProd.name}</h3>
+                      <div className="product-subtitle">Fragment Direct Gift to @username</div>
+                    </div>
+                  </div>
+                  <span className="badge-status-green">Official Rails</span>
                 </div>
-                <p className="card-desc">{premProd.description}</p>
-                <div className="variant-grid">
+
+                <p className="card-description">{premProd.description}</p>
+
+                <div className="pills-grid">
                   {premProd.variants.map((v) => (
                     <div
                       key={v.id}
-                      className={`variant-pill ${selectedPremiumVariant === v.id ? 'selected' : ''}`}
-                      onClick={() => setSelectedPremiumVariant(v.id)}
+                      className={`pill-card ${selectedPremiumVariant === v.id ? 'active' : ''}`}
+                      onClick={() => {
+                        setSelectedPremiumVariant(v.id);
+                        triggerHaptic();
+                      }}
                     >
-                      <div className="pill-title">{v.name}</div>
-                      <div className="pill-price">{v.price_etb.toLocaleString()} ETB</div>
+                      <div className="pill-label">{v.name.replace(' Subscription', '')}</div>
+                      <div className="pill-amount">{v.price_etb.toLocaleString()} ETB</div>
                     </div>
                   ))}
                 </div>
+
                 <button
-                  className="btn-primary"
+                  className="btn-cta"
                   disabled={submittingOrder}
                   onClick={() => handleStartPurchase('telegram_premium', selectedPremiumVariant)}
                 >
@@ -260,59 +321,74 @@ export const App: React.FC = () => {
 
             {/* 3. Telegram Stars Card */}
             {starsProd && (
-              <div className="product-card">
-                <div className="card-header">
-                  <h2 className="card-title">🪙 {starsProd.name}</h2>
-                  <span className="badge-stock">1 ⭐ = {etbPerStar} ETB</span>
+              <div className="card-product">
+                <div className="card-top">
+                  <div className="card-header-group">
+                    <div className="product-icon-wrap">🪙</div>
+                    <div>
+                      <h3 className="product-name">{starsProd.name}</h3>
+                      <div className="product-subtitle">For Gifts, Bots & Mini-Apps</div>
+                    </div>
+                  </div>
+                  <span className="badge-status-green">1 ⭐ = {etbPerStar} ETB</span>
                 </div>
-                <p className="card-desc">{starsProd.description}</p>
 
-                {/* Preset packages */}
-                <div className="variant-grid">
+                <p className="card-description">{starsProd.description}</p>
+
+                {/* Preset Pills */}
+                <div className="pills-grid">
                   {starsProd.variants.map((v) => (
                     <div
                       key={v.id}
-                      className={`variant-pill ${!isCustomStars && selectedStarsVariant === v.id ? 'selected' : ''}`}
+                      className={`pill-card ${!isCustomStars && selectedStarsVariant === v.id ? 'active' : ''}`}
                       onClick={() => {
                         setIsCustomStars(false);
                         setSelectedStarsVariant(v.id);
+                        triggerHaptic();
                       }}
                     >
-                      <div className="pill-title">{v.name}</div>
-                      <div className="pill-price">{v.price_etb.toLocaleString()} ETB</div>
+                      <div className="pill-label">{v.name}</div>
+                      <div className="pill-amount">{v.price_etb.toLocaleString()} ETB</div>
                     </div>
                   ))}
                 </div>
 
-                {/* Custom stars option */}
-                <div
-                  className={`variant-pill ${isCustomStars ? 'selected' : ''}`}
-                  style={{ marginBottom: '14px', textAlign: 'left' }}
-                  onClick={() => setIsCustomStars(true)}
-                >
-                  <div className="pill-title">✨ Custom Stars Amount</div>
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '8px' }}>
-                    <input
-                      type="number"
-                      min="10"
-                      max="100000"
-                      value={customStarsCount}
-                      onChange={(e) => {
-                        setIsCustomStars(true);
-                        setCustomStarsCount(parseInt(e.target.value, 10) || 10);
-                      }}
-                      className="custom-input"
-                      style={{ marginTop: 0 }}
-                      placeholder="e.g. 750"
-                    />
-                    <div style={{ whiteSpace: 'nowrap', fontWeight: 700, color: 'var(--cta-color)' }}>
-                      {Math.ceil(customStarsCount * etbPerStar).toLocaleString()} ETB
-                    </div>
+                {/* Custom Stars Box */}
+                <div className="custom-box">
+                  <div className="custom-box-top">
+                    <span className="custom-box-title">✨ Custom Star Amount</span>
+                    <span className="custom-box-calc">{Math.ceil(customStarsCount * etbPerStar).toLocaleString()} ETB</span>
                   </div>
+
+                  <input
+                    type="range"
+                    min="10"
+                    max="5000"
+                    step="10"
+                    value={customStarsCount}
+                    onChange={(e) => {
+                      setIsCustomStars(true);
+                      setCustomStarsCount(parseInt(e.target.value, 10));
+                    }}
+                    className="range-slider"
+                  />
+
+                  <input
+                    type="number"
+                    min="10"
+                    max="100000"
+                    value={customStarsCount}
+                    onChange={(e) => {
+                      setIsCustomStars(true);
+                      setCustomStarsCount(parseInt(e.target.value, 10) || 10);
+                    }}
+                    className="input-number"
+                    placeholder="Enter custom stars (e.g. 750)"
+                  />
                 </div>
 
                 <button
-                  className="btn-primary"
+                  className="btn-cta"
                   disabled={submittingOrder}
                   onClick={() => {
                     if (isCustomStars) {
@@ -332,35 +408,26 @@ export const App: React.FC = () => {
         {/* Orders View */}
         {activeTab === 'orders' && (
           <div>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '16px' }}>📦 My Orders</h2>
+            <div className="section-title">📦 Order History</div>
             {orders.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-muted)' }}>
-                <p>No orders placed yet.</p>
-                <button className="btn-secondary" onClick={() => setActiveTab('catalog')}>
+              <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>🛍</div>
+                <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>No orders yet</div>
+                <p style={{ fontSize: '0.85rem' }}>Your purchased subscriptions and stars will appear here.</p>
+                <button className="btn-secondary-action" style={{ maxWidth: '200px', margin: '18px auto 0 auto' }} onClick={() => setActiveTab('catalog')}>
                   Browse Catalog
                 </button>
               </div>
             ) : (
               orders.map((ord) => (
-                <div key={ord.id} className="order-history-item" onClick={() => setSelectedDetailOrder(ord)}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ fontWeight: 700 }}>#{ord.id}</span>
-                    <span
-                      style={{
-                        fontSize: '0.8rem',
-                        fontWeight: 600,
-                        color:
-                          ord.status === 'fulfilled'
-                            ? '#2ecc71'
-                            : ord.status === 'rejected'
-                            ? '#ff6b6b'
-                            : 'var(--cta-color)',
-                      }}
-                    >
+                <div key={ord.id} className="order-card" onClick={() => setSelectedDetailOrder(ord)}>
+                  <div className="order-card-top">
+                    <span className="order-id">#{ord.id}</span>
+                    <span className={ord.status === 'fulfilled' ? 'order-badge-fulfilled' : 'order-badge-pending'}>
                       {ord.status.toUpperCase()}
                     </span>
                   </div>
-                  <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                  <div className="order-details">
                     {ord.product_id} • {ord.amount_etb.toLocaleString()} ETB ({ord.payment_rail.toUpperCase()})
                   </div>
                 </div>
@@ -371,13 +438,14 @@ export const App: React.FC = () => {
 
         {/* Support View */}
         {activeTab === 'support' && (
-          <div className="product-card" style={{ textAlign: 'center', padding: '32px 16px' }}>
-            <h2 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: '12px' }}>💬 Customer Support</h2>
-            <p style={{ color: 'var(--text-muted)', marginBottom: '24px', lineHeight: 1.5 }}>
-              Need assistance with your purchase, custom star packages, or payment verification?
+          <div className="card-product" style={{ textAlign: 'center', padding: '36px 20px' }}>
+            <div style={{ fontSize: '2.8rem', marginBottom: '12px' }}>💬</div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '8px' }}>Customer Support</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', marginBottom: '24px', lineHeight: 1.5 }}>
+              Need help with payment verification, activation links, or custom orders? Our team is available on Telegram.
             </p>
             <button
-              className="btn-primary"
+              className="btn-cta"
               onClick={() => {
                 const supportUrl = `https://t.me/${data?.settings.support_username || 'Vweah'}`;
                 if (window.Telegram?.WebApp?.openTelegramLink) {
@@ -387,7 +455,7 @@ export const App: React.FC = () => {
                 }
               }}
             >
-              💬 Contact @{data?.settings.support_username || 'Vweah'}
+              💬 Chat with @{data?.settings.support_username || 'Vweah'}
             </button>
           </div>
         )}
@@ -395,40 +463,29 @@ export const App: React.FC = () => {
 
       {/* Username Gate Modal */}
       {gateOpen && (
-        <div className="modal-overlay" onClick={() => setGateOpen(false)}>
-          <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">⚠️ Username Required</h3>
-              <button className="btn-close" onClick={() => setGateOpen(false)}>
-                ×
-              </button>
+        <div className="modal-mask" onClick={() => setGateOpen(false)}>
+          <div className="sheet-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-grabber"></div>
+            <div className="sheet-header">
+              <h3 className="sheet-title">⚠️ Username Required</h3>
+              <button className="sheet-close-btn" onClick={() => setGateOpen(false)}>×</button>
             </div>
-            <p style={{ color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.5 }}>
-              To fulfill your Telegram Premium subscription or Stars order via Fragment, your account must have a public{' '}
-              <strong style={{ color: 'var(--text-main)' }}>@username</strong> set.
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', marginBottom: '16px', lineHeight: 1.5 }}>
+              Telegram Premium and Stars are gifted directly to your public <strong style={{ color: 'var(--text-primary)' }}>@username</strong> via Fragment.
             </p>
-            <div
-              style={{
-                backgroundColor: 'var(--bg-color)',
-                padding: '12px 16px',
-                borderRadius: '10px',
-                marginBottom: '16px',
-                fontSize: '0.9rem',
-              }}
-            >
+            <div style={{ background: 'var(--bg-input)', padding: '14px', borderRadius: 'var(--radius-md)', marginBottom: '18px', fontSize: '0.85rem' }}>
               <div>1. Open Telegram <strong>Settings</strong></div>
-              <div>2. Tap <strong>Edit Profile</strong> → <strong>Username</strong></div>
-              <div>3. Set a public username and save</div>
+              <div style={{ margin: '4px 0' }}>2. Tap <strong>Edit Profile</strong> → <strong>Username</strong></div>
+              <div>3. Save your username and tap below:</div>
             </div>
             <button
-              className="btn-primary"
+              className="btn-cta"
               onClick={async () => {
                 await loadData();
                 if (data?.user?.username) {
                   setGateOpen(false);
-                  alert(`✅ Username @${data.user.username} verified!`);
                 } else {
-                  alert('❌ Username not detected yet. Please save your username in Telegram Settings and recheck.');
+                  alert('Username not detected yet. Please ensure you saved it in Telegram settings.');
                 }
               }}
             >
@@ -438,117 +495,171 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Checkout & Payment Rail Modal */}
+      {/* Checkout Bottom Sheet */}
       {checkoutModalOpen && checkoutOrder && (
-        <div className="modal-overlay" onClick={() => setCheckoutModalOpen(false)}>
-          <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">🛒 Checkout</h3>
-              <button className="btn-close" onClick={() => setCheckoutModalOpen(false)}>
-                ×
-              </button>
+        <div className="modal-mask" onClick={() => setCheckoutModalOpen(false)}>
+          <div className="sheet-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-grabber"></div>
+            <div className="sheet-header">
+              <h3 className="sheet-title">🛒 Checkout</h3>
+              <button className="sheet-close-btn" onClick={() => setCheckoutModalOpen(false)}>×</button>
             </div>
 
-            <div style={{ marginBottom: '16px' }}>
-              <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Order ID: #{checkoutOrder.id}</div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--cta-color)', marginTop: '4px' }}>
-                {checkoutOrder.amount_etb.toLocaleString()} ETB
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+              <div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Order ID</div>
+                <div style={{ fontWeight: 800, fontSize: '1rem' }}>#{checkoutOrder.id}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Total Amount</div>
+                <div style={{ fontWeight: 800, fontSize: '1.25rem', color: 'var(--eth-yellow)' }}>
+                  {checkoutOrder.amount_etb.toLocaleString()} ETB
+                </div>
               </div>
             </div>
 
-            {/* Rail Selection */}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                Select Payment Rail:
-              </label>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
-                {(['cbe', 'telebirr', 'abyssinia', 'stars', 'wallet_pay'] as const).map((rail) => (
-                  <button
-                    key={rail}
-                    className={`variant-pill ${selectedRail === rail ? 'selected' : ''}`}
-                    style={{ flex: '1 1 40%', padding: '8px' }}
-                    onClick={() => setSelectedRail(rail)}
-                  >
+            <div className="section-title">Choose Payment Rail</div>
+
+            <div className="rail-choice-grid">
+              {(['cbe', 'telebirr', 'abyssinia', 'stars', 'wallet_pay'] as const).map((rail) => (
+                <button
+                  key={rail}
+                  className={`rail-btn ${selectedRail === rail ? 'selected' : ''}`}
+                  onClick={() => {
+                    setSelectedRail(rail);
+                    triggerHaptic();
+                  }}
+                >
+                  <span className="rail-btn-name">
                     {rail === 'cbe' && '🏛 CBE Bank'}
                     {rail === 'telebirr' && '📱 Telebirr'}
                     {rail === 'abyssinia' && '🏦 Abyssinia'}
                     {rail === 'stars' && '⭐️ Telegram Stars'}
                     {rail === 'wallet_pay' && '💎 Wallet Pay'}
-                  </button>
-                ))}
-              </div>
+                  </span>
+                  <span className="rail-btn-desc">
+                    {rail === 'cbe' && 'Instant transfer'}
+                    {rail === 'telebirr' && 'Mobile money'}
+                    {rail === 'abyssinia' && 'Bank transfer'}
+                    {rail === 'stars' && 'Native XTR'}
+                    {rail === 'wallet_pay' && 'TON / USDT'}
+                  </span>
+                </button>
+              ))}
             </div>
 
-            {/* Payment Rail Details */}
+            {/* Bank details card */}
             {selectedRail === 'cbe' && (
-              <div style={{ backgroundColor: 'var(--bg-color)', padding: '12px', borderRadius: '10px', marginBottom: '14px' }}>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Commercial Bank of Ethiopia</div>
-                <div style={{ fontWeight: 700, fontSize: '1.05rem', marginTop: '2px' }}>{data?.settings.cbe_account || '1000510711258'}</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Name: {data?.settings.cbe_name || 'Bighabesha Shop'}</div>
+              <div className="bank-info-box">
+                <div className="bank-info-row">
+                  <span className="bank-info-label">Bank</span>
+                  <span className="bank-info-val">Commercial Bank of Ethiopia</span>
+                </div>
+                <div className="bank-info-row">
+                  <span className="bank-info-label">Account No</span>
+                  <span className="bank-info-val">
+                    {data?.settings.cbe_account || '1000510711258'}
+                    <button className="copy-icon-btn" onClick={() => copyToClipboard(data?.settings.cbe_account || '1000510711258', 'cbe')}>
+                      {copiedKey === 'cbe' ? 'Copied! ✓' : 'Copy'}
+                    </button>
+                  </span>
+                </div>
+                <div className="bank-info-row">
+                  <span className="bank-info-label">Account Name</span>
+                  <span className="bank-info-val">{data?.settings.cbe_name || 'Bighabesha Shop'}</span>
+                </div>
               </div>
             )}
 
             {selectedRail === 'telebirr' && (
-              <div style={{ backgroundColor: 'var(--bg-color)', padding: '12px', borderRadius: '10px', marginBottom: '14px' }}>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Telebirr Mobile Account</div>
-                <div style={{ fontWeight: 700, fontSize: '1.05rem', marginTop: '2px' }}>{data?.settings.telebirr_account || '0965579045'}</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Name: {data?.settings.telebirr_name || 'Bighabesha Shop'}</div>
+              <div className="bank-info-box">
+                <div className="bank-info-row">
+                  <span className="bank-info-label">Platform</span>
+                  <span className="bank-info-val">Telebirr Mobile</span>
+                </div>
+                <div className="bank-info-row">
+                  <span className="bank-info-label">Mobile Number</span>
+                  <span className="bank-info-val">
+                    {data?.settings.telebirr_account || '0965579045'}
+                    <button className="copy-icon-btn" onClick={() => copyToClipboard(data?.settings.telebirr_account || '0965579045', 'telebirr')}>
+                      {copiedKey === 'telebirr' ? 'Copied! ✓' : 'Copy'}
+                    </button>
+                  </span>
+                </div>
+                <div className="bank-info-row">
+                  <span className="bank-info-label">Merchant Name</span>
+                  <span className="bank-info-val">{data?.settings.telebirr_name || 'Bighabesha Shop'}</span>
+                </div>
               </div>
             )}
 
             {selectedRail === 'abyssinia' && (
-              <div style={{ backgroundColor: 'var(--bg-color)', padding: '12px', borderRadius: '10px', marginBottom: '14px' }}>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Bank of Abyssinia</div>
-                <div style={{ fontWeight: 700, fontSize: '1.05rem', marginTop: '2px' }}>{data?.settings.abyssinia_account || 'Abyssinia Bank Account'}</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Name: {data?.settings.abyssinia_name || 'Bighabesha Shop'}</div>
+              <div className="bank-info-box">
+                <div className="bank-info-row">
+                  <span className="bank-info-label">Bank</span>
+                  <span className="bank-info-val">Bank of Abyssinia</span>
+                </div>
+                <div className="bank-info-row">
+                  <span className="bank-info-label">Account No</span>
+                  <span className="bank-info-val">
+                    {data?.settings.abyssinia_account || 'Abyssinia Bank Account'}
+                    <button className="copy-icon-btn" onClick={() => copyToClipboard(data?.settings.abyssinia_account || 'Abyssinia Bank Account', 'abyssinia')}>
+                      {copiedKey === 'abyssinia' ? 'Copied! ✓' : 'Copy'}
+                    </button>
+                  </span>
+                </div>
+                <div className="bank-info-row">
+                  <span className="bank-info-label">Account Name</span>
+                  <span className="bank-info-val">{data?.settings.abyssinia_name || 'Bighabesha Shop'}</span>
+                </div>
               </div>
             )}
 
-            {/* Stars & Wallet Pay Action Buttons */}
+            {/* Stars & Crypto Actions */}
             {selectedRail === 'stars' && (
-              <button className="btn-primary" onClick={handlePayWithStars} style={{ marginBottom: '10px' }}>
+              <button className="btn-cta" onClick={handlePayWithStars} style={{ marginBottom: '10px' }}>
                 ⭐️ Open Telegram Stars Invoice
               </button>
             )}
 
             {selectedRail === 'wallet_pay' && (
-              <button className="btn-primary" onClick={handlePayWithWallet} style={{ marginBottom: '10px' }}>
+              <button className="btn-cta" onClick={handlePayWithWallet} style={{ marginBottom: '10px' }}>
                 💎 Pay with TON / USDT
               </button>
             )}
 
-            {/* Manual Rails Receipt Upload Form */}
+            {/* Bank Transfer Receipt Upload */}
             {(selectedRail === 'cbe' || selectedRail === 'telebirr' || selectedRail === 'abyssinia') && (
               <div>
                 {receiptSuccess ? (
-                  <div style={{ textAlign: 'center', padding: '16px', color: '#2ecc71' }}>
-                    ✅ Receipt submitted successfully! Our administrators will verify and fulfill your order.
+                  <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid var(--accent-emerald)', padding: '14px', borderRadius: 'var(--radius-md)', textAlign: 'center', color: 'var(--accent-emerald)', fontSize: '0.9rem', fontWeight: 600 }}>
+                    ✅ Receipt submitted! Our team will verify and deliver your order shortly.
                   </div>
                 ) : (
                   <div>
-                    <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Upload Screenshot Receipt:</label>
+                    <label style={{ fontSize: '0.82rem', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>
+                      Upload Screenshot Receipt:
+                    </label>
                     <input
                       type="file"
                       accept="image/*"
                       onChange={handleReceiptFileChange}
-                      className="custom-input"
-                      style={{ padding: '8px' }}
+                      style={{ background: 'var(--bg-input)', border: '1px solid var(--border-subtle)', padding: '10px', borderRadius: 'var(--radius-sm)', width: '100%', color: 'var(--text-primary)', marginBottom: '8px' }}
                     />
                     <input
                       type="text"
-                      placeholder="Optional transfer note / transaction ref"
+                      placeholder="Optional transaction reference or note"
                       value={receiptNote}
                       onChange={(e) => setReceiptNote(e.target.value)}
-                      className="custom-input"
-                      style={{ marginTop: '8px' }}
+                      className="input-number"
+                      style={{ marginTop: 0, marginBottom: '14px' }}
                     />
                     <button
-                      className="btn-primary"
+                      className="btn-cta"
                       disabled={uploadingReceipt || !receiptBase64}
                       onClick={handleSubmitReceipt}
-                      style={{ marginTop: '12px' }}
                     >
-                      {uploadingReceipt ? 'Submitting...' : '📸 Submit Payment Receipt'}
+                      {uploadingReceipt ? 'Submitting Receipt...' : '📸 Submit Payment Receipt'}
                     </button>
                   </div>
                 )}
@@ -560,68 +671,74 @@ export const App: React.FC = () => {
 
       {/* Order Detail Modal */}
       {selectedDetailOrder && (
-        <div className="modal-overlay" onClick={() => setSelectedDetailOrder(null)}>
-          <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">📄 Order #{selectedDetailOrder.id}</h3>
-              <button className="btn-close" onClick={() => setSelectedDetailOrder(null)}>
-                ×
-              </button>
+        <div className="modal-mask" onClick={() => setSelectedDetailOrder(null)}>
+          <div className="sheet-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-grabber"></div>
+            <div className="sheet-header">
+              <h3 className="sheet-title">📄 Order #{selectedDetailOrder.id}</h3>
+              <button className="sheet-close-btn" onClick={() => setSelectedDetailOrder(null)}>×</button>
             </div>
-            <div style={{ marginBottom: '14px', lineHeight: 1.6 }}>
+
+            <div style={{ background: 'var(--bg-input)', padding: '14px', borderRadius: 'var(--radius-md)', marginBottom: '16px', lineHeight: 1.6, fontSize: '0.88rem' }}>
               <div>• <strong>Product:</strong> {selectedDetailOrder.product_id}</div>
               <div>• <strong>Amount:</strong> {selectedDetailOrder.amount_etb.toLocaleString()} ETB</div>
               <div>• <strong>Payment Rail:</strong> {selectedDetailOrder.payment_rail.toUpperCase()}</div>
-              <div>• <strong>Status:</strong> <span style={{ fontWeight: 700, color: 'var(--cta-color)' }}>{selectedDetailOrder.status.toUpperCase()}</span></div>
+              <div>• <strong>Status:</strong> <span style={{ color: 'var(--eth-yellow)', fontWeight: 700 }}>{selectedDetailOrder.status.toUpperCase()}</span></div>
             </div>
 
             {selectedDetailOrder.fulfillment_payload && (
-              <div style={{ backgroundColor: 'var(--bg-color)', padding: '14px', borderRadius: '10px', marginBottom: '14px' }}>
-                <div style={{ fontSize: '0.85rem', color: 'var(--cta-color)', fontWeight: 700 }}>🎉 Activation Link:</div>
-                <code style={{ wordBreak: 'break-all', display: 'block', margin: '8px 0' }}>
+              <div style={{ background: 'rgba(7, 137, 48, 0.15)', border: '1px solid var(--eth-green)', padding: '14px', borderRadius: 'var(--radius-md)', marginBottom: '16px' }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--accent-emerald)', marginBottom: '6px' }}>🎉 Activation Link:</div>
+                <code style={{ wordBreak: 'break-all', display: 'block', fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: '10px' }}>
                   {selectedDetailOrder.fulfillment_payload}
                 </code>
                 <button
-                  className="btn-secondary"
-                  style={{ marginTop: '6px' }}
-                  onClick={() => {
-                    navigator.clipboard.writeText(selectedDetailOrder.fulfillment_payload || '');
-                    alert('Activation link copied to clipboard!');
-                  }}
+                  className="btn-cta"
+                  style={{ padding: '10px' }}
+                  onClick={() => copyToClipboard(selectedDetailOrder.fulfillment_payload || '', 'link')}
                 >
-                  📋 Copy Link
+                  {copiedKey === 'link' ? 'Copied! ✓' : '📋 Copy Activation Link'}
                 </button>
               </div>
             )}
 
-            <button className="btn-secondary" onClick={() => setSelectedDetailOrder(null)}>
+            <button className="btn-secondary-action" onClick={() => setSelectedDetailOrder(null)}>
               Close
             </button>
           </div>
         </div>
       )}
 
-      {/* Bottom Tab Navigation */}
-      <nav className="bottom-nav">
+      {/* Bottom Tabs */}
+      <nav className="bottom-tabs">
         <button
-          className={`nav-item ${activeTab === 'catalog' ? 'active' : ''}`}
-          onClick={() => setActiveTab('catalog')}
+          className={`tab-btn ${activeTab === 'catalog' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('catalog');
+            triggerHaptic();
+          }}
         >
-          <span className="nav-icon">🛍</span>
+          <span className="tab-icon">🛍</span>
           <span>Catalog</span>
         </button>
         <button
-          className={`nav-item ${activeTab === 'orders' ? 'active' : ''}`}
-          onClick={() => setActiveTab('orders')}
+          className={`tab-btn ${activeTab === 'orders' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('orders');
+            triggerHaptic();
+          }}
         >
-          <span className="nav-icon">📦</span>
+          <span className="tab-icon">📦</span>
           <span>My Orders</span>
         </button>
         <button
-          className={`nav-item ${activeTab === 'support' ? 'active' : ''}`}
-          onClick={() => setActiveTab('support')}
+          className={`tab-btn ${activeTab === 'support' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('support');
+            triggerHaptic();
+          }}
         >
-          <span className="nav-icon">💬</span>
+          <span className="tab-icon">💬</span>
           <span>Support</span>
         </button>
       </nav>

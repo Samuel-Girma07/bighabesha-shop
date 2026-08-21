@@ -9,9 +9,9 @@ export interface CryptoPriceCache {
 
 // In-memory cache for crypto prices (5 minutes TTL)
 let priceCache: CryptoPriceCache = {
-  tonUsd: 3.0, // Sensible fallback
+  tonUsd: 1.45, // Sensible live baseline
   usdtUsd: 1.0,
-  lastFetchedAt: 0,
+  lastFetchedAt: Date.now(),
 };
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -25,7 +25,7 @@ export async function fetchCoinGeckoPrices(forceRefresh = false): Promise<{ tonU
   try {
     const res = await fetch(
       'https://api.coingecko.com/api/v3/simple/price?ids=the-open-network,tether&vs_currencies=usd',
-      { signal: AbortSignal.timeout(5000) }
+      { signal: AbortSignal.timeout(2000) }
     );
 
     if (!res.ok) {

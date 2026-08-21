@@ -3,6 +3,9 @@ import { logger } from '../logger/index.js';
 import { startHandler } from './handlers/start.js';
 import { healthHandler, pingHandler } from './handlers/health.js';
 import { renderCatalog, renderProductDetails, promptCustomStars } from './handlers/shop.js';
+import { promptPhoneRegistration, handleContactMessage } from './handlers/registration.js';
+import { renderProfile } from './handlers/profile.js';
+import { renderSupport, renderHelp } from './handlers/support.js';
 import {
   renderAdminMenu,
   renderAdminProducts,
@@ -42,6 +45,7 @@ import { handleTextInput, handleDocumentInput, handlePhotoInput } from './handle
 import { getOrderById, approveReceipt, updateOrderStatus } from '../services/orders.service.js';
 import { getProductById, formatPriceETB } from '../services/catalog.service.js';
 import { getSetting } from '../services/settings.service.js';
+import { isUserRegistered } from '../services/users.service.js';
 import { getConfig } from '../config/env.js';
 import { t } from '../i18n/index.js';
 
@@ -72,12 +76,95 @@ export function createBot(token: string): Bot {
     logger.debug({ updateId, duration }, 'Update handled successfully');
   });
 
-  // Commands
+  // Register Official Telegram Bot Slash Commands (Admin hidden from public)
+  const defaultCommands = [
+    { command: 'start', description: '🚀 Start shop & welcome menu' },
+    { command: 'shop', description: '🛍 Browse products catalog' },
+    { command: 'orders', description: '📦 View your order history' },
+    { command: 'profile', description: '👤 View registered profile & phone' },
+    { command: 'language', description: '🌐 Change language (English/Amharic)' },
+    { command: 'support', description: '💬 Contact customer support (@Vweah)' },
+    { command: 'help', description: '❓ Store FAQs and ordering guide' },
+  ];
+
+  bot.api.setMyCommands(defaultCommands).catch((err) => {
+    logger.warn({ err: err.message }, 'Failed to set public slash commands list');
+  });
+
+  // Set scoped commands including /admin ONLY for admins
+  const config = getConfig();
+  for (const adminId of config.ADMIN_IDS) {
+    bot.api.setMyCommands(
+      [
+        ...defaultCommands,
+        { command: 'admin', description: '⚙️ Admin control panel' },
+      ],
+      { scope: { type: 'chat', chat_id: adminId } }
+    ).catch(() => {});
+  }
+
+  // Slash Commands
   bot.command('start', startHandler);
+  bot.command('shop', async (ctx) => {
+    if (ctx.from && !isUserRegistered(ctx.from.id)) {
+      await promptPhoneRegistration(ctx);
+      return;
+    }
+    await renderCatalog(ctx);
+  });
+  bot.command('orders', async (ctx) => {
+    if (ctx.from && !isUserRegistered(ctx.from.id)) {
+      await promptPhoneRegistration(ctx);
+      return;
+    }
+    await renderMyOrders(ctx);
+  });
+  bot.command('profile', async (ctx) => {
+    if (ctx.from && !isUserRegistered(ctx.from.id)) {
+      await promptPhoneRegistration(ctx);
+      return;
+    }
+    await renderProfile(ctx);
+  });
+  bot.command('language', renderLanguageMenu);
+  bot.command('support', renderSupport);
+  bot.command('help', renderHelp);
   bot.command('admin', renderAdminMenu);
-  bot.command('orders', renderMyOrders);
   bot.command('health', healthHandler);
   bot.command('ping', pingHandler);
+
+  // Persistent Reply Keyboard Button Handlers (Hears exact button labels)
+  bot.hears(/🛍 Browse Shop|🛍 ሱቅ አስስ/i, async (ctx) => {
+    if (ctx.from && !isUserRegistered(ctx.from.id)) {
+      await promptPhoneRegistration(ctx);
+      return;
+    }
+    await renderCatalog(ctx);
+  });
+
+  bot.hears(/📦 My Orders|📦 የእኔ ትዕዛዞች/i, async (ctx) => {
+    if (ctx.from && !isUserRegistered(ctx.from.id)) {
+      await promptPhoneRegistration(ctx);
+      return;
+    }
+    await renderMyOrders(ctx);
+  });
+
+  bot.hears(/👤 My Profile|👤 የእኔ መረጃ/i, async (ctx) => {
+    if (ctx.from && !isUserRegistered(ctx.from.id)) {
+      await promptPhoneRegistration(ctx);
+      return;
+    }
+    await renderProfile(ctx);
+  });
+
+  bot.hears(/🌐 Language|🌐 ቋንቋ/i, renderLanguageMenu);
+  bot.hears(/💬 Support|💬 ድጋፍ/i, renderSupport);
+
+  // Contact Sharing Handler (Native Telegram button)
+  bot.on('message:contact', async (ctx) => {
+    await handleContactMessage(ctx);
+  });
 
   // Dev simulation command for Wallet Pay
   bot.command('wp_simulate', async (ctx) => {
@@ -216,6 +303,12 @@ export function createBot(token: string): Bot {
       await renderCatalog(ctx);
     } else if (data === 'nav_orders') {
       await renderMyOrders(ctx);
+    } else if (data === 'nav_profile') {
+      await renderProfile(ctx);
+    } else if (data === 'nav_support') {
+      await renderSupport(ctx);
+    } else if (data === 'action_update_phone') {
+      await promptPhoneRegistration(ctx);
     } else if (data.startsWith('order_detail_')) {
       const orderId = data.replace('order_detail_', '');
       await renderOrderDetail(ctx, orderId);

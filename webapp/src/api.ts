@@ -52,7 +52,10 @@ const API_BASE = (import.meta as any).env?.VITE_API_URL || '';
 
 function getAuthHeader(): Record<string, string> {
   const initData = window.Telegram?.WebApp?.initData || '';
-  return initData ? { Authorization: `tma ${initData}` } : {};
+  if (initData) {
+    return { Authorization: `tma ${initData}` };
+  }
+  return {};
 }
 
 export async function fetchBootstrap(): Promise<BootstrapData> {
@@ -62,18 +65,22 @@ export async function fetchBootstrap(): Promise<BootstrapData> {
     },
   });
   if (!res.ok) {
-    throw new Error(`Failed to load app data (${res.status})`);
+    throw new Error(`Failed to load store data (${res.status})`);
   }
   return res.json();
 }
 
 export async function fetchOrders(): Promise<{ orders: OrderItem[] }> {
+  const headers = getAuthHeader();
+  if (!headers.Authorization) {
+    // Standalone browser preview
+    return { orders: [] };
+  }
+
   const res = await fetch(`${API_BASE}/api/orders`, {
-    headers: {
-      ...getAuthHeader(),
-    },
+    headers,
   });
-  if (!res.ok) throw new Error('Failed to load orders');
+  if (!res.ok) return { orders: [] };
   return res.json();
 }
 
@@ -84,11 +91,12 @@ export async function createOrderApi(params: {
   amountETB: number;
   paymentRail: string;
 }): Promise<{ order: OrderItem; invoiceLink?: string; payUrl?: string }> {
+  const headers = getAuthHeader();
   const res = await fetch(`${API_BASE}/api/orders`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...getAuthHeader(),
+      ...headers,
     },
     body: JSON.stringify(params),
   });
@@ -105,11 +113,12 @@ export async function submitReceiptApi(params: {
   receiptImageBase64?: string;
   note?: string;
 }): Promise<{ order: OrderItem; success: boolean }> {
+  const headers = getAuthHeader();
   const res = await fetch(`${API_BASE}/api/receipt`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...getAuthHeader(),
+      ...headers,
     },
     body: JSON.stringify(params),
   });

@@ -14,7 +14,7 @@ export function isAdmin(userId?: number): boolean {
 export async function renderAdminMenu(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
   if (!isAdmin(userId)) {
-    await ctx.reply('⛔ Access denied: You are not authorized to view the admin dashboard.');
+    // Non-admins should not even know this exists
     return;
   }
 

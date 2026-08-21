@@ -1,68 +1,83 @@
-import { CommandContext, Context, InlineKeyboard } from 'grammy';
-import { getDatabase } from '../../db/index.js';
-import { getConfig } from '../../config/env.js';
+import { Context, InlineKeyboard } from 'grammy';
 import { t } from '../../i18n/index.js';
-import { logger } from '../../logger/index.js';
+import { getConfig } from '../../config/env.js';
+import { isAdmin } from './admin.js';
+import { upsertUser as dbUpsertUser, isUserRegistered, getUserById } from '../../services/users.service.js';
+import { promptPhoneRegistration } from './registration.js';
+import { getMainMenuKeyboard } from '../keyboards/menu.js';
 
-export function upsertUser(user: { id: number; username?: string; first_name?: string; last_name?: string; language_code?: string }): { language_code: string; is_admin: boolean } {
-  try {
-    const db = getDatabase();
-    const config = getConfig();
-    const isAdmin = config.ADMIN_IDS.includes(user.id) ? 1 : 0;
-
-    const existing = db.prepare('SELECT language_code, is_admin FROM users WHERE id = ?').get(user.id) as { language_code: string; is_admin: number } | undefined;
-
-    if (!existing) {
-      db.prepare(`
-        INSERT INTO users (id, username, first_name, last_name, language_code, is_admin)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(user.id, user.username || null, user.first_name || '', user.last_name || '', user.language_code || 'en', isAdmin);
-
-      return { language_code: user.language_code || 'en', is_admin: isAdmin === 1 };
-    } else {
-      db.prepare(`
-        UPDATE users
-        SET username = ?, first_name = ?, last_name = ?, is_admin = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(user.username || null, user.first_name || '', user.last_name || '', isAdmin, user.id);
-
-      return { language_code: existing.language_code || 'en', is_admin: isAdmin === 1 };
-    }
-  } catch (err) {
-    logger.error({ err, userId: user.id }, 'Failed to upsert user in database');
-    return { language_code: 'en', is_admin: false };
-  }
+export function upsertUser(user: {
+  id: number;
+  username?: string | null;
+  first_name?: string;
+  last_name?: string;
+  language_code?: string;
+}): { id: number; username: string | null; language_code: string; is_admin: boolean } {
+  dbUpsertUser(user);
+  const is_admin = isAdmin(user.id);
+  const config = getConfig();
+  const db = (getUserById as any);
+  return {
+    id: user.id,
+    username: user.username || null,
+    language_code: user.language_code || 'en',
+    is_admin,
+  };
 }
 
-export async function startHandler(ctx: CommandContext<Context>): Promise<void> {
+export async function startHandler(ctx: Context): Promise<void> {
   const from = ctx.from;
   if (!from) return;
 
-  const { language_code, is_admin } = upsertUser({
+  const user = upsertUser({
     id: from.id,
-    username: from.username,
-    first_name: from.first_name,
-    last_name: from.last_name,
-    language_code: from.language_code,
+    username: from.username || null,
+    first_name: from.first_name || 'User',
+    language_code: from.language_code?.startsWith('am') ? 'am' : 'en',
   });
 
+  // If user is not yet registered with a phone number, prompt registration gate
+  if (!isUserRegistered(from.id)) {
+    await promptPhoneRegistration(ctx);
+    return;
+  }
+
+  const language_code = user.language_code || 'en';
   const config = getConfig();
+  const title = t(language_code, 'shop.title');
+  const description = t(language_code, 'shop.description');
+
+  const welcomeText = `👋 *Welcome to ${title}!* 🇪🇹\n\n` +
+    `${description}\n\n` +
+    `• 🤖 *Gemini Pro (18 Months):* Instant activation link with 2TB cloud storage.\n` +
+    `• ⭐️ *Telegram Premium (3/6/12m):* Direct activation to your @username via Fragment.\n` +
+    `• 🪙 *Telegram Stars:* Official coins for gifts, mini-apps & bots.\n\n` +
+    `_Select an option below to browse products or manage your orders:_`;
 
   const keyboard = new InlineKeyboard()
     .text(t(language_code, 'menu.shop'), 'nav_shop')
-    .row()
     .text(t(language_code, 'menu.orders'), 'nav_orders')
+    .row()
+    .text('👤 My Profile', 'nav_profile')
     .text(t(language_code, 'menu.language'), 'nav_language')
     .row()
-    .url(t(language_code, 'menu.support'), `https://t.me/${config.SUPPORT_USERNAME}`);
+    .text('💬 Support (@Vweah)', 'nav_support');
 
-  if (is_admin) {
-    keyboard.row().text(t(language_code, 'menu.admin'), 'admin_menu');
+  if (isAdmin(from.id)) {
+    keyboard.row().text('⚙️ Admin Dashboard', 'admin_menu');
   }
 
-  const welcomeText = t(language_code, 'start.welcome');
+  // Ensure persistent reply keyboard is attached
   await ctx.reply(welcomeText, {
     parse_mode: 'Markdown',
-    reply_markup: keyboard,
+    reply_markup: getMainMenuKeyboard(),
   });
+
+  // Also send inline navigation card if needed
+  if (ctx.callbackQuery) {
+    await ctx.editMessageText(welcomeText, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+  }
 }
