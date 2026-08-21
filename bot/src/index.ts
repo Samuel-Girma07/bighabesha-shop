@@ -14,11 +14,15 @@ async function main() {
     // Create Grammy bot instance
     const bot = createBot(config.BOT_TOKEN);
 
+    // Start Mini App REST API server
+    const apiServer = (await import('./api/server.js')).startApiServer(bot, config.PORT);
+
     // Graceful shutdown handlers
     const shutdown = async (signal: string) => {
       logger.info({ signal }, 'Shutting down gracefully...');
       try {
         bot.stop();
+        apiServer.close();
         closeDatabase();
         logger.info('Cleanup complete. Process exiting.');
         process.exit(0);

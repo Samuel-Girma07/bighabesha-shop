@@ -113,6 +113,25 @@ This document records technical and design decisions made throughout the develop
 - Grammy middleware intercepting `GrammyError` 429 and waiting for `parameters.retry_after` seconds.
 - Idempotent state transitions preventing duplicate deliveries during concurrent admin actions.
 
+---
+
+## Phase 5: Telegram Mini App & Authenticated API
+
+### 1. Telegram initData Authentication
+- Server-side HMAC-SHA256 signature verification validating that requests originate from legitimate Telegram clients authenticated with `BOT_TOKEN`.
+- Constant-time comparison preventing timing attacks.
+- Enforces 24-hour expiration on `auth_date`.
+
+### 2. REST API Endpoints in Bot Process
+- Shared database and event loop architecture exposing `/api/bootstrap`, `/api/orders`, and `/api/receipt`.
+- Telegram Stars invoice generation via Bot API `createInvoiceLink` allowing one-tap native in-app payments (`Telegram.WebApp.openInvoice`).
+- Direct integration with `MockWalletPay` / `LiveWalletPay` for TON/USDT deep-linking.
+
+### 3. Mobile Viewport & Design Tokens
+- Design palette adhering strictly to SPEC tokens: bg `#17212B`, card `#242F3D`, primary `#078930`, CTA `#FCDD09` with dark text `#0E1621`, danger `#DA121A`.
+- Fully responsive layout optimized for standard 360px and 414px mobile viewports.
+
+
 
 
 

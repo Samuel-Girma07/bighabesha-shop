@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - Phase 5 (2026-08-21)
+### Added
+- Telegram Mini App built with React 19, Vite, and TypeScript in `webapp/`.
+- Authenticated REST API server in bot process running on `PORT` (default 3000) supporting `/api/bootstrap`, `/api/orders`, and `/api/receipt`.
+- Cryptographic Telegram `initData` HMAC-SHA256 authentication middleware with timing-attack prevention.
+- Mini App feature parity: Gemini Pro 18m live stock view, Telegram Premium duration selectors, Telegram Stars package pills + custom amount slider/calculator.
+- Client-side Username Gate modal matching bot logic with live recheck.
+- Multi-rail checkout modal supporting native Stars invoices (`Telegram.WebApp.openInvoice`), Wallet Pay deep links, and manual bank rails with photo receipt uploads.
+- My Orders history and detail view in Mini App with activation link copy tool and receipt review status.
+- Cloudflare Pages and Cloudflared Tunnel setup documentation in `deploy/`.
+- Phase 5 test suite covering initData verification (valid, invalid, tampered, expired), API contracts, and responsive layout compatibility.
+
 ## [0.5.0] - Phase 4 (2026-08-21)
 ### Added
 - Admin Orders Fulfillment Queue with oldest-first (FIFO) sorting for pending Telegram Premium and Stars orders.

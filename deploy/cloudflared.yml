@@ -1,0 +1,15 @@
+# ==============================================================================
+# Cloudflare Tunnel Configuration (cloudflared)
+# Exposes only the backend /api routes to the internet with TLS termination
+# ==============================================================================
+
+tunnel: <YOUR-TUNNEL-UUID>
+credentials-file: /etc/cloudflared/<YOUR-TUNNEL-UUID>.json
+
+ingress:
+  # Route /api to the local Node.js bot backend on port 3000
+  - hostname: api.shop.bighabesha.com
+    service: http://localhost:3000
+
+  # Fallback rule (returns 404 for any unmatched hostnames)
+  - service: http_status:404
