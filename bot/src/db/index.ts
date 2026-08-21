@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { logger } from '../logger/index.js';
 import { runMigrations } from './migrator.js';
+import { seedDatabase } from './seed.js';
 
 let dbInstance: Database.Database | null = null;
 
@@ -24,6 +25,7 @@ export function initDatabase(dbPath: string = './data/shop.db', migrationsDir?: 
   db.pragma('synchronous = NORMAL');
 
   runMigrations(db, migrationsDir);
+  seedDatabase(db);
 
   dbInstance = db;
   return db;

@@ -35,3 +35,30 @@ This document records technical and design decisions made throughout the develop
 
 ### 7. Concurrency & Multi-Admin Handling
 - **Decision:** Database transactions for order state transitions. When an admin takes an action on an order (e.g. approve/reject/fulfill), the action atomically updates the order and updates/disables inline keyboard buttons for all admins to avoid double-fulfillment.
+
+---
+
+## Phase 1: Catalog, Pricing, Stock & Admin Core
+
+### 1. Seeded Catalog Prices (ETB)
+- **Gemini Pro (18 Months):** `1,500 ETB` (Instant delivery via single-use activation link).
+- **Telegram Premium:**
+  - 3 Months: `1,100 ETB`
+  - 6 Months: `1,900 ETB`
+  - 12 Months: `3,400 ETB`
+- **Telegram Stars (Coins):**
+  - Base Rate: `2.5 ETB / Star`
+  - Preset packages: 50 ⭐ (125 ETB), 100 ⭐ (250 ETB), 250 ⭐ (625 ETB), 500 ⭐ (1,250 ETB), 1,000 ⭐ (2,500 ETB), 2,500 ⭐ (6,250 ETB).
+  - Custom amount: Min `10 ⭐`, Max `100,000 ⭐`, price calculated as $\lceil \text{stars} \times 2.5 \rceil$ ETB.
+
+### 2. Default Rate Engine Parameters
+- `etb_per_usd`: `135 ETB`
+- `etb_per_star`: `2.5 ETB`
+- `margin_pct`: `5%`
+
+### 3. Stock Management & Alert Rules
+- `stock_items` stored with states `available`, `allocated`, `invalid`.
+- Stock allocation executes inside atomic SQLite transaction with `RETURNING *`.
+- Low-stock threshold defaults to `5` items (admin-editable); triggers DM alert with one-tap restock buttons to all configured `ADMIN_IDS` when remaining stock $\le 5$ or upon reaching `0` (sold out).
+- CSV upload supports flexible formats (single-column, comma-separated, quoted links, optional header rows).
+
