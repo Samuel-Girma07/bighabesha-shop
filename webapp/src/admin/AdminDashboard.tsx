@@ -32,6 +32,10 @@ import {
   GeminiBrandIcon,
   TelegramBrandIcon,
   StarsBrandIcon,
+  EyeIcon,
+  EyeOffIcon,
+  CopyIcon,
+  TrashIcon,
 } from '../components/Icons.tsx';
 import './admin.css';
 
@@ -92,6 +96,8 @@ export const AdminDashboard: React.FC = () => {
   // Stock, Users & Settings States
   const [stockData, setStockData] = useState<{ summary: any; items: any[] }>({ summary: {}, items: [] });
   const [bulkLinks, setBulkLinks] = useState('');
+  const [stockSearch, setStockSearch] = useState('');
+  const [revealedStockIds, setRevealedStockIds] = useState<Set<number>>(new Set());
   const [users, setUsers] = useState<any[]>([]);
   const [userSearch, setUserSearch] = useState('');
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -292,6 +298,23 @@ export const AdminDashboard: React.FC = () => {
   };
 
   // Stock Actions
+  const toggleRevealStock = (id: number) => {
+    setRevealedStockIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const copyStockLink = (payload: string) => {
+    navigator.clipboard.writeText(payload);
+    showToast('Secret activation link copied to clipboard!', 'success');
+  };
+
   const handleAddStock = async () => {
     if (!bulkLinks.trim()) {
       showToast('Please paste at least one activation link.', 'error');
@@ -1173,63 +1196,247 @@ export const AdminDashboard: React.FC = () => {
               <div className="dash-card-header" style={{ marginBottom: '20px' }}>
                 <div>
                   <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>Gemini Pro Stock Manager</h2>
-                  <div style={{ fontSize: '0.85rem', color: '#94A3B8', marginTop: '4px' }}>Real single-use Google activation links inventory</div>
+                  <div style={{ fontSize: '0.85rem', color: '#94A3B8', marginTop: '4px' }}>
+                    Secure single-use Google activation links inventory • Auto-deduplicated on upload
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ background: '#131A24', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '6px 12px', borderRadius: '10px', fontSize: '0.8rem', color: '#10B981', fontWeight: 800 }}>
+                      {stockData.summary?.available || 0} Available
+                    </div>
+                    <div style={{ background: '#131A24', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '6px 12px', borderRadius: '10px', fontSize: '0.8rem', color: '#94A3B8', fontWeight: 700 }}>
+                      {stockData.summary?.allocated || 0} Allocated
+                    </div>
+                  </div>
                 </div>
               </div>
 
+              {/* Bulk Ingestion Card */}
               <div className="dash-card" style={{ marginBottom: '24px' }}>
-                <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '8px' }}>Bulk Add Activation Links</div>
-                <div style={{ fontSize: '0.85rem', color: '#94A3B8', marginBottom: '12px' }}>Paste redeem links line-by-line (e.g. <code>https://gemini.google.com/redeem/XXXXX</code>):</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <div style={{ fontSize: '1rem', fontWeight: 800 }}>Bulk Ingest Activation Links</div>
+                  <span style={{ fontSize: '0.75rem', color: '#10B981', background: 'rgba(16, 185, 129, 0.12)', padding: '3px 8px', borderRadius: '6px', fontWeight: 700 }}>
+                    🛡 Duplicate Protection Active
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.84rem', color: '#94A3B8', marginBottom: '12px' }}>
+                  Paste Google Gemini Pro redeem links line-by-line. Duplicate links already registered in stock will automatically be rejected.
+                </div>
                 <textarea
                   rows={4}
                   value={bulkLinks}
                   onChange={(e) => setBulkLinks(e.target.value)}
-                  style={{ width: '100%', background: '#0B0F16', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', color: '#fff', fontSize: '0.88rem', boxSizing: 'border-box' }}
-                  placeholder="https://gemini.google.com/redeem/abc123xyz&#10;https://gemini.google.com/redeem/def456uvw"
+                  style={{
+                    width: '100%',
+                    background: '#0B0F16',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    padding: '12px',
+                    borderRadius: '12px',
+                    color: '#fff',
+                    fontSize: '0.88rem',
+                    fontFamily: 'monospace',
+                    boxSizing: 'border-box',
+                    resize: 'vertical',
+                  }}
+                  placeholder="https://g.co/gemini/redeem?token=SAMPLE1&#10;https://g.co/gemini/redeem?token=SAMPLE2"
                 />
-                <button
-                  onClick={handleAddStock}
-                  disabled={!bulkLinks.trim()}
-                  style={{ background: 'linear-gradient(135deg, #059669 0%, #008A45 100%)', color: '#fff', padding: '10px 24px', borderRadius: '10px', border: 'none', fontWeight: 800, cursor: 'pointer', marginTop: '12px', alignSelf: 'flex-start' }}
-                >
-                  + Add Links to Stock
-                </button>
+                <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '12px' }}>
+                  <button
+                    onClick={handleAddStock}
+                    disabled={!bulkLinks.trim()}
+                    style={{
+                      background: 'linear-gradient(135deg, #059669 0%, #008A45 100%)',
+                      color: '#fff',
+                      padding: '10px 24px',
+                      borderRadius: '10px',
+                      border: 'none',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 15px rgba(5, 150, 105, 0.4)',
+                    }}
+                  >
+                    + Ingest Links to Stock
+                  </button>
+                </div>
               </div>
 
+              {/* Secure Stock Inventory Table */}
               <div className="dash-card">
-                <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '16px' }}>Stock Inventory ({stockData.items.length} total)</div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#94A3B8', textAlign: 'left' }}>
-                      <th style={{ padding: '10px' }}>ID</th>
-                      <th style={{ padding: '10px' }}>Payload</th>
-                      <th style={{ padding: '10px' }}>Status</th>
-                      <th style={{ padding: '10px' }}>Date</th>
-                      <th style={{ padding: '10px' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stockData.items.map((it: any) => (
-                      <tr key={it.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                        <td style={{ padding: '10px' }}><code>{it.id}</code></td>
-                        <td style={{ padding: '10px' }}><code style={{ fontSize: '0.8rem' }}>{it.payload}</code></td>
-                        <td style={{ padding: '10px' }}>
-                          <span style={{ padding: '3px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, background: it.status === 'available' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.15)', color: it.status === 'available' ? '#10B981' : '#94A3B8' }}>
-                            {it.status.toUpperCase()}
-                          </span>
-                        </td>
-                        <td style={{ padding: '10px', fontSize: '0.78rem', color: '#94A3B8' }}>{new Date(it.created_at).toLocaleDateString()}</td>
-                        <td style={{ padding: '10px' }}>
-                          {it.status === 'available' && (
-                            <button onClick={() => handleDeleteStock(it.id)} style={{ background: 'rgba(239,68,68,0.15)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,0.3)', padding: '4px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem' }}>
-                              Delete
-                            </button>
-                          )}
-                        </td>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <div style={{ fontSize: '1rem', fontWeight: 800 }}>
+                    Stock Inventory ({stockData.items.length} total links)
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search stock ID or status..."
+                    value={stockSearch}
+                    onChange={(e) => setStockSearch(e.target.value)}
+                    style={{
+                      background: '#131A24',
+                      color: '#fff',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      padding: '8px 14px',
+                      borderRadius: '12px',
+                      fontSize: '0.85rem',
+                      width: '240px',
+                    }}
+                  />
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#94A3B8', textAlign: 'left' }}>
+                        <th style={{ width: '65px', padding: '12px 10px' }}>ID</th>
+                        <th style={{ width: '160px', padding: '12px 10px' }}>Product</th>
+                        <th style={{ width: 'auto', padding: '12px 10px' }}>Activation Token / Link (Secured)</th>
+                        <th style={{ width: '120px', padding: '12px 10px', textAlign: 'center' }}>Status</th>
+                        <th style={{ width: '120px', padding: '12px 10px' }}>Added Date</th>
+                        <th style={{ width: '100px', padding: '12px 10px', textAlign: 'right' }}>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {stockData.items
+                        .filter((it: any) => {
+                          if (!stockSearch) return true;
+                          const q = stockSearch.toLowerCase();
+                          return (
+                            String(it.id).includes(q) ||
+                            it.product_id?.toLowerCase().includes(q) ||
+                            it.status?.toLowerCase().includes(q) ||
+                            it.payload?.toLowerCase().includes(q)
+                          );
+                        })
+                        .map((it: any) => {
+                          const isRevealed = revealedStockIds.has(it.id);
+                          const maskedPreview = it.payload.length > 28
+                            ? `${it.payload.substring(0, 24)}••••••••${it.payload.slice(-4)}`
+                            : '••••••••••••••••••••••••';
+
+                          return (
+                            <tr key={it.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                              <td style={{ padding: '12px 10px' }}>
+                                <code style={{ background: '#131A24', padding: '2px 6px', borderRadius: '4px', color: '#94A3B8' }}>
+                                  #{it.id}
+                                </code>
+                              </td>
+                              <td style={{ padding: '12px 10px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <GeminiBrandIcon size={16} />
+                                  <span style={{ fontWeight: 700, fontSize: '0.84rem' }}>Gemini Pro 18M</span>
+                                </div>
+                              </td>
+                              <td style={{ padding: '12px 10px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', maxWidth: '100%' }}>
+                                  <span
+                                    style={{
+                                      fontFamily: 'monospace',
+                                      fontSize: '0.82rem',
+                                      color: isRevealed ? '#34D399' : '#94A3B8',
+                                      background: '#0B0F16',
+                                      padding: '6px 10px',
+                                      borderRadius: '8px',
+                                      border: '1px solid rgba(255,255,255,0.06)',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                      flex: 1,
+                                    }}
+                                    title={isRevealed ? it.payload : 'Masked for security (Click eye to view)'}
+                                  >
+                                    {isRevealed ? it.payload : maskedPreview}
+                                  </span>
+                                  <button
+                                    onClick={() => toggleRevealStock(it.id)}
+                                    title={isRevealed ? 'Mask secret link' : 'Reveal secret link'}
+                                    style={{
+                                      background: '#192230',
+                                      border: '1px solid rgba(255,255,255,0.1)',
+                                      color: isRevealed ? '#34D399' : '#94A3B8',
+                                      borderRadius: '8px',
+                                      padding: '6px 8px',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {isRevealed ? <EyeOffIcon size={14} /> : <EyeIcon size={14} />}
+                                  </button>
+                                  <button
+                                    onClick={() => copyStockLink(it.payload)}
+                                    title="Copy secret link to clipboard"
+                                    style={{
+                                      background: '#192230',
+                                      border: '1px solid rgba(255,255,255,0.1)',
+                                      color: '#94A3B8',
+                                      borderRadius: '8px',
+                                      padding: '6px 8px',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    <CopyIcon size={14} />
+                                  </button>
+                                </div>
+                              </td>
+                              <td style={{ padding: '12px 10px', textAlign: 'center' }}>
+                                <span
+                                  style={{
+                                    padding: '4px 10px',
+                                    borderRadius: '9999px',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 800,
+                                    letterSpacing: '0.04em',
+                                    background: it.status === 'available' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.12)',
+                                    color: it.status === 'available' ? '#10B981' : '#94A3B8',
+                                    border: it.status === 'available' ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(148, 163, 184, 0.2)',
+                                  }}
+                                >
+                                  {it.status.toUpperCase()}
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px 10px', fontSize: '0.8rem', color: '#94A3B8' }}>
+                                {new Date(it.created_at).toLocaleDateString()}
+                              </td>
+                              <td style={{ padding: '12px 10px', textAlign: 'right' }}>
+                                {it.status === 'available' ? (
+                                  <button
+                                    onClick={() => handleDeleteStock(it.id)}
+                                    title="Delete from inventory"
+                                    style={{
+                                      background: 'rgba(239,68,68,0.12)',
+                                      color: '#FCA5A5',
+                                      border: '1px solid rgba(239,68,68,0.3)',
+                                      padding: '5px 10px',
+                                      borderRadius: '8px',
+                                      cursor: 'pointer',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                    }}
+                                  >
+                                    <TrashIcon size={12} />
+                                    Delete
+                                  </button>
+                                ) : (
+                                  <span style={{ fontSize: '0.75rem', color: '#64748B' }}>Locked</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}

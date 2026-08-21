@@ -49,6 +49,13 @@ async function run() {
   await page.screenshot({ path: './scratch_admin_dashboard.png' });
   console.log('Saved scratch_admin_dashboard.png');
 
+  // 4. Click Gemini Stock Tab
+  console.log('Navigating to Stock Manager tab...');
+  await page.click('button:has-text("Gemini Stock")');
+  await page.waitForTimeout(1000);
+  await page.screenshot({ path: './scratch_admin_stock.png' });
+  console.log('Saved scratch_admin_stock.png');
+
   await browser.close();
 }
 
