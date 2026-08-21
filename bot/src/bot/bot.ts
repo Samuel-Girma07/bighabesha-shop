@@ -41,6 +41,7 @@ import {
 } from './handlers/checkout.js';
 import { isUsernameRequired, hasPublicUsername, renderUsernameGate, handleGateRecheck } from './handlers/gate.js';
 import { renderMyOrders, renderOrderDetail, renderLanguageMenu, handleSetLanguage } from './handlers/orders.js';
+import { inlineQueryHandler } from './handlers/inline_query.js';
 import { handleTextInput, handleDocumentInput, handlePhotoInput } from './handlers/input.js';
 import { getOrderById, approveReceipt, updateOrderStatus } from '../services/orders.service.js';
 import { getProductById, formatPriceETB } from '../services/catalog.service.js';
@@ -165,6 +166,9 @@ export function createBot(token: string): Bot {
   bot.on('message:contact', async (ctx) => {
     await handleContactMessage(ctx);
   });
+
+  // Telegram Inline Mode Query Handler (@Bighabesha_shopBot)
+  bot.on('inline_query', inlineQueryHandler);
 
   // Dev simulation command for Wallet Pay
   bot.command('wp_simulate', async (ctx) => {

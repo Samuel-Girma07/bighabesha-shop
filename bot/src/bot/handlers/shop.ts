@@ -1,9 +1,11 @@
-import { CallbackQueryContext, Context, InlineKeyboard } from 'grammy';
+import { CallbackQueryContext, Context, InlineKeyboard, InputFile } from 'grammy';
 import { getAllProducts, getProductById, getProductVariants, formatPriceETB, getVariantById } from '../../services/catalog.service.js';
 import { getAvailableStockCount } from '../../services/stock.service.js';
 import { getNumericSetting } from '../../services/settings.service.js';
 import { setPendingAction } from '../session.js';
 import { t } from '../../i18n/index.js';
+import { getBannerPngPath } from '../../services/banner_generator.service.js';
+import { logger } from '../../logger/index.js';
 
 export async function renderCatalog(ctx: Context): Promise<void> {
   const products = getAllProducts();
@@ -34,10 +36,30 @@ export async function renderCatalog(ctx: Context): Promise<void> {
 
   keyboard.row().text('« Main Menu', 'nav_home');
 
+  if (ctx.callbackQuery?.message?.photo) {
+    try {
+      await ctx.editMessageMedia({
+        type: 'photo',
+        media: new InputFile(getBannerPngPath('welcome')),
+        caption: text,
+        parse_mode: 'Markdown',
+      }, { reply_markup: keyboard });
+      return;
+    } catch {}
+  }
+
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
   } else {
-    await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    try {
+      await ctx.replyWithPhoto(new InputFile(getBannerPngPath('welcome')), {
+        caption: text,
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+    } catch {
+      await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    }
   }
 }
 
@@ -49,14 +71,17 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
   }
 
   const keyboard = new InlineKeyboard();
+  let bannerType: 'gemini' | 'premium' | 'stars' = 'gemini';
+  let text = '';
 
   if (product.type === 'stock') {
+    bannerType = 'gemini';
     const stock = getAvailableStockCount(product.id);
     const variants = getProductVariants(product.id);
     const variant = variants[0];
     const price = variant?.price_etb || 0;
 
-    let text = `*${product.name}*\n\n` +
+    text = `*${product.name}*\n\n` +
       `${product.description}\n\n` +
       `• *Price:* ${formatPriceETB(price)}\n` +
       `• *Stock Status:* ${stock > 0 ? `Available (${stock} links in stock)` : 'Sold Out'}\n\n` +
@@ -67,39 +92,25 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
     } else {
       keyboard.text('Currently Sold Out', 'action_sold_out').row();
     }
-
-    keyboard.text('« Back to Catalog', 'nav_shop');
-
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
-    } else {
-      await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
-    }
   } else if (product.id === 'telegram_premium') {
+    bannerType = 'premium';
     const variants = getProductVariants(product.id);
 
-    let text = `*${product.name}*\n\n` +
+    text = `*${product.name}*\n\n` +
       `${product.description}\n\n` +
       `Select your subscription duration:`;
 
     for (const v of variants) {
       keyboard.text(`${v.name} — ${formatPriceETB(v.price_etb)}`, `buy_var_${v.id}`).row();
     }
-
-    keyboard.text('« Back to Catalog', 'nav_shop');
-
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
-    } else {
-      await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
-    }
   } else if (product.id === 'telegram_stars') {
+    bannerType = 'stars';
     const variants = getProductVariants(product.id);
     const etbPerStar = getNumericSetting('etb_per_star', 2.5);
     const minStars = getNumericSetting('stars_min', 10);
     const maxStars = getNumericSetting('stars_max', 100000);
 
-    let text = `*${product.name}*\n\n` +
+    text = `*${product.name}*\n\n` +
       `${product.description}\n\n` +
       `• *Exchange Rate:* 1 Star = ${etbPerStar} ETB\n` +
       `• *Custom Range:* ${minStars.toLocaleString()} – ${maxStars.toLocaleString()} Stars\n\n` +
@@ -118,11 +129,43 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
     }
 
     keyboard.row().text('Enter Custom Stars Amount', 'stars_custom').row();
-    keyboard.text('« Back to Catalog', 'nav_shop');
+  }
 
-    if (ctx.callbackQuery) {
+  keyboard.text('« Back to Catalog', 'nav_shop');
+
+  const bannerPath = getBannerPngPath(bannerType);
+
+  if (ctx.callbackQuery?.message?.photo) {
+    try {
+      await ctx.editMessageMedia({
+        type: 'photo',
+        media: new InputFile(bannerPath),
+        caption: text,
+        parse_mode: 'Markdown',
+      }, { reply_markup: keyboard });
+      return;
+    } catch {}
+  }
+
+  if (ctx.callbackQuery) {
+    try {
+      await ctx.replyWithPhoto(new InputFile(bannerPath), {
+        caption: text,
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      await ctx.deleteMessage().catch(() => {});
+    } catch {
       await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
-    } else {
+    }
+  } else {
+    try {
+      await ctx.replyWithPhoto(new InputFile(bannerPath), {
+        caption: text,
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+    } catch {
       await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
     }
   }
@@ -150,7 +193,13 @@ export async function promptCustomStars(ctx: Context): Promise<void> {
 
   const keyboard = new InlineKeyboard().text('Cancel', 'prod_telegram_stars');
 
-  if (ctx.callbackQuery) {
+  if (ctx.callbackQuery?.message?.photo) {
+    await ctx.editMessageCaption({
+      caption: text,
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+  } else if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
   } else {
     await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });

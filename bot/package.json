@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "better-sqlite3": "^11.8.1",
     "dotenv": "^16.4.7",
     "grammy": "^1.35.0",
