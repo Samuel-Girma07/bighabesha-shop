@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - Phase 2 (2026-08-21)
+### Added
+- Rate Engine implementing ETB to USD, Telegram Stars (XTR), and TON/USDT conversions with ceil rounding and 5% margin.
+- In-memory CoinGecko pricing cache with 5-minute TTL and resilient fallback defaults.
+- Live USD/ETB helper from `open.er-api.com`.
+- Full order lifecycle service (`new` -> `awaiting_payment` -> `pending_approval` -> `pending_fulfillment` -> `fulfilled` / `rejected`).
+- Telegram Stars Bot Payments API integration (`currency: 'XTR'`) with `pre_checkout_query` and `successful_payment` handlers.
+- Wallet Pay `PaymentAdapter` pattern with `MockWalletPay` supporting `/wp_simulate <order_id>` dev command and `LiveWalletPay` adapter.
+- Manual local payment rails (Telebirr, CBE Bank, Bank of Abyssinia) displaying admin account details and supporting photo receipt uploads.
+- Dual-admin DM receipt alerts with one-tap inline `[✅ Approve]` and `[❌ Reject]` buttons, updating state and notifying buyers.
+- Phase 2 test suite covering rate calculations, edge cases, cache TTL, order state transitions, and payment adapters.
+
 ## [0.2.0] - Phase 1 (2026-08-21)
 ### Added
 - Catalog models (`products`, `variants`, `stock_items`) supporting stock and order fulfillment types.

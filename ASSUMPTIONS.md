@@ -62,3 +62,21 @@ This document records technical and design decisions made throughout the develop
 - Low-stock threshold defaults to `5` items (admin-editable); triggers DM alert with one-tap restock buttons to all configured `ADMIN_IDS` when remaining stock $\le 5$ or upon reaching `0` (sold out).
 - CSV upload supports flexible formats (single-column, comma-separated, quoted links, optional header rows).
 
+---
+
+## Phase 2: Rate Engine, Payment Rails & Lifecycle
+
+### 1. Rate Engine Math & Crypto Precision
+- **Telegram Stars (XTR):** `stars_due = ceil(price_ETB / etb_per_star)`.
+- **Crypto Conversion (TON/USDT):**  
+  $\text{usd\_with\_margin} = (\text{price\_ETB} / \text{etb\_per\_usd}) \times (1 + \text{margin\_pct}/100)$  
+  $\text{crypto\_amount} = \text{usd\_with\_margin} / \text{coin\_price\_usd}$ (rounded to 4 decimals for TON, 2 for USDT).
+- **CoinGecko 5-minute Cache:** Cached in-memory with TTL of 300,000 ms. Fallback to default prices ($3.00 TON / $1.00 USDT) if network timeout occurs to ensure checkout availability.
+- **Auto-Fill Exchange Rates:** API helper querying `open.er-api.com` for real-time ETB/USD market reference.
+
+### 2. Payment Rails
+- **Telegram Stars:** Native Telegram Invoices using currency `XTR`, handled via `pre_checkout_query` and `successful_payment`.
+- **Wallet Pay:** `PaymentAdapter` architecture with `MockWalletPay` for local development (supports `/wp_simulate <order_id>`) and `LiveWalletPay` for production.
+- **Manual Rails (Telebirr / CBE / Abyssinia):** User uploads receipt photo $\rightarrow$ transitions order to `pending_approval` $\rightarrow$ both admins receive instant photo notifications with `[✅ Approve]` and `[❌ Reject]` action buttons.
+
+

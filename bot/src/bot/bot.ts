@@ -14,7 +14,22 @@ import {
   promptStockCSV,
   promptEditSetting,
 } from './handlers/admin.js';
-import { handleTextInput, handleDocumentInput } from './handlers/input.js';
+import {
+  initiateCheckout,
+  handleStarsPayment,
+  handleWalletPay,
+  handleManualRail,
+  promptReceiptUpload,
+  performAdminApprove,
+  promptAdminReject,
+  renderPaymentRailSelection,
+} from './handlers/checkout.js';
+import { handleTextInput, handleDocumentInput, handlePhotoInput } from './handlers/input.js';
+import { getOrderById, approveReceipt, updateOrderStatus } from '../services/orders.service.js';
+import { getProductById, formatPriceETB } from '../services/catalog.service.js';
+import { fetchLiveUSDToETB } from '../services/rate_engine.service.js';
+import { setSetting, getSetting } from '../services/settings.service.js';
+import { getConfig } from '../config/env.js';
 import { t } from '../i18n/index.js';
 
 export function createBot(token: string): Bot {
@@ -39,9 +54,113 @@ export function createBot(token: string): Bot {
   bot.command('health', healthHandler);
   bot.command('ping', pingHandler);
 
-  // Message & Document Handlers for Stateful Input
-  bot.on('message:text', async (ctx, next) => {
-    const handled = await handleTextInput(ctx);
+  // Dev simulation command for Wallet Pay
+  bot.command('wp_simulate', async (ctx) => {
+    const args = ctx.match?.trim();
+    if (!args) {
+      await ctx.reply('Usage: `/wp_simulate <order_id>` (e.g. `/wp_simulate ORD-123456-ABC`)', { parse_mode: 'Markdown' });
+      return;
+    }
+
+    const orderId = args;
+    const order = getOrderById(orderId);
+    if (!order) {
+      await ctx.reply(`❌ Order \`${orderId}\` not found in database.`, { parse_mode: 'Markdown' });
+      return;
+    }
+
+    if (order.status !== 'awaiting_payment' && order.status !== 'pending_approval') {
+      await ctx.reply(`⚠️ Order \`${orderId}\` is currently in status: *${order.status}*. Simulation only applies to awaiting payment.`, { parse_mode: 'Markdown' });
+      return;
+    }
+
+    try {
+      const { order: updated, autoDeliveredItem } = approveReceipt(order.id, ctx.from?.id || 0);
+
+      await ctx.reply(`✅ *MockWalletPay Simulation Success!*\n\n• Order \`${order.id}\` marked as **${updated.status.toUpperCase()}**.\n• Rail: \`${updated.payment_rail.toUpperCase()}\`\n• Amount: *${formatPriceETB(updated.amount_etb)}*`, { parse_mode: 'Markdown' });
+
+      if (autoDeliveredItem) {
+        const rawTemplate = getSetting(
+          'gemini_instructions',
+          'After payment, you will receive a one-time activation link.\n\n1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.'
+        );
+        const deliveryText = `🎉 *Payment Confirmed! Order #${order.id}*\n\n` +
+          `Here is your activation link:\n🔗 ${autoDeliveredItem.payload}\n\n` +
+          `*Instructions:*\n${rawTemplate}\n\n` +
+          `_Thank you for choosing Bighabesha Shop!_`;
+
+        await ctx.api.sendMessage(order.user_id, deliveryText, { parse_mode: 'Markdown' }).catch(() => {});
+      } else {
+        const notifyText = `🎉 *Payment Received for Order #${order.id}!*\n\n` +
+          `Your order has been queued for fulfillment to **@${order.username || 'your account'}**.\n` +
+          `You will receive a confirmation once delivered!`;
+
+        await ctx.api.sendMessage(order.user_id, notifyText, { parse_mode: 'Markdown' }).catch(() => {});
+      }
+    } catch (err: any) {
+      await ctx.reply(`❌ Error simulating payment: ${err.message}`);
+    }
+  });
+
+  // Telegram Stars Handlers
+  bot.on('pre_checkout_query', async (ctx) => {
+    const payload = ctx.preCheckoutQuery.invoice_payload;
+    logger.info({ payload }, 'Received pre_checkout_query for Stars invoice');
+
+    if (payload.startsWith('order_')) {
+      const orderId = payload.replace('order_', '');
+      const order = getOrderById(orderId);
+      if (order && (order.status === 'awaiting_payment' || order.status === 'new')) {
+        await ctx.answerPreCheckoutQuery(true);
+        return;
+      }
+    }
+
+    await ctx.answerPreCheckoutQuery(false, { error_message: 'Order expired or invalid.' });
+  });
+
+  bot.on('message:successful_payment', async (ctx) => {
+    const payment = ctx.message.successful_payment;
+    logger.info({ payment }, 'Received successful_payment event');
+
+    const payload = payment.invoice_payload;
+    if (payload.startsWith('order_')) {
+      const orderId = payload.replace('order_', '');
+      const order = getOrderById(orderId);
+      if (order) {
+        try {
+          const { order: updated, autoDeliveredItem } = approveReceipt(order.id, 0);
+          updateOrderStatus(order.id, updated.status, { payment_ref: payment.telegram_payment_charge_id });
+
+          if (autoDeliveredItem) {
+            const rawTemplate = getSetting(
+              'gemini_instructions',
+              'After payment, you will receive a one-time activation link.\n\n1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.'
+            );
+            const deliveryText = `🎉 *Stars Payment Confirmed! Order #${order.id}*\n\n` +
+              `Here is your activation link:\n🔗 ${autoDeliveredItem.payload}\n\n` +
+              `*Instructions:*\n${rawTemplate}\n\n` +
+              `_Thank you for choosing Bighabesha Shop!_`;
+
+            await ctx.reply(deliveryText, { parse_mode: 'Markdown' });
+          } else {
+            await ctx.reply(
+              `⭐️ *Payment Received (${payment.total_amount} Stars)!*\n\n` +
+                `Order #${order.id} is now queued for delivery to **@${order.username || 'your account'}**.\n` +
+                `You will receive an update shortly!`,
+              { parse_mode: 'Markdown' }
+            );
+          }
+        } catch (err) {
+          logger.error({ err, orderId }, 'Error handling successful Stars payment');
+        }
+      }
+    }
+  });
+
+  // Photo & Document Handlers for Stateful Input
+  bot.on('message:photo', async (ctx, next) => {
+    const handled = await handlePhotoInput(ctx);
     if (!handled) {
       await next();
     }
@@ -49,6 +168,13 @@ export function createBot(token: string): Bot {
 
   bot.on('message:document', async (ctx, next) => {
     const handled = await handleDocumentInput(ctx);
+    if (!handled) {
+      await next();
+    }
+  });
+
+  bot.on('message:text', async (ctx, next) => {
+    const handled = await handleTextInput(ctx);
     if (!handled) {
       await next();
     }
@@ -70,6 +196,55 @@ export function createBot(token: string): Bot {
     } else if (data.startsWith('prod_')) {
       const productId = data.replace('prod_', '');
       await renderProductDetails(ctx, productId);
+    } else if (data.startsWith('buy_var_')) {
+      const variantId = data.replace('buy_var_', '');
+      const variant = getProductById(variantId) || null; // or getVariantById
+      // Determine product id from variant
+      if (variantId.startsWith('gemini_')) {
+        await initiateCheckout(ctx, 'gemini_pro_18m', variantId);
+      } else if (variantId.startsWith('tg_prem_')) {
+        await initiateCheckout(ctx, 'telegram_premium', variantId);
+      } else if (variantId.startsWith('tg_stars_')) {
+        await initiateCheckout(ctx, 'telegram_stars', variantId);
+      } else {
+        await initiateCheckout(ctx, 'gemini_pro_18m', variantId);
+      }
+    } else if (data.startsWith('buy_custom_stars_')) {
+      const parts = data.replace('buy_custom_stars_', '').split('_');
+      const stars = parseInt(parts[0], 10);
+      const priceETB = parseInt(parts[1], 10);
+      await initiateCheckout(ctx, 'telegram_stars', undefined, stars, priceETB);
+    } else if (data.startsWith('checkout_back_')) {
+      const orderId = data.replace('checkout_back_', '');
+      const order = getOrderById(orderId);
+      if (order) {
+        const product = getProductById(order.product_id);
+        await renderPaymentRailSelection(ctx, order, product ? product.name : 'Subscription');
+      }
+    } else if (data.startsWith('pay_stars_')) {
+      const orderId = data.replace('pay_stars_', '');
+      await handleStarsPayment(ctx, orderId);
+    } else if (data.startsWith('pay_wp_')) {
+      const orderId = data.replace('pay_wp_', '');
+      await handleWalletPay(ctx, orderId);
+    } else if (data.startsWith('pay_manual_telebirr_')) {
+      const orderId = data.replace('pay_manual_telebirr_', '');
+      await handleManualRail(ctx, 'telebirr', orderId);
+    } else if (data.startsWith('pay_manual_cbe_')) {
+      const orderId = data.replace('pay_manual_cbe_', '');
+      await handleManualRail(ctx, 'cbe', orderId);
+    } else if (data.startsWith('pay_manual_abyssinia_')) {
+      const orderId = data.replace('pay_manual_abyssinia_', '');
+      await handleManualRail(ctx, 'abyssinia', orderId);
+    } else if (data.startsWith('receipt_prompt_')) {
+      const orderId = data.replace('receipt_prompt_', '');
+      await promptReceiptUpload(ctx, orderId);
+    } else if (data.startsWith('admin_approve_')) {
+      const orderId = data.replace('admin_approve_', '');
+      await performAdminApprove(ctx, orderId);
+    } else if (data.startsWith('admin_reject_')) {
+      const orderId = data.replace('admin_reject_', '');
+      await promptAdminReject(ctx, orderId);
     } else if (data === 'stars_custom') {
       await promptCustomStars(ctx);
     } else if (data === 'action_sold_out') {

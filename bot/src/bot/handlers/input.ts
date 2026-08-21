@@ -5,6 +5,8 @@ import { formatPriceETB, updateVariantPrice, getVariantById } from '../../servic
 import { addStockLink, importStockCSV, getTotalStockCount } from '../../services/stock.service.js';
 import { setSetting } from '../../services/settings.service.js';
 import { isAdmin, renderAdminProducts, renderAdminRates, renderAdminSettings, renderAdminStock } from './admin.js';
+import { submitReceipt, rejectReceipt, getOrderById } from '../../services/orders.service.js';
+import { notifyAdminsNewReceipt } from './checkout.js';
 import { logger } from '../../logger/index.js';
 
 export async function handleTextInput(ctx: Context): Promise<boolean> {
@@ -35,7 +37,7 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
         `• *Quantity:* ${starsCount.toLocaleString()} Stars ⭐\n` +
         `• *Rate:* 1 ⭐ = ${etbPerStar} ETB\n` +
         `• *Total Price:* *${formatPriceETB(priceETB)}*\n\n` +
-        `_Your Telegram username will be verified before payment._`;
+        `_Proceed to select your payment rail:_`;
 
       const keyboard = new InlineKeyboard()
         .text(`💳 Proceed to Payment (${formatPriceETB(priceETB)})`, `buy_custom_stars_${starsCount}_${priceETB}`)
@@ -43,6 +45,31 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
         .text('« Cancel', 'prod_telegram_stars');
 
       await ctx.reply(confirmText, { parse_mode: 'Markdown', reply_markup: keyboard });
+      return true;
+    }
+
+    case 'admin_reject_reason': {
+      if (!isAdmin(userId)) return false;
+      const { orderId } = session.data as { orderId: string };
+      const reason = text;
+
+      clearPendingAction(userId);
+      try {
+        const order = rejectReceipt(orderId, userId, reason);
+        await ctx.reply(`✅ Order \`${order.id}\` has been marked REJECTED.`, { parse_mode: 'Markdown' });
+
+        // Notify buyer
+        const buyerMsg = `❌ *Payment Verification Failed*\n\n` +
+          `Your payment receipt for Order #${order.id} was not accepted.\n\n` +
+          `• *Reason:* ${reason}\n\n` +
+          `If you believe this is a mistake or have questions, please reach out to our official support: @Vweah`;
+
+        await ctx.api.sendMessage(order.user_id, buyerMsg, { parse_mode: 'Markdown' }).catch((err) => {
+          logger.error({ err, userId: order.user_id }, 'Failed to send rejection to buyer');
+        });
+      } catch (err: any) {
+        await ctx.reply(`❌ Failed to reject order: ${err.message}`);
+      }
       return true;
     }
 
@@ -134,6 +161,41 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
   }
 
   return false;
+}
+
+export async function handlePhotoInput(ctx: Context): Promise<boolean> {
+  const userId = ctx.from?.id;
+  if (!userId) return false;
+
+  const session = getPendingAction(userId);
+  if (!session || session.type !== 'user_receipt_upload') return false;
+
+  const photos = ctx.message?.photo;
+  if (!photos || photos.length === 0) return false;
+
+  const largestPhoto = photos[photos.length - 1];
+  const { orderId } = session.data as { orderId: string };
+  const caption = ctx.message?.caption;
+
+  clearPendingAction(userId);
+  try {
+    const updatedOrder = submitReceipt(orderId, largestPhoto.file_id, caption);
+
+    await ctx.reply(
+      `✅ *Receipt Received! (Order #${updatedOrder.id})*\n\n` +
+        `Thank you! Our administrators have been notified and will verify your transfer shortly.\n` +
+        `You will receive a message with your subscription / coins as soon as it is approved.`,
+      { parse_mode: 'Markdown' }
+    );
+
+    // Notify admins
+    await notifyAdminsNewReceipt(ctx, updatedOrder);
+    return true;
+  } catch (err: any) {
+    logger.error({ err, orderId }, 'Failed to process submitted receipt');
+    await ctx.reply(`❌ Could not submit receipt: ${err.message}`);
+    return true;
+  }
 }
 
 export async function handleDocumentInput(ctx: Context): Promise<boolean> {

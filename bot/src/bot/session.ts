@@ -1,6 +1,8 @@
 export interface PendingAction {
   type:
     | 'stars_custom_amount'
+    | 'user_receipt_upload'
+    | 'admin_reject_reason'
     | 'admin_edit_variant_price'
     | 'admin_stock_single_paste'
     | 'admin_stock_csv_paste'
