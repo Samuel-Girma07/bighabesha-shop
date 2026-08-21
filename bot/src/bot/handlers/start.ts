@@ -2,7 +2,7 @@ import { Context, InlineKeyboard } from 'grammy';
 import { t } from '../../i18n/index.js';
 import { getConfig } from '../../config/env.js';
 import { isAdmin } from './admin.js';
-import { upsertUser as dbUpsertUser, isUserRegistered, getUserById } from '../../services/users.service.js';
+import { upsertUser as dbUpsertUser, isUserRegistered } from '../../services/users.service.js';
 import { promptPhoneRegistration } from './registration.js';
 import { getMainMenuKeyboard } from '../keyboards/menu.js';
 
@@ -15,8 +15,6 @@ export function upsertUser(user: {
 }): { id: number; username: string | null; language_code: string; is_admin: boolean } {
   dbUpsertUser(user);
   const is_admin = isAdmin(user.id);
-  const config = getConfig();
-  const db = (getUserById as any);
   return {
     id: user.id,
     username: user.username || null,
@@ -36,7 +34,6 @@ export async function startHandler(ctx: Context): Promise<void> {
     language_code: from.language_code?.startsWith('am') ? 'am' : 'en',
   });
 
-  // If user is not yet registered with a phone number, prompt registration gate
   if (!isUserRegistered(from.id)) {
     await promptPhoneRegistration(ctx);
     return;
@@ -44,36 +41,35 @@ export async function startHandler(ctx: Context): Promise<void> {
 
   const language_code = user.language_code || 'en';
   const config = getConfig();
-  const title = t(language_code, 'shop.title');
-  const description = t(language_code, 'shop.description');
+  const webAppUrl = config.WEBAPP_URL || 'https://capabilities-aims-modular-reward.trycloudflare.com';
 
-  const welcomeText = `👋 *Welcome to ${title}!* 🇪🇹\n\n` +
-    `${description}\n\n` +
-    `• 🤖 *Gemini Pro (18 Months):* Instant activation link with 2TB cloud storage.\n` +
-    `• ⭐️ *Telegram Premium (3/6/12m):* Direct activation to your @username via Fragment.\n` +
-    `• 🪙 *Telegram Stars:* Official coins for gifts, mini-apps & bots.\n\n` +
-    `_Select an option below to browse products or manage your orders:_`;
+  const welcomeText = `*Welcome to Bighabesha Shop*\n\n` +
+    `Official digital store for Gemini Pro, Telegram Premium, and Telegram Stars.\n\n` +
+    `• *Gemini Pro (18 Months)* — Automated link delivery with 2TB storage\n` +
+    `• *Telegram Premium* — 3, 6, 12-month Fragment gifts\n` +
+    `• *Telegram Stars* — Packages & custom coin quantities\n\n` +
+    `Select an option below:`;
 
   const keyboard = new InlineKeyboard()
+    .webApp('Open Web Shop', webAppUrl)
+    .row()
     .text(t(language_code, 'menu.shop'), 'nav_shop')
     .text(t(language_code, 'menu.orders'), 'nav_orders')
     .row()
-    .text('👤 My Profile', 'nav_profile')
+    .text('My Profile', 'nav_profile')
     .text(t(language_code, 'menu.language'), 'nav_language')
     .row()
-    .text('💬 Support (@Vweah)', 'nav_support');
+    .text('Contact Support', 'nav_support');
 
   if (isAdmin(from.id)) {
-    keyboard.row().text('⚙️ Admin Dashboard', 'admin_menu');
+    keyboard.row().text('Admin Panel', 'admin_menu');
   }
 
-  // Ensure persistent reply keyboard is attached
   await ctx.reply(welcomeText, {
     parse_mode: 'Markdown',
     reply_markup: getMainMenuKeyboard(),
   });
 
-  // Also send inline navigation card if needed
   if (ctx.callbackQuery) {
     await ctx.editMessageText(welcomeText, {
       parse_mode: 'Markdown',

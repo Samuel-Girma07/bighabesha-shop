@@ -14,9 +14,9 @@ export async function promptPhoneRegistration(ctx: Context): Promise<void> {
     data: {},
   });
 
-  const text = '👋 *Welcome to Bighabesha Shop!* 🇪🇹\n\n' +
-    'To get started and protect your digital orders, please verify your account by sharing your phone number.\n\n' +
-    '👇 Tap the **📱 Share Phone Number** button below, or simply type your mobile number (e.g. `0911223344` or `0711223344`):';
+  const text = '*Welcome to Bighabesha Shop*\n\n' +
+    'To secure your orders and enable instant delivery, please verify your account with your mobile number.\n\n' +
+    'Tap **[Share Phone Number]** below or enter your number (e.g. `0911223344`):';
 
   await ctx.reply(text, {
     parse_mode: 'Markdown',
@@ -41,22 +41,21 @@ export async function handleContactMessage(ctx: Context): Promise<boolean> {
     saveUserPhone(userId, formattedPhone);
     clearPendingAction(userId);
 
-    const confirmMsg = `✅ *Account Registered Successfully!*\n\n` +
-      `• *Verified Phone:* \`${formattedPhone}\`\n` +
-      `• *Account Name:* ${ctx.from?.first_name || 'User'}\n\n` +
-      `You now have full access to Bighabesha Shop. Use the menu buttons below to start shopping! 🛍`;
+    const confirmMsg = `*Account Verified Successfully*\n\n` +
+      `• Phone Number: \`${formattedPhone}\`\n` +
+      `• Name: ${ctx.from?.first_name || 'User'}\n\n` +
+      `You have full access to Bighabesha Shop. Select an option from the menu below:`;
 
     await ctx.reply(confirmMsg, {
       parse_mode: 'Markdown',
       reply_markup: getMainMenuKeyboard(),
     });
 
-    // Directly open the catalog
     await renderCatalog(ctx);
     return true;
   } catch (err) {
     logger.error({ err, userId }, 'Failed to save contact phone');
-    await ctx.reply('❌ Failed to register phone number. Please try typing it manually.');
+    await ctx.reply('Failed to register phone number. Please enter it manually.');
     return true;
   }
 }
@@ -67,7 +66,7 @@ export async function handleManualPhoneText(ctx: Context, text: string): Promise
 
   const validation = validatePhoneNumber(text);
   if (!validation.valid || !validation.formatted) {
-    await ctx.reply(`❌ ${validation.error || 'Invalid phone format.'}`, {
+    await ctx.reply(validation.error || 'Invalid phone number format.', {
       reply_markup: getPhoneRegistrationKeyboard(),
     });
     return true;
@@ -77,22 +76,21 @@ export async function handleManualPhoneText(ctx: Context, text: string): Promise
     saveUserPhone(userId, validation.formatted);
     clearPendingAction(userId);
 
-    const confirmMsg = `✅ *Account Registered Successfully!*\n\n` +
-      `• *Verified Phone:* \`${validation.formatted}\`\n` +
-      `• *Account Name:* ${ctx.from?.first_name || 'User'}\n\n` +
-      `You now have full access to Bighabesha Shop. Use the menu buttons below to start shopping! 🛍`;
+    const confirmMsg = `*Account Verified Successfully*\n\n` +
+      `• Phone Number: \`${validation.formatted}\`\n` +
+      `• Name: ${ctx.from?.first_name || 'User'}\n\n` +
+      `You have full access to Bighabesha Shop. Select an option from the menu below:`;
 
     await ctx.reply(confirmMsg, {
       parse_mode: 'Markdown',
       reply_markup: getMainMenuKeyboard(),
     });
 
-    // Directly open the catalog
     await renderCatalog(ctx);
     return true;
   } catch (err) {
     logger.error({ err, userId }, 'Failed to save manual phone');
-    await ctx.reply('❌ Failed to register phone number. Please try again.');
+    await ctx.reply('Failed to register phone number. Please try again.');
     return true;
   }
 }

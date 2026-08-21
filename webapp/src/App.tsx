@@ -8,6 +8,24 @@ import {
   OrderItem,
 } from './api.ts';
 import { translations, Language } from './i18n.ts';
+import {
+  LogoIcon,
+  SparkleIcon,
+  StarIcon,
+  CoinIcon,
+  CheckIcon,
+  CopyIcon,
+  ShieldCheckIcon,
+  BankIcon,
+  PhoneIcon,
+  CryptoIcon,
+  ShoppingBagIcon,
+  PackageIcon,
+  MessageCircleIcon,
+  GlobeIcon,
+  UploadCloudIcon,
+  CloseIcon,
+} from './components/Icons.tsx';
 import './index.css';
 
 export const App: React.FC = () => {
@@ -26,7 +44,7 @@ export const App: React.FC = () => {
   const [customStarsCount, setCustomStarsCount] = useState<number>(500);
   const [isCustomStars, setIsCustomStars] = useState<boolean>(false);
 
-  // Modals & Steps
+  // Modals
   const [gateOpen, setGateOpen] = useState(false);
   const [checkoutOrder, setCheckoutOrder] = useState<OrderItem | null>(null);
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
@@ -207,9 +225,9 @@ export const App: React.FC = () => {
     return (
       <div className="app-frame" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center', padding: '20px' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: '14px' }}>🇪🇹</div>
-          <div style={{ color: 'var(--eth-yellow)', fontWeight: 800, fontSize: '1.2rem' }}>{t.brandName}</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '6px' }}>{t.instantDelivery}</div>
+          <LogoIcon size={44} />
+          <div style={{ color: 'var(--eth-yellow)', fontWeight: 800, fontSize: '1.2rem', marginTop: '12px' }}>{t.brandName}</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '4px' }}>{t.instantDelivery}</div>
         </div>
       </div>
     );
@@ -225,14 +243,15 @@ export const App: React.FC = () => {
       {/* Top Navigation */}
       <header className="top-nav">
         <div className="brand-section">
-          <span className="brand-flag-icon">🇪🇹</span>
+          <LogoIcon size={28} />
           <span className="brand-title-text">{t.brandName}</span>
         </div>
 
         <div className="nav-actions">
           {/* Language Toggle */}
           <button className="lang-switch-btn" onClick={toggleLanguage}>
-            🌐 {lang === 'en' ? 'አማርኛ' : 'English'}
+            <GlobeIcon size={14} />
+            <span>{lang === 'en' ? 'አማርኛ' : 'English'}</span>
           </button>
           <div className="user-badge-header">
             {data?.user?.username ? `@${data.user.username}` : data?.user?.firstName || 'Guest'}
@@ -244,7 +263,7 @@ export const App: React.FC = () => {
       <main className="page-content">
         {errorMessage && (
           <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid var(--eth-red)', padding: '12px 14px', borderRadius: 'var(--radius-md)', marginBottom: '16px', color: '#FCA5A5', fontSize: '0.85rem' }}>
-            ⚠️ {errorMessage}
+            {errorMessage}
           </div>
         )}
 
@@ -252,28 +271,32 @@ export const App: React.FC = () => {
           <div>
             {/* Trust Assurance Banner */}
             <div className="trust-banner">
-              <div className="trust-badge-icon">🛡️</div>
+              <div className="trust-badge-icon">
+                <ShieldCheckIcon size={24} color="#10B981" />
+              </div>
               <div>
                 <div className="trust-title">{t.officialStore}</div>
                 <div className="trust-subtitle">{t.instantDelivery}</div>
               </div>
             </div>
 
-            <div className="section-headline">✨ {t.featuredProducts}</div>
+            <div className="section-headline">{t.featuredProducts}</div>
 
             {/* 1. Gemini Pro 18m Card */}
             {geminiProd && (
               <div className="store-product-card">
                 <div className="product-card-head">
                   <div className="product-identity">
-                    <div className="product-avatar">🤖</div>
+                    <div className="product-avatar">
+                      <SparkleIcon size={22} color="#FCDD09" />
+                    </div>
                     <div>
                       <h3 className="product-card-title">{geminiProd.name}</h3>
                       <div className="product-card-subtitle">Google One AI Premium (18 Months)</div>
                     </div>
                   </div>
                   {geminiProd.availableStock && geminiProd.availableStock > 0 ? (
-                    <span className="badge-pill-green">✓ {geminiProd.availableStock} {t.inStock}</span>
+                    <span className="badge-pill-green">{geminiProd.availableStock} {t.inStock}</span>
                   ) : (
                     <span className="badge-pill-red">{t.soldOut}</span>
                   )}
@@ -282,7 +305,7 @@ export const App: React.FC = () => {
                 <ul className="feature-checklist">
                   {t.geminiFeatures.map((feat, idx) => (
                     <li key={idx}>
-                      <span className="feature-check-icon">✓</span>
+                      <span className="feature-check-icon"><CheckIcon size={14} color="#10B981" /></span>
                       <span>{feat}</span>
                     </li>
                   ))}
@@ -298,7 +321,7 @@ export const App: React.FC = () => {
                   disabled={!geminiProd.availableStock || geminiProd.availableStock <= 0 || submittingOrder}
                   onClick={() => handleStartPurchase('gemini_pro_18m')}
                 >
-                  {geminiProd.availableStock && geminiProd.availableStock > 0 ? `⚡ ${t.buyNow} — 1,500 ETB` : t.soldOut}
+                  {geminiProd.availableStock && geminiProd.availableStock > 0 ? `${t.buyNow} — 1,500 ETB` : t.soldOut}
                 </button>
               </div>
             )}
@@ -308,19 +331,21 @@ export const App: React.FC = () => {
               <div className="store-product-card">
                 <div className="product-card-head">
                   <div className="product-identity">
-                    <div className="product-avatar">⭐️</div>
+                    <div className="product-avatar">
+                      <StarIcon size={22} color="#FCDD09" fill="#FCDD09" />
+                    </div>
                     <div>
                       <h3 className="product-card-title">{premProd.name}</h3>
                       <div className="product-card-subtitle">Official Fragment Gift to @username</div>
                     </div>
                   </div>
-                  <span className="badge-pill-green">✓ Official</span>
+                  <span className="badge-pill-green">Verified</span>
                 </div>
 
                 <ul className="feature-checklist">
                   {t.premiumFeatures.map((feat, idx) => (
                     <li key={idx}>
-                      <span className="feature-check-icon">✓</span>
+                      <span className="feature-check-icon"><CheckIcon size={14} color="#10B981" /></span>
                       <span>{feat}</span>
                     </li>
                   ))}
@@ -352,7 +377,7 @@ export const App: React.FC = () => {
                   disabled={submittingOrder}
                   onClick={() => handleStartPurchase('telegram_premium', selectedPremiumVariant)}
                 >
-                  ⭐️ {t.buyNow} — Telegram Premium
+                  {t.buyNow} — Telegram Premium
                 </button>
               </div>
             )}
@@ -362,19 +387,21 @@ export const App: React.FC = () => {
               <div className="store-product-card">
                 <div className="product-card-head">
                   <div className="product-identity">
-                    <div className="product-avatar">🪙</div>
+                    <div className="product-avatar">
+                      <CoinIcon size={22} color="#38BDF8" />
+                    </div>
                     <div>
                       <h3 className="product-card-title">{starsProd.name}</h3>
                       <div className="product-card-subtitle">1 Star = {etbPerStar} ETB</div>
                     </div>
                   </div>
-                  <span className="badge-pill-green">✓ Instant</span>
+                  <span className="badge-pill-green">Instant</span>
                 </div>
 
                 <ul className="feature-checklist">
                   {t.starsFeatures.map((feat, idx) => (
                     <li key={idx}>
-                      <span className="feature-check-icon">✓</span>
+                      <span className="feature-check-icon"><CheckIcon size={14} color="#10B981" /></span>
                       <span>{feat}</span>
                     </li>
                   ))}
@@ -401,7 +428,7 @@ export const App: React.FC = () => {
                 {/* Interactive Stars Calculator Slider */}
                 <div className="stars-calculator-box">
                   <div className="calc-header">
-                    <span className="calc-title">✨ {t.starsCalculator}</span>
+                    <span className="calc-title">{t.starsCalculator}</span>
                     <span className="calc-price-total">{Math.ceil(customStarsCount * etbPerStar).toLocaleString()} ETB</span>
                   </div>
 
@@ -430,7 +457,7 @@ export const App: React.FC = () => {
                           triggerHaptic();
                         }}
                       >
-                        {count.toLocaleString()} ⭐
+                        {count.toLocaleString()} Stars
                       </span>
                     ))}
                   </div>
@@ -447,7 +474,7 @@ export const App: React.FC = () => {
                     }
                   }}
                 >
-                  🪙 {t.buyNow} — Telegram Stars
+                  {t.buyNow} — Telegram Stars
                 </button>
               </div>
             )}
@@ -457,11 +484,11 @@ export const App: React.FC = () => {
         {/* Orders Screen */}
         {activeTab === 'orders' && (
           <div>
-            <div className="section-headline">📦 {t.myOrders}</div>
+            <div className="section-headline">{t.myOrders}</div>
             {orders.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)' }}>
-                <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🛍</div>
-                <div style={{ fontWeight: 800, color: 'var(--text-pure)', fontSize: '1.1rem', marginBottom: '6px' }}>{t.noOrders}</div>
+                <PackageIcon size={44} color="#64748B" />
+                <div style={{ fontWeight: 800, color: 'var(--text-pure)', fontSize: '1.1rem', marginTop: '12px', marginBottom: '6px' }}>{t.noOrders}</div>
                 <p style={{ fontSize: '0.85rem' }}>{t.noOrdersDesc}</p>
                 <button
                   className="btn-action-main"
@@ -501,8 +528,8 @@ export const App: React.FC = () => {
         {/* Support Screen */}
         {activeTab === 'support' && (
           <div className="support-box-clean">
-            <div style={{ fontSize: '3rem', marginBottom: '14px' }}>💬</div>
-            <h2 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '8px' }}>{t.needHelp}</h2>
+            <MessageCircleIcon size={48} color="#078930" />
+            <h2 style={{ fontSize: '1.3rem', fontWeight: 800, marginTop: '12px', marginBottom: '8px' }}>{t.needHelp}</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginBottom: '24px', lineHeight: 1.5 }}>
               {t.supportDesc}
             </p>
@@ -517,7 +544,7 @@ export const App: React.FC = () => {
                 }
               }}
             >
-              💬 {t.contactSupport}
+              {t.contactSupport}
             </button>
           </div>
         )}
@@ -529,8 +556,8 @@ export const App: React.FC = () => {
           <div className="modal-bottom-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-grab-bar"></div>
             <div className="modal-header-row">
-              <h3 className="modal-head-title">⚠️ {t.usernameRequiredTitle}</h3>
-              <button className="modal-close-icon" onClick={() => setGateOpen(false)}>×</button>
+              <h3 className="modal-head-title">{t.usernameRequiredTitle}</h3>
+              <button className="modal-close-icon" onClick={() => setGateOpen(false)}><CloseIcon size={18} /></button>
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginBottom: '16px', lineHeight: 1.5 }}>
               {t.usernameRequiredDesc}
@@ -551,25 +578,25 @@ export const App: React.FC = () => {
                 }
               }}
             >
-              🔄 {t.recheckUsername}
+              {t.recheckUsername}
             </button>
           </div>
         </div>
       )}
 
-      {/* 3-Step Guided Checkout Bottom Sheet */}
+      {/* Guided Checkout Bottom Sheet */}
       {checkoutModalOpen && checkoutOrder && (
         <div className="modal-backdrop-blur" onClick={() => setCheckoutModalOpen(false)}>
           <div className="modal-bottom-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-grab-bar"></div>
             <div className="modal-header-row">
-              <h3 className="modal-head-title">🛒 {t.step1Title}</h3>
-              <button className="modal-close-icon" onClick={() => setCheckoutModalOpen(false)}>×</button>
+              <h3 className="modal-head-title">{t.step1Title}</h3>
+              <button className="modal-close-icon" onClick={() => setCheckoutModalOpen(false)}><CloseIcon size={18} /></button>
             </div>
 
-            {/* Step Wizard Indicator */}
+            {/* Order Highlight Bar */}
             <div className="step-wizard-bar">
-              <span className="step-circle">1</span>
+              <span className="step-circle"><CheckIcon size={12} color="#fff" /></span>
               <span className="step-label-text">#{checkoutOrder.id} • {checkoutOrder.amount_etb.toLocaleString()} ETB</span>
             </div>
 
@@ -589,11 +616,11 @@ export const App: React.FC = () => {
                   }}
                 >
                   <div className="bank-logo-text">
-                    {rail === 'cbe' && '🏛 CBE'}
-                    {rail === 'telebirr' && '📱 Telebirr'}
-                    {rail === 'abyssinia' && '🏦 Abyssinia'}
-                    {rail === 'stars' && '⭐️ Stars'}
-                    {rail === 'wallet_pay' && '💎 Crypto'}
+                    {rail === 'cbe' && <><BankIcon size={18} color="#A78BFA" /> CBE</>}
+                    {rail === 'telebirr' && <><PhoneIcon size={18} color="#00A651" /> Telebirr</>}
+                    {rail === 'abyssinia' && <><BankIcon size={18} color="#F59E0B" /> Abyssinia</>}
+                    {rail === 'stars' && <><StarIcon size={18} color="#38BDF8" fill="#38BDF8" /> Stars</>}
+                    {rail === 'wallet_pay' && <><CryptoIcon size={18} color="#06B6D4" /> Crypto</>}
                   </div>
                   <div className="bank-desc-tag">
                     {rail === 'cbe' && 'Commercial Bank'}
@@ -617,7 +644,7 @@ export const App: React.FC = () => {
                   <div className="acc-number-copy">
                     <span className="acc-value">{data?.settings.cbe_account || '1000510711258'}</span>
                     <button className="btn-copy-chip" onClick={() => copyToClipboard(data?.settings.cbe_account || '1000510711258', 'cbe')}>
-                      {copiedKey === 'cbe' ? t.copied : t.copyAccount}
+                      {copiedKey === 'cbe' ? t.copied : <><CopyIcon size={12} /> {t.copyAccount}</>}
                     </button>
                   </div>
                 </div>
@@ -638,7 +665,7 @@ export const App: React.FC = () => {
                   <div className="acc-number-copy">
                     <span className="acc-value">{data?.settings.telebirr_account || '0965579045'}</span>
                     <button className="btn-copy-chip" onClick={() => copyToClipboard(data?.settings.telebirr_account || '0965579045', 'telebirr')}>
-                      {copiedKey === 'telebirr' ? t.copied : t.copyAccount}
+                      {copiedKey === 'telebirr' ? t.copied : <><CopyIcon size={12} /> {t.copyAccount}</>}
                     </button>
                   </div>
                 </div>
@@ -659,7 +686,7 @@ export const App: React.FC = () => {
                   <div className="acc-number-copy">
                     <span className="acc-value">{data?.settings.abyssinia_account || 'Abyssinia Bank Account'}</span>
                     <button className="btn-copy-chip" onClick={() => copyToClipboard(data?.settings.abyssinia_account || 'Abyssinia Bank Account', 'abyssinia')}>
-                      {copiedKey === 'abyssinia' ? t.copied : t.copyAccount}
+                      {copiedKey === 'abyssinia' ? t.copied : <><CopyIcon size={12} /> {t.copyAccount}</>}
                     </button>
                   </div>
                 </div>
@@ -673,13 +700,13 @@ export const App: React.FC = () => {
             {/* Stars & Crypto Actions */}
             {selectedRail === 'stars' && (
               <button className="btn-action-main" onClick={handlePayWithStars} style={{ marginBottom: '10px' }}>
-                ⭐️ Open Telegram Stars Invoice
+                Open Telegram Stars Invoice
               </button>
             )}
 
             {selectedRail === 'wallet_pay' && (
               <button className="btn-action-main" onClick={handlePayWithWallet} style={{ marginBottom: '10px' }}>
-                💎 Pay with TON / USDT
+                Pay with TON / USDT
               </button>
             )}
 
@@ -688,14 +715,14 @@ export const App: React.FC = () => {
               <div>
                 {receiptSuccess ? (
                   <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid var(--eth-green-light)', padding: '16px', borderRadius: 'var(--radius-md)', textAlign: 'center', color: 'var(--eth-green-light)', fontSize: '0.92rem', fontWeight: 700 }}>
-                    ✅ Receipt submitted! Our administrators are verifying your transfer.
+                    Receipt submitted successfully. Our administrators are verifying your transfer.
                   </div>
                 ) : (
                   <div>
                     <div className="receipt-upload-container">
                       <label style={{ cursor: 'pointer', display: 'block' }}>
-                        <div style={{ fontSize: '1.8rem', marginBottom: '6px' }}>📸</div>
-                        <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-pure)' }}>{t.uploadReceipt}</div>
+                        <UploadCloudIcon size={32} color="#078930" />
+                        <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-pure)', marginTop: '6px' }}>{t.uploadReceipt}</div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>Tap to select photo from gallery</div>
                         <input
                           type="file"
@@ -711,7 +738,7 @@ export const App: React.FC = () => {
 
                     <input
                       type="text"
-                      placeholder="Optional transaction reference / transfer name"
+                      placeholder="Optional transfer note or transaction reference"
                       value={receiptNote}
                       onChange={(e) => setReceiptNote(e.target.value)}
                       style={{ width: '100%', background: 'var(--bg-input)', border: '1px solid var(--border-subtle)', padding: '12px', borderRadius: 'var(--radius-sm)', color: 'var(--text-pure)', fontSize: '0.88rem', outline: 'none', marginBottom: '16px' }}
@@ -722,7 +749,7 @@ export const App: React.FC = () => {
                       disabled={uploadingReceipt || !receiptBase64}
                       onClick={handleSubmitReceipt}
                     >
-                      {uploadingReceipt ? t.submitting : `📸 ${t.submitPayment}`}
+                      {uploadingReceipt ? t.submitting : t.submitPayment}
                     </button>
                   </div>
                 )}
@@ -738,8 +765,8 @@ export const App: React.FC = () => {
           <div className="modal-bottom-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-grab-bar"></div>
             <div className="modal-header-row">
-              <h3 className="modal-head-title">📄 Order #{selectedDetailOrder.id}</h3>
-              <button className="modal-close-icon" onClick={() => setSelectedDetailOrder(null)}>×</button>
+              <h3 className="modal-head-title">Order #{selectedDetailOrder.id}</h3>
+              <button className="modal-close-icon" onClick={() => setSelectedDetailOrder(null)}><CloseIcon size={18} /></button>
             </div>
 
             <div style={{ background: 'var(--bg-input)', padding: '16px', borderRadius: 'var(--radius-md)', marginBottom: '16px', lineHeight: 1.6, fontSize: '0.88rem' }}>
@@ -751,7 +778,7 @@ export const App: React.FC = () => {
 
             {selectedDetailOrder.fulfillment_payload && (
               <div style={{ background: 'rgba(7, 137, 48, 0.15)', border: '1px solid var(--eth-green)', padding: '16px', borderRadius: 'var(--radius-md)', marginBottom: '16px' }}>
-                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--eth-green-light)', marginBottom: '6px' }}>🎉 {t.activationLink}:</div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--eth-green-light)', marginBottom: '6px' }}>{t.activationLink}:</div>
                 <code style={{ wordBreak: 'break-all', display: 'block', fontSize: '0.85rem', color: 'var(--text-pure)', marginBottom: '12px' }}>
                   {selectedDetailOrder.fulfillment_payload}
                 </code>
@@ -760,7 +787,7 @@ export const App: React.FC = () => {
                   style={{ minHeight: '44px', padding: '10px' }}
                   onClick={() => copyToClipboard(selectedDetailOrder.fulfillment_payload || '', 'link')}
                 >
-                  {copiedKey === 'link' ? t.copied : `📋 ${t.copyLink}`}
+                  {copiedKey === 'link' ? t.copied : t.copyLink}
                 </button>
               </div>
             )}
@@ -781,7 +808,7 @@ export const App: React.FC = () => {
             triggerHaptic();
           }}
         >
-          <span className="tab-icon-svg">🛍</span>
+          <ShoppingBagIcon size={20} />
           <span>{t.catalog}</span>
         </button>
         <button
@@ -791,7 +818,7 @@ export const App: React.FC = () => {
             triggerHaptic();
           }}
         >
-          <span className="tab-icon-svg">📦</span>
+          <PackageIcon size={20} />
           <span>{t.myOrders}</span>
         </button>
         <button
@@ -801,7 +828,7 @@ export const App: React.FC = () => {
             triggerHaptic();
           }}
         >
-          <span className="tab-icon-svg">💬</span>
+          <MessageCircleIcon size={20} />
           <span>{t.support}</span>
         </button>
       </nav>

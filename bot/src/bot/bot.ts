@@ -78,13 +78,13 @@ export function createBot(token: string): Bot {
 
   // Register Official Telegram Bot Slash Commands (Admin hidden from public)
   const defaultCommands = [
-    { command: 'start', description: '🚀 Start shop & welcome menu' },
-    { command: 'shop', description: '🛍 Browse products catalog' },
-    { command: 'orders', description: '📦 View your order history' },
-    { command: 'profile', description: '👤 View registered profile & phone' },
-    { command: 'language', description: '🌐 Change language (English/Amharic)' },
-    { command: 'support', description: '💬 Contact customer support (@Vweah)' },
-    { command: 'help', description: '❓ Store FAQs and ordering guide' },
+    { command: 'start', description: 'Start shop and welcome menu' },
+    { command: 'shop', description: 'Browse products catalog' },
+    { command: 'orders', description: 'View order history' },
+    { command: 'profile', description: 'View profile and registered phone' },
+    { command: 'language', description: 'Change language (English / Amharic)' },
+    { command: 'support', description: 'Contact customer support' },
+    { command: 'help', description: 'Store guide and FAQs' },
   ];
 
   bot.api.setMyCommands(defaultCommands).catch((err) => {
@@ -97,7 +97,7 @@ export function createBot(token: string): Bot {
     bot.api.setMyCommands(
       [
         ...defaultCommands,
-        { command: 'admin', description: '⚙️ Admin control panel' },
+        { command: 'admin', description: 'Admin control panel' },
       ],
       { scope: { type: 'chat', chat_id: adminId } }
     ).catch(() => {});
@@ -134,7 +134,7 @@ export function createBot(token: string): Bot {
   bot.command('ping', pingHandler);
 
   // Persistent Reply Keyboard Button Handlers (Hears exact button labels)
-  bot.hears(/🛍 Browse Shop|🛍 ሱቅ አስስ/i, async (ctx) => {
+  bot.hears(/Browse Shop|Shop|ሱቅ/i, async (ctx) => {
     if (ctx.from && !isUserRegistered(ctx.from.id)) {
       await promptPhoneRegistration(ctx);
       return;
@@ -142,7 +142,7 @@ export function createBot(token: string): Bot {
     await renderCatalog(ctx);
   });
 
-  bot.hears(/📦 My Orders|📦 የእኔ ትዕዛዞች/i, async (ctx) => {
+  bot.hears(/My Orders|Orders|ትዕዛዞች/i, async (ctx) => {
     if (ctx.from && !isUserRegistered(ctx.from.id)) {
       await promptPhoneRegistration(ctx);
       return;
@@ -150,7 +150,7 @@ export function createBot(token: string): Bot {
     await renderMyOrders(ctx);
   });
 
-  bot.hears(/👤 My Profile|👤 የእኔ መረጃ/i, async (ctx) => {
+  bot.hears(/My Profile|Profile|መረጃ/i, async (ctx) => {
     if (ctx.from && !isUserRegistered(ctx.from.id)) {
       await promptPhoneRegistration(ctx);
       return;
@@ -158,8 +158,8 @@ export function createBot(token: string): Bot {
     await renderProfile(ctx);
   });
 
-  bot.hears(/🌐 Language|🌐 ቋንቋ/i, renderLanguageMenu);
-  bot.hears(/💬 Support|💬 ድጋፍ/i, renderSupport);
+  bot.hears(/Language|ቋንቋ/i, renderLanguageMenu);
+  bot.hears(/Support|ድጋፍ/i, renderSupport);
 
   // Contact Sharing Handler (Native Telegram button)
   bot.on('message:contact', async (ctx) => {

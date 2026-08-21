@@ -131,12 +131,12 @@ describe('Phase 3: End-to-End Purchases, Gate, Delivery & Order History', () => 
     });
 
     it('formats human readable status badges correctly', () => {
-      expect(getStatusBadge('fulfilled')).toBe('✅ Delivered');
-      expect(getStatusBadge('pending_fulfillment')).toBe('⏳ Processing');
-      expect(getStatusBadge('pending_approval')).toBe('⏳ Verifying Receipt');
-      expect(getStatusBadge('awaiting_payment')).toBe('💳 Awaiting Payment');
-      expect(getStatusBadge('rejected')).toBe('❌ Rejected');
-      expect(getStatusBadge('cancelled')).toBe('🚫 Cancelled');
+      expect(getStatusBadge('fulfilled')).toBe('Delivered');
+      expect(getStatusBadge('pending_fulfillment')).toBe('Processing');
+      expect(getStatusBadge('pending_approval')).toBe('Under Review');
+      expect(getStatusBadge('awaiting_payment')).toBe('Awaiting Payment');
+      expect(getStatusBadge('rejected')).toBe('Rejected');
+      expect(getStatusBadge('cancelled')).toBe('Cancelled');
     });
 
     it('persists user language preference', () => {

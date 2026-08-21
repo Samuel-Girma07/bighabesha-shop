@@ -5,18 +5,17 @@ export async function renderSupport(ctx: Context): Promise<void> {
   const config = getConfig();
   const supportHandle = config.SUPPORT_USERNAME || 'Vweah';
 
-  const text = '💬 *Bighabesha Shop — Customer Support & Help*\n\n' +
-    `Have questions about your order, activation links, or need assistance with bank transfers?\n\n` +
-    `• *Official Support:* @${supportHandle}\n` +
-    `• *Response Time:* Usually within 5–15 minutes\n` +
-    `• *Available Rails:* Telebirr, CBE, Bank of Abyssinia, Telegram Stars & TON/USDT\n\n` +
-    `_Tap the button below to start a direct chat with our support team:_`;
+  const text = '*Bighabesha Shop — Customer Support*\n\n' +
+    `Need assistance with an activation link, payment confirmation, or custom star order?\n\n` +
+    `• Support Agent: @${supportHandle}\n` +
+    `• Available Rails: Telebirr, CBE, Bank of Abyssinia, Telegram Stars & TON/USDT\n\n` +
+    `_Tap below to open a direct chat with support:_`;
 
   const keyboard = new InlineKeyboard()
-    .url('💬 Chat with Support (@Vweah)', `https://t.me/${supportHandle}`)
+    .url(`Chat with Support (@${supportHandle})`, `https://t.me/${supportHandle}`)
     .row()
-    .text('🛍 Browse Shop', 'nav_shop')
-    .text('📦 My Orders', 'nav_orders');
+    .text('Browse Shop', 'nav_shop')
+    .text('My Orders', 'nav_orders');
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
@@ -29,26 +28,26 @@ export async function renderSupport(ctx: Context): Promise<void> {
 }
 
 export async function renderHelp(ctx: Context): Promise<void> {
-  const text = '❓ *Bighabesha Shop — Guide & Help Center*\n\n' +
+  const text = '*Bighabesha Shop — Help & Ordering Guide*\n\n' +
+    '*Product Summary:*\n' +
+    '• *Gemini Pro (18 Months):* Single-use activation link delivered in-chat.\n' +
+    '• *Telegram Premium (3/6/12m):* Direct gift to your @username via Fragment.\n' +
+    '• *Telegram Stars:* Sent to your @username in packages or custom quantities.\n\n' +
     '*How to Order:*\n' +
-    '1. Tap **🛍 Browse Shop** or use `/shop`.\n' +
-    '2. Select your desired product:\n' +
-    '   • *Gemini Pro (18 Months):* Instant link delivered directly in-chat.\n' +
-    '   • *Telegram Premium (3/6/12m):* Gifted to your `@username` via Fragment.\n' +
-    '   • *Telegram Stars:* Sent to your `@username` (packages or custom amounts).\n' +
-    '3. Choose your payment method (Telebirr, CBE, Abyssinia, Stars, or Crypto).\n' +
-    '4. For bank transfers, upload your receipt screenshot in chat.\n\n' +
-    '*Commands List:*\n' +
-    '• `/shop` — Browse products\n' +
-    '• `/orders` — View your orders & activation links\n' +
-    '• `/profile` — View registered phone number & details\n' +
-    '• `/language` — Change language preference\n' +
-    '• `/support` — Contact support\n' +
-    '• `/help` — View this guide';
+    '1. Use `/shop` or tap **[Browse Shop]**.\n' +
+    '2. Select your plan or star amount.\n' +
+    '3. Choose your payment method and complete transfer.\n' +
+    '4. Attach your receipt photo for automated verification.\n\n' +
+    '*Commands:*\n' +
+    '• `/shop` — Products catalog\n' +
+    '• `/orders` — Order history & links\n' +
+    '• `/profile` — Account profile\n' +
+    '• `/language` — Language switch\n' +
+    '• `/support` — Customer support';
 
   const keyboard = new InlineKeyboard()
-    .text('🛍 Start Shopping', 'nav_shop')
-    .text('💬 Contact Support', 'nav_support');
+    .text('Browse Shop', 'nav_shop')
+    .text('Contact Support', 'nav_support');
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });

@@ -21,22 +21,22 @@ export async function renderUsernameGate(
 ): Promise<void> {
   const config = getConfig();
 
-  const text = `⚠️ *Telegram Username Required*\n\n` +
-    `To fulfill your **Telegram Premium** subscription or **Telegram Stars** delivery, your Telegram account must have a public **@username** set.\n\n` +
-    `*How to set your username in 3 quick steps:*\n` +
-    `1️⃣ Open Telegram **Settings**\n` +
-    `2️⃣ Tap **Edit Profile** (or **My Account**) → **Username**\n` +
-    `3️⃣ Type a unique public username and save\n\n` +
-    `Once created, tap **[🔄 I created it — recheck]** below to continue your purchase:`;
+  const text = `*Telegram Username Required*\n\n` +
+    `To fulfill your **Telegram Premium** subscription or **Telegram Stars** order via Fragment, your Telegram account must have a public **@username** set.\n\n` +
+    `*Setup Steps:*\n` +
+    `1. Open Telegram **Settings**\n` +
+    `2. Tap **Edit Profile** (or **My Account**) → **Username**\n` +
+    `3. Enter a public username and save\n\n` +
+    `Once saved, tap **[Recheck Profile]** below to continue:`;
 
   const recheckPayload = customStars && customAmountETB
     ? `gate_recheck_${productId}_custom_${customStars}_${customAmountETB}`
     : `gate_recheck_${productId}_${variantId || 'default'}`;
 
   const keyboard = new InlineKeyboard()
-    .text('🔄 I created it — recheck', recheckPayload)
+    .text('Recheck Profile', recheckPayload)
     .row()
-    .url('💬 Contact Support', `https://t.me/${config.SUPPORT_USERNAME}`)
+    .url('Contact Support', `https://t.me/${config.SUPPORT_USERNAME}`)
     .row()
     .text('« Cancel', 'nav_shop');
 
