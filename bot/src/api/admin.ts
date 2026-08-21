@@ -149,14 +149,17 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
 // Protected Dashboard Endpoints
 // -------------------------------------------------------------
 
-// 1. Overview & Analytics Metrics
-adminRouter.get('/overview', requireAdminAuth, (_req: Request, res: Response): void => {
+// 1. Overview & Analytics Metrics (Real Database Data)
+adminRouter.get('/overview', requireAdminAuth, (req: Request, res: Response): void => {
   const db = getDatabase();
+  const timeRange = (req.query.range as string) || '6M';
 
+  // 1. Total lifetime revenue from fulfilled orders
   const totalRevenue = db.prepare(
     "SELECT COALESCE(SUM(amount_etb), 0) as total FROM orders WHERE status = 'fulfilled'"
   ).get() as { total: number };
 
+  // 2. Orders status breakdown
   const ordersCount = db.prepare(
     "SELECT COUNT(*) as total, " +
     "SUM(CASE WHEN status = 'fulfilled' THEN 1 ELSE 0 END) as fulfilled, " +
@@ -166,16 +169,113 @@ adminRouter.get('/overview', requireAdminAuth, (_req: Request, res: Response): v
     "FROM orders"
   ).get() as any;
 
-  const usersCount = db.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN is_registered = 1 THEN 1 ELSE 0 END) as registered FROM users").get() as any;
+  // 3. User counts
+  const usersCount = db.prepare(
+    "SELECT COUNT(*) as total, SUM(CASE WHEN is_registered = 1 THEN 1 ELSE 0 END) as registered FROM users"
+  ).get() as any;
 
+  // 4. Gemini Stock
   const geminiStock = getAvailableStockCount('gemini_pro_18m');
 
+  // 5. Payment Rail Breakdown
   const railBreakdown = db.prepare(
     "SELECT payment_rail, COUNT(*) as count, SUM(amount_etb) as total_etb FROM orders WHERE status = 'fulfilled' GROUP BY payment_rail"
   ).all();
 
+  // 6. Product Revenue Breakdown (2x2 grid)
+  const productStats = [
+    { id: 'gemini_pro_18m', name: 'Gemini Pro (18M)', code: 'GEMINI' },
+    { id: 'telegram_premium', name: 'Telegram Premium', code: 'PREM' },
+    { id: 'telegram_stars', name: 'Telegram Stars', code: 'STARS' },
+  ].map((p) => {
+    const row = db.prepare(
+      "SELECT COUNT(*) as units, COALESCE(SUM(amount_etb), 0) as revenue FROM orders WHERE product_id = ? AND status = 'fulfilled'"
+    ).get(p.id) as { units: number; revenue: number };
+    const pct = totalRevenue.total > 0 ? ((row.revenue / totalRevenue.total) * 100).toFixed(1) : '0';
+    return {
+      id: p.id,
+      name: p.name,
+      code: p.code,
+      units: row.units || 0,
+      revenue: row.revenue || 0,
+      pctOfTotal: `${pct}%`,
+    };
+  });
+
+  // 7. Dynamic Timeline Chart Data based on timeRange
+  const chartPoints: { label: string; revenue: number; orders: number }[] = [];
+
+  if (timeRange === '1D') {
+    // Hourly for today
+    for (let h = 0; h < 24; h += 3) {
+      const hourStr = h.toString().padStart(2, '0');
+      const row = db.prepare(
+        "SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND strftime('%H', created_at) = ?"
+      ).get(hourStr) as any;
+      chartPoints.push({
+        label: `${hourStr}:00`,
+        revenue: row?.rev || 0,
+        orders: row?.count || 0,
+      });
+    }
+  } else if (timeRange === '1W') {
+    // Last 7 days
+    for (let d = 6; d >= 0; d--) {
+      const date = new Date();
+      date.setDate(date.getDate() - d);
+      const dateStr = date.toISOString().split('T')[0];
+      const dayLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
+      const row = db.prepare(
+        "SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND date(created_at) = date(?)"
+      ).get(dateStr) as any;
+      chartPoints.push({
+        label: dayLabel,
+        revenue: row?.rev || 0,
+        orders: row?.count || 0,
+      });
+    }
+  } else if (timeRange === '1M') {
+    // 4 Weeks
+    for (let w = 3; w >= 0; w--) {
+      const weekLabel = `W${4 - w}`;
+      const startDaysAgo = (w + 1) * 7;
+      const endDaysAgo = w * 7;
+      const row = db.prepare(
+        "SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND created_at >= datetime('now', '-' || ? || ' days') AND created_at < datetime('now', '-' || ? || ' days')"
+      ).get(startDaysAgo, endDaysAgo) as any;
+      chartPoints.push({
+        label: weekLabel,
+        revenue: row?.rev || 0,
+        orders: row?.count || 0,
+      });
+    }
+  } else {
+    // 6M or 1Y: Monthly buckets
+    const monthsCount = timeRange === '1Y' ? 12 : 6;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const now = new Date();
+    for (let i = monthsCount - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mIdx = d.getMonth();
+      const monthLabel = months[mIdx];
+      const monthFormatted = (mIdx + 1).toString().padStart(2, '0');
+      const yearStr = d.getFullYear().toString();
+
+      const row = db.prepare(
+        "SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND strftime('%m', created_at) = ? AND strftime('%Y', created_at) = ?"
+      ).get(monthFormatted, yearStr) as any;
+
+      chartPoints.push({
+        label: monthLabel,
+        revenue: row?.rev || 0,
+        orders: row?.count || 0,
+      });
+    }
+  }
+
+  // 8. Recent 5 orders for Watchlist card
   const recentOrders = db.prepare(
-    "SELECT * FROM orders ORDER BY created_at DESC LIMIT 8"
+    "SELECT id, user_id, username, product_id, amount_etb, payment_rail, status, created_at FROM orders ORDER BY created_at DESC LIMIT 5"
   ).all();
 
   res.json({
@@ -185,10 +285,13 @@ adminRouter.get('/overview', requireAdminAuth, (_req: Request, res: Response): v
       fulfilledOrders: ordersCount.fulfilled || 0,
       pendingApprovalOrders: ordersCount.pendingApproval || 0,
       pendingFulfillmentOrders: ordersCount.pendingFulfillment || 0,
+      awaitingPaymentOrders: ordersCount.awaitingPayment || 0,
       totalUsers: usersCount.total || 0,
       registeredUsers: usersCount.registered || 0,
       geminiStockAvailable: geminiStock,
     },
+    productStats,
+    chartPoints,
     railBreakdown,
     recentOrders,
   });

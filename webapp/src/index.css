@@ -1,20 +1,21 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+Ethiopic:wght@400;600;700;800&display=swap');
 
 :root {
-  --bg-main: #0B111A;
-  --bg-card: #16202E;
-  --bg-card-hover: #1E2B3E;
-  --bg-input: #101722;
-  --bg-accent-soft: rgba(7, 137, 48, 0.12);
+  --bg-main: #070A0F;
+  --bg-card: #0E141D;
+  --bg-card-hover: #141C28;
+  --bg-input: #0B0F16;
+  --bg-accent-soft: rgba(5, 150, 105, 0.12);
   
-  --eth-green: #078930;
+  --eth-green: #008A45;
   --eth-green-light: #10B981;
+  --eth-green-emerald: #059669;
   --eth-yellow: #FCDD09;
   --eth-yellow-warm: #F59E0B;
   --eth-red: #EF4444;
   
-  --color-telebirr: #00A651;
-  --color-cbe: #8B5CF6;
+  --color-telebirr: #008A45;
+  --color-cbe: #10B981;
   --color-abyssinia: #F59E0B;
   --color-stars: #38BDF8;
   
@@ -23,15 +24,15 @@
   --text-faint: #64748B;
   
   --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-active: rgba(252, 221, 9, 0.4);
+  --border-active: rgba(16, 185, 129, 0.4);
   
   --radius-sm: 8px;
   --radius-md: 14px;
   --radius-lg: 20px;
   --radius-full: 9999px;
   
-  --shadow-card: 0 10px 30px -5px rgba(0, 0, 0, 0.4);
-  --shadow-btn: 0 4px 20px rgba(7, 137, 48, 0.3);
+  --shadow-card: 0 10px 30px -5px rgba(0, 0, 0, 0.6);
+  --shadow-btn: 0 4px 20px rgba(5, 150, 105, 0.35);
 }
 
 * {

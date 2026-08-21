@@ -32,11 +32,18 @@ export const AdminDashboard: React.FC = () => {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
-  // Data States
+  // Overview & Analytics Data (100% Real from Database)
   const [overview, setOverview] = useState<any>(null);
-  const [orders, setOrders] = useState<any[]>([]);
+  const [timeRange, setTimeRange] = useState<string>('6M');
+  const [hoveredPoint, setHoveredPoint] = useState<any | null>(null);
+
+  // Filter & Search States
+  const [categoryRail, setCategoryRail] = useState<string>('all');
   const [orderFilter, setOrderFilter] = useState<string>('all');
   const [orderSearch, setOrderSearch] = useState<string>('');
+  const [orders, setOrders] = useState<any[]>([]);
+
+  // Stock, Users & Settings States
   const [stockData, setStockData] = useState<{ summary: any; items: any[] }>({ summary: {}, items: [] });
   const [bulkLinks, setBulkLinks] = useState('');
   const [users, setUsers] = useState<any[]>([]);
@@ -59,7 +66,7 @@ export const AdminDashboard: React.FC = () => {
   const loadAllAdminData = async () => {
     try {
       const [ov, ords, stk, usrs, stgs] = await Promise.all([
-        fetchAdminOverviewApi().catch(() => null),
+        fetchAdminOverviewApi(timeRange).catch(() => null),
         fetchAdminOrdersApi(orderFilter, orderSearch).catch(() => ({ orders: [] })),
         fetchAdminStockApi().catch(() => ({ summary: {}, items: [] })),
         fetchAdminUsersApi().catch(() => ({ users: [] })),
@@ -80,7 +87,7 @@ export const AdminDashboard: React.FC = () => {
     if (isLoggedIn) {
       loadAllAdminData();
     }
-  }, [isLoggedIn, orderFilter]);
+  }, [isLoggedIn, orderFilter, timeRange]);
 
   // Auth Handlers
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -121,9 +128,9 @@ export const AdminDashboard: React.FC = () => {
     setOtp('');
   };
 
-  // Order Action Handlers
+  // Order Actions
   const handleApprove = async (orderId: string) => {
-    if (!confirm(`Approve order #${orderId}? This will immediately deliver links/notify the buyer.`)) return;
+    if (!confirm(`Approve order #${orderId}? This will auto-deliver activation links / notify buyer immediately.`)) return;
     try {
       await approveOrderApi(orderId);
       loadAllAdminData();
@@ -160,12 +167,12 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  // Stock Handlers
+  // Stock Actions
   const handleAddStock = async () => {
     if (!bulkLinks.trim()) return;
     try {
       const res = await addStockLinksApi(bulkLinks);
-      alert(`Successfully added ${res.addedCount} Gemini activation links!`);
+      alert(`Added ${res.addedCount} Gemini activation links to stock.`);
       setBulkLinks('');
       loadAllAdminData();
     } catch (err: any) {
@@ -174,7 +181,7 @@ export const AdminDashboard: React.FC = () => {
   };
 
   const handleDeleteStock = async (id: string) => {
-    if (!confirm('Delete this unused stock item?')) return;
+    if (!confirm('Delete this stock item?')) return;
     try {
       await deleteStockItemApi(id);
       loadAllAdminData();
@@ -183,7 +190,7 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  // Settings Handlers
+  // Settings Actions
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -196,13 +203,13 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  // Broadcast Handler
+  // Broadcast Action
   const handleSendBroadcast = async () => {
     if (!broadcastMessage.trim()) {
-      alert('Please enter a broadcast message.');
+      alert('Please enter a message to broadcast.');
       return;
     }
-    if (!confirm(`Are you sure you want to broadcast this message to ${broadcastTarget.toUpperCase()} users?`)) return;
+    if (!confirm(`Broadcast this message to ${broadcastTarget.toUpperCase()} users?`)) return;
 
     setBroadcasting(true);
     setBroadcastResult(null);
@@ -222,67 +229,62 @@ export const AdminDashboard: React.FC = () => {
   // -------------------------------------------------------------
   if (!isLoggedIn) {
     return (
-      <div className="admin-login-wrap">
-        <div className="admin-login-card">
-          <div style={{ fontSize: '2.5rem', marginBottom: '8px' }}>🔐</div>
-          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#FFFFFF' }}>Bighabesha Admin Portal</h2>
-          <p style={{ fontSize: '0.85rem', color: '#94A3B8', marginTop: '4px', marginBottom: '24px' }}>
-            {require2FA ? 'Enter the 6-digit 2FA code sent to your Telegram' : 'Enter master password to access system'}
+      <div className="admin-viewport" style={{ alignItems: 'center' }}>
+        <div style={{ background: '#0E131B', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '24px', padding: '40px 32px', width: '100%', maxWidth: '420px', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.7)' }}>
+          <div style={{ width: '48px', height: '48px', borderRadius: '16px', background: 'linear-gradient(135deg, #059669 0%, #008A45 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto', fontSize: '1.4rem', fontWeight: 800, color: '#fff', boxShadow: '0 4px 20px rgba(5, 150, 105, 0.4)' }}>
+            B
+          </div>
+          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#FFFFFF', margin: '0 0 6px 0' }}>Bighabesha Admin</h2>
+          <p style={{ fontSize: '0.85rem', color: '#94A3B8', margin: '0 0 24px 0' }}>
+            {require2FA ? 'Enter the 6-digit 2FA code sent to your Telegram' : 'Sign in with your master password'}
           </p>
 
           {authError && (
-            <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #EF4444', padding: '10px', borderRadius: '8px', color: '#FCA5A5', fontSize: '0.85rem', marginBottom: '16px' }}>
+            <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #EF4444', padding: '10px', borderRadius: '10px', color: '#FCA5A5', fontSize: '0.85rem', marginBottom: '16px' }}>
               {authError}
             </div>
           )}
 
           {!require2FA ? (
             <form onSubmit={handleLoginSubmit}>
-              <div className="form-group" style={{ textAlign: 'left' }}>
-                <label className="form-label">Master Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="admin-input"
-                  placeholder="Enter admin password"
-                  required
-                />
-              </div>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{ width: '100%', background: '#131A24', border: '1px solid rgba(255,255,255,0.1)', padding: '12px 14px', borderRadius: '12px', color: '#fff', fontSize: '0.92rem', outline: 'none', boxSizing: 'border-box', marginBottom: '16px' }}
+                placeholder="Enter master password"
+                required
+              />
               <button
                 type="submit"
                 disabled={authLoading || !password}
-                style={{ width: '100%', background: '#078930', color: '#fff', padding: '12px', borderRadius: '8px', border: 'none', fontWeight: 800, fontSize: '0.95rem', cursor: 'pointer', marginTop: '10px' }}
+                style={{ width: '100%', background: 'linear-gradient(135deg, #059669 0%, #008A45 100%)', color: '#fff', padding: '12px', borderRadius: '12px', border: 'none', fontWeight: 800, fontSize: '0.95rem', cursor: 'pointer', boxShadow: '0 4px 15px rgba(5, 150, 105, 0.4)' }}
               >
-                {authLoading ? 'Verifying...' : 'Next: Send 2FA Code →'}
+                {authLoading ? 'Verifying...' : 'Next: Send Telegram 2FA Code →'}
               </button>
             </form>
           ) : (
             <form onSubmit={handleVerify2FASubmit}>
-              <div className="form-group" style={{ textAlign: 'left' }}>
-                <label className="form-label">Telegram 2FA OTP Code</label>
-                <input
-                  type="text"
-                  maxLength={6}
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  className="admin-input"
-                  style={{ textAlign: 'center', fontSize: '1.5rem', letterSpacing: '6px', fontWeight: 800 }}
-                  placeholder="000000"
-                  required
-                />
-              </div>
+              <input
+                type="text"
+                maxLength={6}
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                style={{ width: '100%', background: '#131A24', border: '1px solid #059669', padding: '12px 14px', borderRadius: '12px', color: '#fff', fontSize: '1.5rem', fontWeight: 800, textAlign: 'center', letterSpacing: '8px', outline: 'none', boxSizing: 'border-box', marginBottom: '16px' }}
+                placeholder="000000"
+                required
+              />
               <button
                 type="submit"
                 disabled={authLoading || otp.length < 6}
-                style={{ width: '100%', background: '#078930', color: '#fff', padding: '12px', borderRadius: '8px', border: 'none', fontWeight: 800, fontSize: '0.95rem', cursor: 'pointer', marginTop: '10px' }}
+                style={{ width: '100%', background: 'linear-gradient(135deg, #059669 0%, #008A45 100%)', color: '#fff', padding: '12px', borderRadius: '12px', border: 'none', fontWeight: 800, fontSize: '0.95rem', cursor: 'pointer', boxShadow: '0 4px 15px rgba(5, 150, 105, 0.4)' }}
               >
-                {authLoading ? 'Authenticating...' : 'Verify 2FA & Access Dashboard'}
+                {authLoading ? 'Authenticating...' : 'Verify 2FA & Enter Portal'}
               </button>
               <button
                 type="button"
                 onClick={() => setRequire2FA(false)}
-                style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '0.85rem', marginTop: '14px', cursor: 'pointer' }}
+                style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '0.82rem', marginTop: '14px', cursor: 'pointer' }}
               >
                 « Back to Password
               </button>
@@ -293,7 +295,56 @@ export const AdminDashboard: React.FC = () => {
     );
   }
 
-  // Filtered Users
+  // -------------------------------------------------------------
+  // Real SVG Area Chart Renderer
+  // -------------------------------------------------------------
+  const chartPoints: { label: string; revenue: number; orders: number }[] = overview?.chartPoints || [];
+  const maxRevenue = Math.max(...chartPoints.map((p) => p.revenue), 1000);
+
+  const svgWidth = 760;
+  const svgHeight = 150;
+  const paddingX = 30;
+  const paddingY = 20;
+
+  const getCoordinates = () => {
+    if (chartPoints.length === 0) return [];
+    return chartPoints.map((pt, idx) => {
+      const x = paddingX + (idx / Math.max(chartPoints.length - 1, 1)) * (svgWidth - paddingX * 2);
+      const y = svgHeight - paddingY - (pt.revenue / maxRevenue) * (svgHeight - paddingY * 2);
+      return { x, y, pt };
+    });
+  };
+
+  const coords = getCoordinates();
+
+  const createSmoothPath = (points: { x: number; y: number }[]) => {
+    if (points.length === 0) return '';
+    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+
+    let path = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i];
+      const p1 = points[i + 1];
+      const cp1x = p0.x + (p1.x - p0.x) / 2;
+      const cp1y = p0.y;
+      const cp2x = p0.x + (p1.x - p0.x) / 2;
+      const cp2y = p1.y;
+      path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p1.x} ${p1.y}`;
+    }
+    return path;
+  };
+
+  const linePath = createSmoothPath(coords);
+  const areaPath = coords.length > 0
+    ? `${linePath} L ${coords[coords.length - 1].x} ${svgHeight} L ${coords[0].x} ${svgHeight} Z`
+    : '';
+
+  // Filtered Orders & Users
+  const filteredOrders = orders.filter((o) => {
+    if (categoryRail !== 'all' && o.payment_rail !== categoryRail) return false;
+    return true;
+  });
+
   const filteredUsers = users.filter((u) =>
     !userSearch ||
     String(u.id).includes(userSearch) ||
@@ -302,347 +353,460 @@ export const AdminDashboard: React.FC = () => {
   );
 
   // -------------------------------------------------------------
-  // Authenticated Admin Dashboard Workspace
+  // Authenticated Main Workspace
   // -------------------------------------------------------------
   return (
-    <div className="admin-layout">
-      {/* Sidebar Navigation */}
-      <aside className="admin-sidebar">
-        <div className="admin-brand">
-          <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#078930', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#FCDD09' }}>B</div>
-          <div>
-            <div className="admin-brand-title">Bighabesha</div>
-            <span className="admin-brand-tag">Superadmin Control</span>
-          </div>
-        </div>
-
-        <nav className="admin-nav">
-          <button className={`admin-nav-btn ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
-            <span>📊</span> Overview
-          </button>
-          <button className={`admin-nav-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
-            <span>📦</span> Orders &amp; Receipts
-          </button>
-          <button className={`admin-nav-btn ${activeTab === 'stock' ? 'active' : ''}`} onClick={() => setActiveTab('stock')}>
-            <span>🔑</span> Gemini Stock ({stockData.summary.available || 0})
-          </button>
-          <button className={`admin-nav-btn ${activeTab === 'users' ? 'active' : ''}`} onClick={() => setActiveTab('users')}>
-            <span>👥</span> Users &amp; CRM ({users.length})
-          </button>
-          <button className={`admin-nav-btn ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
-            <span>⚙️</span> Store Settings
-          </button>
-          <button className={`admin-nav-btn ${activeTab === 'broadcast' ? 'active' : ''}`} onClick={() => setActiveTab('broadcast')}>
-            <span>📢</span> Broadcast Tool
-          </button>
-        </nav>
-
-        <button className="admin-logout-btn" onClick={handleLogout}>
-          Sign Out
-        </button>
-      </aside>
-
-      {/* Main Content View */}
-      <main className="admin-main">
-        {/* TAB 1: OVERVIEW */}
-        {activeTab === 'overview' && (
-          <div>
-            <div className="admin-header">
-              <div>
-                <h1 className="admin-page-title">Executive Overview</h1>
-                <p className="admin-page-desc">Live performance metrics, revenue volume, and pending queues.</p>
-              </div>
-              <button className="btn-sm-action btn-view" onClick={loadAllAdminData}>🔄 Refresh Data</button>
-            </div>
-
-            {/* KPI Cards */}
-            <div className="kpi-grid">
-              <div className="kpi-card">
-                <div className="kpi-label">Settled Revenue</div>
-                <div className="kpi-value highlight-gold">{(overview?.metrics?.totalRevenueETB || 0).toLocaleString()} ETB</div>
-              </div>
-              <div className="kpi-card">
-                <div className="kpi-label">Completed Orders</div>
-                <div className="kpi-value highlight-green">{overview?.metrics?.fulfilledOrders || 0}</div>
-              </div>
-              <div className="kpi-card">
-                <div className="kpi-label">Receipts To Review</div>
-                <div className="kpi-value" style={{ color: overview?.metrics?.pendingApprovalOrders > 0 ? '#F59E0B' : '#94A3B8' }}>
-                  {overview?.metrics?.pendingApprovalOrders || 0}
-                </div>
-              </div>
-              <div className="kpi-card">
-                <div className="kpi-label">Gemini Stock Left</div>
-                <div className="kpi-value">{overview?.metrics?.geminiStockAvailable || 0} Links</div>
-              </div>
-              <div className="kpi-card">
-                <div className="kpi-label">Registered Buyers</div>
-                <div className="kpi-value">{overview?.metrics?.registeredUsers || 0} / {overview?.metrics?.totalUsers || 0}</div>
-              </div>
-            </div>
-
-            {/* Revenue by Payment Rail */}
-            <div className="admin-card-box">
-              <h3 className="box-title">Revenue by Payment Rail</h3>
-              <div className="table-responsive">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>Payment Rail</th>
-                      <th>Settled Count</th>
-                      <th>Total Volume (ETB)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(overview?.railBreakdown || []).map((r: any) => (
-                      <tr key={r.payment_rail}>
-                        <td><strong>{r.payment_rail.toUpperCase()}</strong></td>
-                        <td>{r.count} orders</td>
-                        <td style={{ color: '#FCDD09', fontWeight: 800 }}>{(r.total_etb || 0).toLocaleString()} ETB</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Recent Orders */}
-            <div className="admin-card-box">
-              <h3 className="box-title">Recent Activity</h3>
-              <div className="table-responsive">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>Order ID</th>
-                      <th>User</th>
-                      <th>Product</th>
-                      <th>Amount</th>
-                      <th>Rail</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(overview?.recentOrders || []).map((ord: any) => (
-                      <tr key={ord.id}>
-                        <td><code>#{ord.id}</code></td>
-                        <td>{ord.username ? `@${ord.username}` : ord.user_id}</td>
-                        <td>{ord.product_id}</td>
-                        <td style={{ color: '#FCDD09', fontWeight: 700 }}>{ord.amount_etb.toLocaleString()} ETB</td>
-                        <td>{ord.payment_rail.toUpperCase()}</td>
-                        <td>
-                          <span className={`badge-status ${ord.status}`}>{ord.status.toUpperCase()}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+    <div className="admin-viewport">
+      <div className="admin-app-window">
+        {/* Left Sidebar */}
+        <aside className="admin-sidebar">
+          <div className="admin-brand">
+            <div className="admin-logo-box">B</div>
+            <div>
+              <div className="admin-brand-text">Bighabesha</div>
+              <div style={{ fontSize: '0.7rem', color: '#10B981', fontWeight: 700 }}>EXECUTIVE PORTAL</div>
             </div>
           </div>
-        )}
 
-        {/* TAB 2: ORDERS & RECEIPTS */}
-        {activeTab === 'orders' && (
-          <div>
-            <div className="admin-header">
-              <div>
-                <h1 className="admin-page-title">Orders &amp; Receipt Review</h1>
-                <p className="admin-page-desc">Inspect transfer receipts, approve deliveries, or reject invalid transactions.</p>
-              </div>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <select
-                  value={orderFilter}
-                  onChange={(e) => setOrderFilter(e.target.value)}
-                  style={{ background: '#141E2B', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '8px 12px', borderRadius: '8px' }}
-                >
-                  <option value="all">All Orders</option>
-                  <option value="pending_approval">Pending Approval ⏳</option>
-                  <option value="pending_fulfillment">Pending Fulfillment 🎁</option>
-                  <option value="fulfilled">Fulfilled ✅</option>
-                  <option value="awaiting_payment">Awaiting Payment 💳</option>
-                  <option value="rejected">Rejected ❌</option>
-                </select>
+          <nav className="admin-nav">
+            <button className={`admin-nav-item ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
+              <span>📊</span> Dashboard
+            </button>
+            <button className={`admin-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
+              <span>📦</span> Orders &amp; Receipts ({overview?.metrics?.pendingApprovalOrders || 0})
+            </button>
+            <button className={`admin-nav-item ${activeTab === 'stock' ? 'active' : ''}`} onClick={() => setActiveTab('stock')}>
+              <span>🔑</span> Gemini Stock ({stockData.summary.available || 0})
+            </button>
+            <button className={`admin-nav-item ${activeTab === 'users' ? 'active' : ''}`} onClick={() => setActiveTab('users')}>
+              <span>👥</span> User CRM ({users.length})
+            </button>
+            <button className={`admin-nav-item ${activeTab === 'broadcast' ? 'active' : ''}`} onClick={() => setActiveTab('broadcast')}>
+              <span>📢</span> Broadcast Tool
+            </button>
+          </nav>
+
+          <div className="sidebar-bottom">
+            <button className={`admin-nav-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
+              <span>⚙️</span> Store Settings
+            </button>
+            <button className="admin-logout-btn" onClick={handleLogout}>
+              Sign Out
+            </button>
+          </div>
+        </aside>
+
+        {/* Main Workspace */}
+        <main className="admin-workspace">
+          {/* Top Bar */}
+          <div className="admin-topbar">
+            <div>
+              <h1 className="greeting-title">Welcome, Administrator</h1>
+              <div className="greeting-subtitle">Here's your live digital store performance overview</div>
+            </div>
+
+            <div className="topbar-right">
+              <div className="search-pill-box">
+                <span style={{ color: '#94A3B8' }}>🔍</span>
                 <input
                   type="text"
-                  placeholder="Search ID, username..."
+                  placeholder="Search orders, users..."
                   value={orderSearch}
                   onChange={(e) => {
                     setOrderSearch(e.target.value);
                     loadAllAdminData();
                   }}
-                  style={{ background: '#141E2B', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '8px 12px', borderRadius: '8px' }}
+                  className="search-pill-input"
                 />
               </div>
-            </div>
 
-            <div className="admin-card-box">
-              <div className="table-responsive">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>Order ID</th>
-                      <th>Date</th>
-                      <th>Buyer</th>
-                      <th>Product</th>
-                      <th>Amount</th>
-                      <th>Rail</th>
-                      <th>Status</th>
-                      <th>Receipt</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orders.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} style={{ textAlign: 'center', padding: '36px', color: '#94A3B8' }}>
-                          No orders matching current filter.
-                        </td>
-                      </tr>
-                    ) : (
-                      orders.map((ord) => (
-                        <tr key={ord.id}>
-                          <td><code>#{ord.id}</code></td>
-                          <td style={{ fontSize: '0.8rem', color: '#94A3B8' }}>{new Date(ord.created_at).toLocaleString()}</td>
-                          <td>
-                            <strong>{ord.username ? `@${ord.username}` : ord.user_id}</strong>
-                          </td>
-                          <td>{ord.product_id}</td>
-                          <td style={{ color: '#FCDD09', fontWeight: 800 }}>{ord.amount_etb.toLocaleString()} ETB</td>
-                          <td>{ord.payment_rail.toUpperCase()}</td>
-                          <td>
-                            <span className={`badge-status ${ord.status}`}>{ord.status.toUpperCase()}</span>
-                          </td>
-                          <td>
-                            {ord.receipt_file_id ? (
-                              <button
-                                className="btn-sm-action btn-view"
-                                onClick={() => {
-                                  setSelectedOrder(ord);
-                                  setModalType('receipt');
-                                }}
-                              >
-                                View Receipt
-                              </button>
-                            ) : (
-                              <span style={{ color: '#64748B', fontSize: '0.75rem' }}>No receipt</span>
-                            )}
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', gap: '6px' }}>
-                              {ord.status === 'pending_approval' && (
-                                <>
-                                  <button className="btn-sm-action btn-approve" onClick={() => handleApprove(ord.id)}>
-                                    Approve
-                                  </button>
-                                  <button
-                                    className="btn-sm-action btn-reject"
-                                    onClick={() => {
-                                      setSelectedOrder(ord);
-                                      setModalType('reject');
-                                    }}
-                                  >
-                                    Reject
-                                  </button>
-                                </>
-                              )}
-                              {ord.status === 'pending_fulfillment' && (
-                                <button
-                                  className="btn-sm-action btn-approve"
-                                  onClick={() => {
-                                    setSelectedOrder(ord);
-                                    setModalType('fulfill');
-                                  }}
-                                >
-                                  Complete Fulfillment
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+              <div className="icon-btn-pill" onClick={() => setActiveTab('orders')} title="Pending Receipts">
+                <span>🔔</span>
+                {overview?.metrics?.pendingApprovalOrders > 0 && <span className="icon-badge-dot" />}
+              </div>
+
+              <div className="admin-profile-pill">
+                <div className="profile-avatar">A</div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#FFFFFF' }}>Admin Primary</div>
               </div>
             </div>
           </div>
-        )}
 
-        {/* TAB 3: GEMINI STOCK */}
-        {activeTab === 'stock' && (
-          <div>
-            <div className="admin-header">
-              <div>
-                <h1 className="admin-page-title">Gemini Pro Stock Inventory</h1>
-                <p className="admin-page-desc">Add single-use activation links in bulk and monitor live consumption.</p>
-              </div>
-            </div>
-
-            <div className="kpi-grid">
-              <div className="kpi-card">
-                <div className="kpi-label">Available Links</div>
-                <div className="kpi-value highlight-green">{stockData.summary.available || 0}</div>
-              </div>
-              <div className="kpi-card">
-                <div className="kpi-label">Consumed Links</div>
-                <div className="kpi-value">{stockData.summary.consumed || 0}</div>
-              </div>
-              <div className="kpi-card">
-                <div className="kpi-label">Total Ingested</div>
-                <div className="kpi-value">{stockData.summary.total || 0}</div>
-              </div>
-            </div>
-
-            {/* Bulk Ingest Box */}
-            <div className="admin-card-box">
-              <h3 className="box-title">📥 Bulk Ingest Activation Links</h3>
-              <p style={{ fontSize: '0.85rem', color: '#94A3B8', marginBottom: '12px' }}>
-                Paste single-use Google Gemini Pro links line-by-line (e.g. <code>https://gemini.google.com/redeem/XXXXX</code>):
-              </p>
-              <textarea
-                rows={5}
-                value={bulkLinks}
-                onChange={(e) => setBulkLinks(e.target.value)}
-                className="admin-input"
-                placeholder="https://gemini.google.com/redeem/abc123xyz&#10;https://gemini.google.com/redeem/def456uvw"
-              />
+          {/* Category Rail Filter Pills */}
+          <div className="filter-pills-row">
+            {[
+              { id: 'all', label: 'All Rails' },
+              { id: 'cbe', label: 'CBE Birr' },
+              { id: 'telebirr', label: 'Telebirr' },
+              { id: 'abyssinia', label: 'Bank of Abyssinia' },
+              { id: 'stars', label: 'Telegram Stars' },
+              { id: 'wallet_pay', label: 'Crypto (TON / USDT)' },
+            ].map((rail) => (
               <button
-                onClick={handleAddStock}
-                disabled={!bulkLinks.trim()}
-                style={{ background: '#078930', color: '#fff', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 800, cursor: 'pointer', marginTop: '12px' }}
+                key={rail.id}
+                className={`filter-pill ${categoryRail === rail.id ? 'active' : ''}`}
+                onClick={() => setCategoryRail(rail.id)}
               >
-                + Add Links to Available Stock
+                {rail.label}
               </button>
-            </div>
+            ))}
+          </div>
 
-            {/* Links Table */}
-            <div className="admin-card-box">
-              <h3 className="box-title">Stock Items</h3>
-              <div className="table-responsive">
-                <table className="admin-table">
+          {/* TAB 1: OVERVIEW */}
+          {activeTab === 'overview' && (
+            <div>
+              {/* Top Row: 3 Dashboard Cards */}
+              <div className="dashboard-overview-grid">
+                {/* Card 1: Total Holding / Revenue */}
+                <div className="dash-card">
+                  <div className="dash-card-header">
+                    <span className="dash-card-title">Total Settled Revenue</span>
+                    <button className="dash-pill-btn" onClick={() => setTimeRange(timeRange === '6M' ? '1Y' : '6M')}>
+                      {timeRange} ▾
+                    </button>
+                  </div>
+                  <div className="main-revenue-num">
+                    {(overview?.metrics?.totalRevenueETB || 0).toLocaleString()} <span style={{ fontSize: '1rem', color: '#10B981', fontWeight: 700 }}>ETB</span>
+                  </div>
+
+                  {/* Ambient Card */}
+                  <div className="ambient-action-card">
+                    <div className="ambient-action-title">Gemini Stock Ready</div>
+                    <div className="ambient-action-desc">
+                      {overview?.metrics?.geminiStockAvailable || 0} activation links currently available for automated 1-second delivery.
+                    </div>
+                    <button className="btn-ambient-pill" onClick={() => setActiveTab('stock')}>
+                      + Ingest Stock Links
+                    </button>
+                  </div>
+                </div>
+
+                {/* Card 2: Recent Activity / Watchlist */}
+                <div className="dash-card">
+                  <div className="dash-card-header">
+                    <span className="dash-card-title">Recent Activity</span>
+                    <button className="dash-pill-btn" onClick={() => setActiveTab('orders')}>
+                      See all ↗
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'center' }}>
+                    {(overview?.recentOrders || []).length === 0 ? (
+                      <div style={{ textAlign: 'center', color: '#64748B', fontSize: '0.85rem', padding: '24px' }}>
+                        No orders recorded yet.
+                      </div>
+                    ) : (
+                      (overview?.recentOrders || []).map((ord: any) => (
+                        <div key={ord.id} className="activity-row">
+                          <div className="activity-info">
+                            <div className="activity-badge-icon">
+                              {ord.product_id?.includes('gemini') ? '✦' : ord.product_id?.includes('prem') ? '★' : '🪙'}
+                            </div>
+                            <div>
+                              <div className="activity-name">{ord.username ? `@${ord.username}` : `User #${ord.user_id}`}</div>
+                              <div className="activity-sub">{ord.payment_rail?.toUpperCase()}</div>
+                            </div>
+                          </div>
+                          <div className="activity-val">
+                            <div className="activity-price">{ord.amount_etb.toLocaleString()} ETB</div>
+                            <div className="activity-status-tag" style={{ color: ord.status === 'fulfilled' ? '#10B981' : '#F59E0B' }}>
+                              {ord.status === 'fulfilled' ? '+ Settled' : '• ' + ord.status.replace('_', ' ')}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Card 3: 2x2 Products Portfolio */}
+                <div className="dash-card">
+                  <div className="dash-card-header">
+                    <span className="dash-card-title">Products Breakdown</span>
+                    <button className="dash-pill-btn" onClick={() => setActiveTab('orders')}>
+                      Details ↗
+                    </button>
+                  </div>
+
+                  <div className="mini-portfolio-grid">
+                    {(overview?.productStats || []).map((p: any) => (
+                      <div key={p.id} className="mini-pcard">
+                        <div className="mini-pcard-val">{p.revenue.toLocaleString()} <span style={{ fontSize: '0.7rem', color: '#94A3B8' }}>ETB</span></div>
+                        <div className="mini-pcard-pct">{p.pctOfTotal} volume</div>
+                        <div className="mini-pcard-footer">
+                          <span>{p.code}</span>
+                          <span>{p.units} units</span>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="mini-pcard">
+                      <div className="mini-pcard-val">{overview?.metrics?.registeredUsers || 0} <span style={{ fontSize: '0.7rem', color: '#94A3B8' }}>Users</span></div>
+                      <div className="mini-pcard-pct" style={{ color: '#10B981' }}>+251 Verified</div>
+                      <div className="mini-pcard-footer">
+                        <span>CRM</span>
+                        <span>{overview?.metrics?.totalUsers || 0} Total</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Card: Full-Width Real Performance Area Chart */}
+              <div className="chart-container-card">
+                <div className="chart-header">
+                  <div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#FFFFFF' }}>Store Revenue Performance</div>
+                    <div style={{ fontSize: '0.8rem', color: '#94A3B8', marginTop: '2px' }}>Real aggregate sales calculated from confirmed orders</div>
+                  </div>
+
+                  <div className="timeframe-toggles">
+                    {['1D', '1W', '1M', '6M', '1Y'].map((tf) => (
+                      <button
+                        key={tf}
+                        className={`tf-btn ${timeRange === tf ? 'active' : ''}`}
+                        onClick={() => setTimeRange(tf)}
+                      >
+                        {tf}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* SVG Line & Area Chart */}
+                <div className="svg-chart-wrap">
+                  <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} style={{ width: '100%', height: '100%', overflow: 'visible' }}>
+                    <defs>
+                      <linearGradient id="emeraldAreaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stopColor="#059669" stopOpacity="0.35" />
+                        <stop offset="100%" stopColor="#008A45" stopOpacity="0.0" />
+                      </linearGradient>
+                      <filter id="emeraldGlow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="#10B981" floodOpacity="0.5" />
+                      </filter>
+                    </defs>
+
+                    {/* Area fill */}
+                    {areaPath && <path d={areaPath} fill="url(#emeraldAreaGradient)" />}
+
+                    {/* Glowing Stroke Curve */}
+                    {linePath && (
+                      <path
+                        d={linePath}
+                        fill="none"
+                        stroke="#10B981"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        filter="url(#emeraldGlow)"
+                      />
+                    )}
+
+                    {/* Data Points */}
+                    {coords.map((c, i) => (
+                      <g key={i} onMouseEnter={() => setHoveredPoint(c)} onMouseLeave={() => setHoveredPoint(null)}>
+                        <circle
+                          cx={c.x}
+                          cy={c.y}
+                          r={hoveredPoint?.pt?.label === c.pt.label ? 6 : 4}
+                          fill="#FFFFFF"
+                          stroke="#008A45"
+                          strokeWidth="3"
+                          style={{ cursor: 'pointer', transition: 'all 0.2s' }}
+                        />
+                      </g>
+                    ))}
+                  </svg>
+
+                  {/* Tooltip on Active Point */}
+                  {hoveredPoint && (
+                    <div
+                      className="chart-tooltip-bubble"
+                      style={{
+                        left: `${(hoveredPoint.x / svgWidth) * 100}%`,
+                        top: `${(hoveredPoint.y / svgHeight) * 100}%`,
+                      }}
+                    >
+                      <div className="tooltip-date">{hoveredPoint.pt.label}</div>
+                      <div className="tooltip-amount">{hoveredPoint.pt.revenue.toLocaleString()} ETB</div>
+                      <div style={{ fontSize: '0.7rem', color: '#10B981' }}>{hoveredPoint.pt.orders} orders</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* X-Axis Labels */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px', padding: '0 20px', fontSize: '0.78rem', color: '#64748B', fontWeight: 600 }}>
+                  {chartPoints.map((p, idx) => (
+                    <span key={idx}>{p.label}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: ORDERS & RECEIPTS */}
+          {activeTab === 'orders' && (
+            <div>
+              <div className="dash-card-header" style={{ marginBottom: '20px' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>Orders &amp; Receipt Review</h2>
+                  <div style={{ fontSize: '0.85rem', color: '#94A3B8', marginTop: '4px' }}>Inspect buyer transfers and approve instant link deliveries</div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <select
+                    value={orderFilter}
+                    onChange={(e) => setOrderFilter(e.target.value)}
+                    style={{ background: '#131A24', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '8px 14px', borderRadius: '12px' }}
+                  >
+                    <option value="all">All Orders</option>
+                    <option value="pending_approval">Pending Approval ⏳</option>
+                    <option value="pending_fulfillment">Pending Delivery 🎁</option>
+                    <option value="fulfilled">Fulfilled ✅</option>
+                    <option value="awaiting_payment">Awaiting Payment 💳</option>
+                    <option value="rejected">Rejected ❌</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="dash-card">
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#94A3B8', textAlign: 'left' }}>
+                        <th style={{ padding: '12px' }}>Order ID</th>
+                        <th style={{ padding: '12px' }}>Date</th>
+                        <th style={{ padding: '12px' }}>Buyer</th>
+                        <th style={{ padding: '12px' }}>Product</th>
+                        <th style={{ padding: '12px' }}>Amount</th>
+                        <th style={{ padding: '12px' }}>Rail</th>
+                        <th style={{ padding: '12px' }}>Status</th>
+                        <th style={{ padding: '12px' }}>Receipt</th>
+                        <th style={{ padding: '12px' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredOrders.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: '#64748B' }}>
+                            No orders found matching filter.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredOrders.map((ord) => (
+                          <tr key={ord.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                            <td style={{ padding: '12px' }}><code>#{ord.id}</code></td>
+                            <td style={{ padding: '12px', fontSize: '0.78rem', color: '#94A3B8' }}>{new Date(ord.created_at).toLocaleString()}</td>
+                            <td style={{ padding: '12px' }}><strong>{ord.username ? `@${ord.username}` : ord.user_id}</strong></td>
+                            <td style={{ padding: '12px' }}>{ord.product_id}</td>
+                            <td style={{ padding: '12px', fontWeight: 800, color: '#FCDD09' }}>{ord.amount_etb.toLocaleString()} ETB</td>
+                            <td style={{ padding: '12px' }}>{ord.payment_rail?.toUpperCase()}</td>
+                            <td style={{ padding: '12px' }}>
+                              <span style={{ padding: '4px 10px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, background: ord.status === 'fulfilled' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)', color: ord.status === 'fulfilled' ? '#10B981' : '#F59E0B' }}>
+                                {ord.status.toUpperCase()}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px' }}>
+                              {ord.receipt_file_id ? (
+                                <button
+                                  onClick={() => { setSelectedOrder(ord); setModalType('receipt'); }}
+                                  style={{ background: '#192230', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: '4px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem' }}
+                                >
+                                  View Receipt
+                                </button>
+                              ) : <span style={{ color: '#64748B', fontSize: '0.75rem' }}>None</span>}
+                            </td>
+                            <td style={{ padding: '12px' }}>
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                {ord.status === 'pending_approval' && (
+                                  <>
+                                    <button
+                                      onClick={() => handleApprove(ord.id)}
+                                      style={{ background: '#008A45', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 700, cursor: 'pointer', fontSize: '0.78rem' }}
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      onClick={() => { setSelectedOrder(ord); setModalType('reject'); }}
+                                      style={{ background: 'rgba(239,68,68,0.2)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,0.4)', padding: '6px 12px', borderRadius: '6px', fontWeight: 700, cursor: 'pointer', fontSize: '0.78rem' }}
+                                    >
+                                      Reject
+                                    </button>
+                                  </>
+                                )}
+                                {ord.status === 'pending_fulfillment' && (
+                                  <button
+                                    onClick={() => { setSelectedOrder(ord); setModalType('fulfill'); }}
+                                    style={{ background: '#008A45', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: 700, cursor: 'pointer', fontSize: '0.78rem' }}
+                                  >
+                                    Complete Delivery
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: GEMINI STOCK */}
+          {activeTab === 'stock' && (
+            <div>
+              <div className="dash-card-header" style={{ marginBottom: '20px' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>Gemini Pro Stock Manager</h2>
+                  <div style={{ fontSize: '0.85rem', color: '#94A3B8', marginTop: '4px' }}>Real single-use Google activation links inventory</div>
+                </div>
+              </div>
+
+              <div className="dash-card" style={{ marginBottom: '24px' }}>
+                <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '8px' }}>📥 Bulk Add Activation Links</div>
+                <div style={{ fontSize: '0.85rem', color: '#94A3B8', marginBottom: '12px' }}>Paste redeem links line-by-line (e.g. <code>https://gemini.google.com/redeem/XXXXX</code>):</div>
+                <textarea
+                  rows={4}
+                  value={bulkLinks}
+                  onChange={(e) => setBulkLinks(e.target.value)}
+                  style={{ width: '100%', background: '#0B0F16', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', color: '#fff', fontSize: '0.88rem', boxSizing: 'border-box' }}
+                  placeholder="https://gemini.google.com/redeem/abc123xyz&#10;https://gemini.google.com/redeem/def456uvw"
+                />
+                <button
+                  onClick={handleAddStock}
+                  disabled={!bulkLinks.trim()}
+                  style={{ background: 'linear-gradient(135deg, #059669 0%, #008A45 100%)', color: '#fff', padding: '10px 24px', borderRadius: '10px', border: 'none', fontWeight: 800, cursor: 'pointer', marginTop: '12px', alignSelf: 'flex-start' }}
+                >
+                  + Add Links to Stock
+                </button>
+              </div>
+
+              <div className="dash-card">
+                <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '16px' }}>Stock Inventory ({stockData.items.length} total)</div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
                   <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Activation Payload</th>
-                      <th>Status</th>
-                      <th>Created</th>
-                      <th>Consumed At</th>
-                      <th>Actions</th>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#94A3B8', textAlign: 'left' }}>
+                      <th style={{ padding: '10px' }}>ID</th>
+                      <th style={{ padding: '10px' }}>Payload</th>
+                      <th style={{ padding: '10px' }}>Status</th>
+                      <th style={{ padding: '10px' }}>Date</th>
+                      <th style={{ padding: '10px' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {stockData.items.map((it: any) => (
-                      <tr key={it.id}>
-                        <td><code>{it.id}</code></td>
-                        <td><code style={{ fontSize: '0.8rem' }}>{it.payload}</code></td>
-                        <td>
-                          <span className={`badge-status ${it.status}`}>{it.status.toUpperCase()}</span>
+                      <tr key={it.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                        <td style={{ padding: '10px' }}><code>{it.id}</code></td>
+                        <td style={{ padding: '10px' }}><code style={{ fontSize: '0.8rem' }}>{it.payload}</code></td>
+                        <td style={{ padding: '10px' }}>
+                          <span style={{ padding: '3px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, background: it.status === 'available' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.15)', color: it.status === 'available' ? '#10B981' : '#94A3B8' }}>
+                            {it.status.toUpperCase()}
+                          </span>
                         </td>
-                        <td style={{ fontSize: '0.8rem', color: '#94A3B8' }}>{new Date(it.created_at).toLocaleDateString()}</td>
-                        <td style={{ fontSize: '0.8rem', color: '#94A3B8' }}>{it.consumed_at ? new Date(it.consumed_at).toLocaleString() : '—'}</td>
-                        <td>
+                        <td style={{ padding: '10px', fontSize: '0.78rem', color: '#94A3B8' }}>{new Date(it.created_at).toLocaleDateString()}</td>
+                        <td style={{ padding: '10px' }}>
                           {it.status === 'available' && (
-                            <button className="btn-sm-action btn-reject" onClick={() => handleDeleteStock(it.id)}>
+                            <button onClick={() => handleDeleteStock(it.id)} style={{ background: 'rgba(239,68,68,0.15)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,0.3)', padding: '4px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem' }}>
                               Delete
                             </button>
                           )}
@@ -653,283 +817,230 @@ export const AdminDashboard: React.FC = () => {
                 </table>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* TAB 4: USERS & CRM */}
-        {activeTab === 'users' && (
-          <div>
-            <div className="admin-header">
-              <div>
-                <h1 className="admin-page-title">User Directory &amp; CRM</h1>
-                <p className="admin-page-desc">Directory of all registered Telegram bot users, verified phone numbers, and orders.</p>
+          {/* TAB 4: USERS & CRM */}
+          {activeTab === 'users' && (
+            <div>
+              <div className="dash-card-header" style={{ marginBottom: '20px' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>User Directory &amp; CRM</h2>
+                  <div style={{ fontSize: '0.85rem', color: '#94A3B8', marginTop: '4px' }}>Real registered Telegram users &amp; verified mobile numbers</div>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Filter users..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  style={{ background: '#131A24', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '8px 14px', borderRadius: '12px', width: '220px' }}
+                />
               </div>
-              <input
-                type="text"
-                placeholder="Search user, @username, phone..."
-                value={userSearch}
-                onChange={(e) => setUserSearch(e.target.value)}
-                style={{ background: '#141E2B', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '8px 14px', borderRadius: '8px', width: '280px' }}
-              />
-            </div>
 
-            <div className="admin-card-box">
-              <div className="table-responsive">
-                <table className="admin-table">
+              <div className="dash-card">
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
                   <thead>
-                    <tr>
-                      <th>Telegram ID</th>
-                      <th>Username</th>
-                      <th>Phone Number</th>
-                      <th>Registration Status</th>
-                      <th>Language</th>
-                      <th>Joined Date</th>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#94A3B8', textAlign: 'left' }}>
+                      <th style={{ padding: '12px' }}>Telegram ID</th>
+                      <th style={{ padding: '12px' }}>Username</th>
+                      <th style={{ padding: '12px' }}>Phone Number</th>
+                      <th style={{ padding: '12px' }}>Status</th>
+                      <th style={{ padding: '12px' }}>Language</th>
+                      <th style={{ padding: '12px' }}>Joined Date</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredUsers.map((u: any) => (
-                      <tr key={u.id}>
-                        <td><code>{u.id}</code></td>
-                        <td><strong>{u.username ? `@${u.username}` : 'No Username'}</strong></td>
-                        <td>
-                          {u.phone_number ? (
-                            <span style={{ color: '#10B981', fontWeight: 700 }}>{u.phone_number}</span>
-                          ) : (
-                            <span style={{ color: '#64748B' }}>Unregistered</span>
-                          )}
+                      <tr key={u.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                        <td style={{ padding: '12px' }}><code>{u.id}</code></td>
+                        <td style={{ padding: '12px' }}><strong>{u.username ? `@${u.username}` : 'No @handle'}</strong></td>
+                        <td style={{ padding: '12px', color: u.phone_number ? '#10B981' : '#64748B', fontWeight: 700 }}>
+                          {u.phone_number || 'Unregistered'}
                         </td>
-                        <td>
-                          {u.is_registered === 1 ? (
-                            <span className="badge-status fulfilled">Verified</span>
-                          ) : (
-                            <span className="badge-status awaiting_payment">Pending</span>
-                          )}
+                        <td style={{ padding: '12px' }}>
+                          <span style={{ padding: '3px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, background: u.is_registered === 1 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.15)', color: u.is_registered === 1 ? '#10B981' : '#94A3B8' }}>
+                            {u.is_registered === 1 ? 'VERIFIED' : 'PENDING'}
+                          </span>
                         </td>
-                        <td>{u.language_code?.toUpperCase() || 'EN'}</td>
-                        <td style={{ fontSize: '0.8rem', color: '#94A3B8' }}>{new Date(u.created_at).toLocaleDateString()}</td>
+                        <td style={{ padding: '12px' }}>{u.language_code?.toUpperCase() || 'EN'}</td>
+                        <td style={{ padding: '12px', fontSize: '0.78rem', color: '#94A3B8' }}>{new Date(u.created_at).toLocaleDateString()}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* TAB 5: STORE SETTINGS */}
-        {activeTab === 'settings' && (
-          <div>
-            <div className="admin-header">
-              <div>
-                <h1 className="admin-page-title">Store &amp; Exchange Rate Controls</h1>
-                <p className="admin-page-desc">Instant updates to Ethiopian local bank accounts, exchange rates, and support handles.</p>
-              </div>
-            </div>
-
-            {settingsSaved && (
-              <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', padding: '12px 16px', borderRadius: '8px', color: '#10B981', fontWeight: 700, marginBottom: '20px' }}>
-                Settings updated successfully. All changes are live across bot and web app.
-              </div>
-            )}
-
-            <form onSubmit={handleSaveSettings}>
-              <div className="admin-card-box">
-                <h3 className="box-title">💱 Exchange Rate Engine</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
-                  <div className="form-group">
-                    <label className="form-label">ETB per 1 Telegram Star (XTR)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={settings.etb_per_star || '2.5'}
-                      onChange={(e) => setSettings({ ...settings, etb_per_star: e.target.value })}
-                      className="admin-input"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">ETB per 1 USD (Baseline)</label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={settings.etb_per_usd || '135'}
-                      onChange={(e) => setSettings({ ...settings, etb_per_usd: e.target.value })}
-                      className="admin-input"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Crypto Margin Percentage (%)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={settings.margin_pct || '5'}
-                      onChange={(e) => setSettings({ ...settings, margin_pct: e.target.value })}
-                      className="admin-input"
-                    />
-                  </div>
+          {/* TAB 5: SETTINGS */}
+          {activeTab === 'settings' && (
+            <div>
+              <div className="dash-card-header" style={{ marginBottom: '20px' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>Store &amp; Rate Controls</h2>
+                  <div style={{ fontSize: '0.85rem', color: '#94A3B8', marginTop: '4px' }}>Real-time updates to bank accounts and exchange rates</div>
                 </div>
               </div>
 
-              <div className="admin-card-box">
-                <h3 className="box-title">🏦 Bank &amp; Payment Accounts</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
-                  <div className="form-group">
-                    <label className="form-label">CBE Account Number</label>
-                    <input
-                      type="text"
-                      value={settings.cbe_account || ''}
-                      onChange={(e) => setSettings({ ...settings, cbe_account: e.target.value })}
-                      className="admin-input"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">CBE Account Name</label>
-                    <input
-                      type="text"
-                      value={settings.cbe_name || ''}
-                      onChange={(e) => setSettings({ ...settings, cbe_name: e.target.value })}
-                      className="admin-input"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Telebirr Mobile Number</label>
-                    <input
-                      type="text"
-                      value={settings.telebirr_account || ''}
-                      onChange={(e) => setSettings({ ...settings, telebirr_account: e.target.value })}
-                      className="admin-input"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Telebirr Merchant Name</label>
-                    <input
-                      type="text"
-                      value={settings.telebirr_name || ''}
-                      onChange={(e) => setSettings({ ...settings, telebirr_name: e.target.value })}
-                      className="admin-input"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Bank of Abyssinia Account</label>
-                    <input
-                      type="text"
-                      value={settings.abyssinia_account || ''}
-                      onChange={(e) => setSettings({ ...settings, abyssinia_account: e.target.value })}
-                      className="admin-input"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Support Telegram Handle</label>
-                    <input
-                      type="text"
-                      value={settings.support_username || ''}
-                      onChange={(e) => setSettings({ ...settings, support_username: e.target.value })}
-                      className="admin-input"
-                    />
+              {settingsSaved && (
+                <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', padding: '12px', borderRadius: '12px', color: '#10B981', fontWeight: 700, marginBottom: '20px' }}>
+                  Settings saved. Live across bot and web app.
+                </div>
+              )}
+
+              <form onSubmit={handleSaveSettings}>
+                <div className="dash-card" style={{ marginBottom: '20px' }}>
+                  <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '16px' }}>💱 Rates &amp; Margins</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                    <div>
+                      <label style={{ fontSize: '0.8rem', color: '#94A3B8', fontWeight: 700 }}>ETB per 1 Telegram Star</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={settings.etb_per_star || '2.5'}
+                        onChange={(e) => setSettings({ ...settings, etb_per_star: e.target.value })}
+                        style={{ width: '100%', background: '#0B0F16', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px', color: '#fff', marginTop: '6px', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8rem', color: '#94A3B8', fontWeight: 700 }}>ETB per 1 USD (Base)</label>
+                      <input
+                        type="number"
+                        step="1"
+                        value={settings.etb_per_usd || '135'}
+                        onChange={(e) => setSettings({ ...settings, etb_per_usd: e.target.value })}
+                        style={{ width: '100%', background: '#0B0F16', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px', color: '#fff', marginTop: '6px', boxSizing: 'border-box' }}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <button
-                type="submit"
-                style={{ background: '#078930', color: '#fff', padding: '14px 28px', borderRadius: '8px', border: 'none', fontWeight: 800, fontSize: '1rem', cursor: 'pointer' }}
-              >
-                💾 Save All Settings
-              </button>
-            </form>
-          </div>
-        )}
+                <div className="dash-card" style={{ marginBottom: '20px' }}>
+                  <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '16px' }}>🏦 Bank Accounts</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                    <div>
+                      <label style={{ fontSize: '0.8rem', color: '#94A3B8', fontWeight: 700 }}>CBE Account Number</label>
+                      <input
+                        type="text"
+                        value={settings.cbe_account || ''}
+                        onChange={(e) => setSettings({ ...settings, cbe_account: e.target.value })}
+                        style={{ width: '100%', background: '#0B0F16', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px', color: '#fff', marginTop: '6px', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8rem', color: '#94A3B8', fontWeight: 700 }}>Telebirr Number</label>
+                      <input
+                        type="text"
+                        value={settings.telebirr_account || ''}
+                        onChange={(e) => setSettings({ ...settings, telebirr_account: e.target.value })}
+                        style={{ width: '100%', background: '#0B0F16', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px', color: '#fff', marginTop: '6px', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8rem', color: '#94A3B8', fontWeight: 700 }}>Support Telegram Username</label>
+                      <input
+                        type="text"
+                        value={settings.support_username || ''}
+                        onChange={(e) => setSettings({ ...settings, support_username: e.target.value })}
+                        style={{ width: '100%', background: '#0B0F16', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px', color: '#fff', marginTop: '6px', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  </div>
+                </div>
 
-        {/* TAB 6: BROADCAST ANNOUNCEMENTS */}
-        {activeTab === 'broadcast' && (
-          <div>
-            <div className="admin-header">
-              <div>
-                <h1 className="admin-page-title">Broadcast Announcements</h1>
-                <p className="admin-page-desc">Deliver announcements, discounts, and restock alerts to your customer base.</p>
-              </div>
-            </div>
-
-            {broadcastResult && (
-              <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', padding: '14px', borderRadius: '8px', color: '#10B981', fontWeight: 700, marginBottom: '20px' }}>
-                ✅ Broadcast completed! Sent: {broadcastResult.sentCount} / Targeted: {broadcastResult.totalTargeted} (Failed: {broadcastResult.failCount})
-              </div>
-            )}
-
-            <div className="admin-card-box">
-              <div className="form-group">
-                <label className="form-label">Select Target Audience</label>
-                <select
-                  value={broadcastTarget}
-                  onChange={(e) => setBroadcastTarget(e.target.value as any)}
-                  className="admin-input"
+                <button
+                  type="submit"
+                  style={{ background: 'linear-gradient(135deg, #059669 0%, #008A45 100%)', color: '#fff', padding: '12px 30px', borderRadius: '12px', border: 'none', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 15px rgba(5, 150, 105, 0.4)' }}
                 >
-                  <option value="all">All Users ({users.length} total users)</option>
-                  <option value="active_buyers">Active Settled Buyers Only</option>
-                  <option value="registered">Phone-Verified Users Only</option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Message Content (HTML Allowed: &lt;b&gt;, &lt;i&gt;, &lt;code&gt;)</label>
-                <textarea
-                  rows={6}
-                  value={broadcastMessage}
-                  onChange={(e) => setBroadcastMessage(e.target.value)}
-                  className="admin-input"
-                  placeholder="<b>Restock Alert:</b> New Gemini Pro links are now available at 1,500 ETB!"
-                />
-              </div>
-
-              <button
-                onClick={handleSendBroadcast}
-                disabled={broadcasting || !broadcastMessage.trim()}
-                style={{ background: '#078930', color: '#fff', padding: '12px 24px', borderRadius: '8px', border: 'none', fontWeight: 800, cursor: 'pointer' }}
-              >
-                {broadcasting ? 'Broadcasting...' : '📢 Send Broadcast Message'}
-              </button>
+                  Save Store Settings
+                </button>
+              </form>
             </div>
-          </div>
-        )}
-      </main>
+          )}
 
-      {/* MODAL 1: RECEIPT PREVIEW MODAL */}
+          {/* TAB 6: BROADCAST */}
+          {activeTab === 'broadcast' && (
+            <div>
+              <div className="dash-card-header" style={{ marginBottom: '20px' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>Broadcast Announcements</h2>
+                  <div style={{ fontSize: '0.85rem', color: '#94A3B8', marginTop: '4px' }}>Send rich notifications directly to bot users</div>
+                </div>
+              </div>
+
+              {broadcastResult && (
+                <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', padding: '12px', borderRadius: '12px', color: '#10B981', fontWeight: 700, marginBottom: '20px' }}>
+                  Broadcast complete! Delivered to {broadcastResult.sentCount} users.
+                </div>
+              )}
+
+              <div className="dash-card">
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ fontSize: '0.8rem', color: '#94A3B8', fontWeight: 700 }}>Target Audience</label>
+                  <select
+                    value={broadcastTarget}
+                    onChange={(e) => setBroadcastTarget(e.target.value as any)}
+                    style={{ width: '100%', background: '#0B0F16', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px', color: '#fff', marginTop: '6px', boxSizing: 'border-box' }}
+                  >
+                    <option value="all">All Bot Users ({users.length} total)</option>
+                    <option value="active_buyers">Active Settled Buyers Only</option>
+                    <option value="registered">Phone-Verified Users Only</option>
+                  </select>
+                </div>
+
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ fontSize: '0.8rem', color: '#94A3B8', fontWeight: 700 }}>Message (HTML tags allowed)</label>
+                  <textarea
+                    rows={5}
+                    value={broadcastMessage}
+                    onChange={(e) => setBroadcastMessage(e.target.value)}
+                    style={{ width: '100%', background: '#0B0F16', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '10px', color: '#fff', marginTop: '6px', boxSizing: 'border-box' }}
+                    placeholder="<b>Exclusive Weekend Promo:</b> Gemini Pro links are currently available!"
+                  />
+                </div>
+
+                <button
+                  onClick={handleSendBroadcast}
+                  disabled={broadcasting || !broadcastMessage.trim()}
+                  style={{ background: 'linear-gradient(135deg, #059669 0%, #008A45 100%)', color: '#fff', padding: '12px 24px', borderRadius: '10px', border: 'none', fontWeight: 800, cursor: 'pointer', alignSelf: 'flex-start' }}
+                >
+                  {broadcasting ? 'Sending Broadcast...' : '📢 Send Message Now'}
+                </button>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* RECEIPT PREVIEW MODAL */}
       {modalType === 'receipt' && selectedOrder && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div style={{ background: '#141E2B', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '16px', padding: '24px', maxWidth: '500px', width: '100%' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: '#0E131B', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '20px', padding: '24px', maxWidth: '480px', width: '100%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>Receipt for Order #{selectedOrder.id}</h3>
-              <button onClick={() => setModalType(null)} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer' }}>×</button>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800 }}>Order #{selectedOrder.id} Receipt</h3>
+              <button onClick={() => setModalType(null)} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.3rem', cursor: 'pointer' }}>×</button>
             </div>
-
-            <div style={{ background: '#0F1722', padding: '14px', borderRadius: '8px', marginBottom: '14px', fontSize: '0.88rem' }}>
+            <div style={{ background: '#131A24', padding: '12px', borderRadius: '10px', marginBottom: '16px', fontSize: '0.85rem' }}>
               <div>• <strong>Buyer:</strong> {selectedOrder.username ? `@${selectedOrder.username}` : selectedOrder.user_id}</div>
-              <div>• <strong>Amount:</strong> {selectedOrder.amount_etb.toLocaleString()} ETB ({selectedOrder.payment_rail.toUpperCase()})</div>
-              <div>• <strong>Note / Ref:</strong> {selectedOrder.receipt_note || 'None'}</div>
+              <div>• <strong>Amount:</strong> {selectedOrder.amount_etb.toLocaleString()} ETB ({selectedOrder.payment_rail?.toUpperCase()})</div>
+              <div>• <strong>Note:</strong> {selectedOrder.receipt_note || 'None'}</div>
             </div>
-
             {selectedOrder.receipt_file_id?.startsWith('data:image') || selectedOrder.receipt_file_id?.startsWith('base64') ? (
-              <img src={selectedOrder.receipt_file_id} alt="Receipt" style={{ width: '100%', maxHeight: '300px', objectFit: 'contain', borderRadius: '8px', marginBottom: '16px', border: '1px solid rgba(255,255,255,0.1)' }} />
+              <img src={selectedOrder.receipt_file_id} alt="Receipt" style={{ width: '100%', maxHeight: '300px', objectFit: 'contain', borderRadius: '10px', marginBottom: '16px' }} />
             ) : (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#94A3B8', background: '#0F1722', borderRadius: '8px', marginBottom: '16px' }}>
-                Telegram Photo File ID: <code>{selectedOrder.receipt_file_id}</code>
+              <div style={{ padding: '24px', textAlign: 'center', color: '#94A3B8', background: '#131A24', borderRadius: '10px', marginBottom: '16px' }}>
+                Telegram Photo ID: <code>{selectedOrder.receipt_file_id}</code>
               </div>
             )}
-
             <div style={{ display: 'flex', gap: '10px' }}>
               {selectedOrder.status === 'pending_approval' && (
                 <button
-                  className="btn-sm-action btn-approve"
-                  style={{ flex: 1, padding: '10px' }}
                   onClick={() => handleApprove(selectedOrder.id)}
+                  style={{ flex: 1, background: '#008A45', color: '#fff', border: 'none', padding: '10px', borderRadius: '10px', fontWeight: 800, cursor: 'pointer' }}
                 >
-                  Approve Receipt
+                  Approve Transfer
                 </button>
               )}
-              <button
-                className="btn-sm-action btn-view"
-                style={{ flex: 1, padding: '10px' }}
-                onClick={() => setModalType(null)}
-              >
+              <button onClick={() => setModalType(null)} style={{ flex: 1, background: '#192230', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px', cursor: 'pointer' }}>
                 Close
               </button>
             </div>
@@ -937,27 +1048,24 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 2: REJECT MODAL */}
+      {/* REJECT MODAL */}
       {modalType === 'reject' && selectedOrder && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div style={{ background: '#141E2B', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '16px', padding: '24px', maxWidth: '440px', width: '100%' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '10px' }}>Reject Order #{selectedOrder.id}</h3>
-            <p style={{ fontSize: '0.85rem', color: '#94A3B8', marginBottom: '14px' }}>
-              Enter the reason for rejection (this will be sent directly to the buyer on Telegram):
-            </p>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: '#0E131B', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '20px', padding: '24px', maxWidth: '420px', width: '100%' }}>
+            <h3 style={{ margin: '0 0 10px 0', fontSize: '1.1rem', fontWeight: 800 }}>Reject Order #{selectedOrder.id}</h3>
+            <p style={{ fontSize: '0.85rem', color: '#94A3B8', margin: '0 0 14px 0' }}>Reason for buyer notice:</p>
             <input
               type="text"
-              className="admin-input"
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="e.g. Amount mismatch / Unreadable receipt"
-              style={{ marginBottom: '16px' }}
+              placeholder="e.g. Unreadable receipt screenshot"
+              style={{ width: '100%', background: '#131A24', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px', color: '#fff', boxSizing: 'border-box', marginBottom: '16px' }}
             />
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button className="btn-sm-action btn-reject" style={{ flex: 1, padding: '10px' }} onClick={handleReject}>
+              <button onClick={handleReject} style={{ flex: 1, background: 'rgba(239,68,68,0.2)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,0.4)', padding: '10px', borderRadius: '10px', fontWeight: 800, cursor: 'pointer' }}>
                 Confirm Rejection
               </button>
-              <button className="btn-sm-action btn-view" style={{ flex: 1, padding: '10px' }} onClick={() => setModalType(null)}>
+              <button onClick={() => setModalType(null)} style={{ flex: 1, background: '#192230', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px', cursor: 'pointer' }}>
                 Cancel
               </button>
             </div>
@@ -965,27 +1073,24 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 3: FULFILL MODAL */}
+      {/* FULFILL MODAL */}
       {modalType === 'fulfill' && selectedOrder && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div style={{ background: '#141E2B', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '16px', padding: '24px', maxWidth: '440px', width: '100%' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '10px' }}>Complete Fulfillment #{selectedOrder.id}</h3>
-            <p style={{ fontSize: '0.85rem', color: '#94A3B8', marginBottom: '14px' }}>
-              Enter fulfillment proof note or Fragment transaction reference:
-            </p>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: '#0E131B', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '20px', padding: '24px', maxWidth: '420px', width: '100%' }}>
+            <h3 style={{ margin: '0 0 10px 0', fontSize: '1.1rem', fontWeight: 800 }}>Complete Delivery #{selectedOrder.id}</h3>
+            <p style={{ fontSize: '0.85rem', color: '#94A3B8', margin: '0 0 14px 0' }}>Fulfillment proof or Fragment TX hash:</p>
             <input
               type="text"
-              className="admin-input"
               value={fulfillProof}
               onChange={(e) => setFulfillProof(e.target.value)}
-              placeholder="e.g. Fragment Gift TX 0x1234..."
-              style={{ marginBottom: '16px' }}
+              placeholder="e.g. Fragment Gift Ref #12345"
+              style={{ width: '100%', background: '#131A24', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px', color: '#fff', boxSizing: 'border-box', marginBottom: '16px' }}
             />
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button className="btn-sm-action btn-approve" style={{ flex: 1, padding: '10px' }} onClick={handleFulfill}>
-                Mark As Delivered
+              <button onClick={handleFulfill} style={{ flex: 1, background: '#008A45', color: '#fff', border: 'none', padding: '10px', borderRadius: '10px', fontWeight: 800, cursor: 'pointer' }}>
+                Mark Delivered
               </button>
-              <button className="btn-sm-action btn-view" style={{ flex: 1, padding: '10px' }} onClick={() => setModalType(null)}>
+              <button onClick={() => setModalType(null)} style={{ flex: 1, background: '#192230', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px', cursor: 'pointer' }}>
                 Cancel
               </button>
             </div>

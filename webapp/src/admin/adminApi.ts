@@ -46,8 +46,8 @@ export async function adminVerify2FAApi(adminId: number, otp: string): Promise<{
   return data;
 }
 
-export async function fetchAdminOverviewApi(): Promise<any> {
-  const res = await fetch(`${API_BASE}/api/admin/overview`, {
+export async function fetchAdminOverviewApi(range: string = '6M'): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/admin/overview?range=${encodeURIComponent(range)}`, {
     headers: { ...getAuthHeader() },
   });
   if (!res.ok) throw new Error('Failed to load overview data');
