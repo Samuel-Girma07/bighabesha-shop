@@ -529,7 +529,11 @@ export const AdminDashboard: React.FC = () => {
                   </div>
 
                   <div className="mini-portfolio-grid">
-                    {(overview?.productStats || []).map((p: any) => (
+                    {((overview?.productStats && overview.productStats.length > 0) ? overview.productStats : [
+                      { id: 'gemini_pro_18m', name: 'Gemini Pro 18M', code: 'GEMINI', units: 0, revenue: 0, pctOfTotal: '0%' },
+                      { id: 'telegram_premium', name: 'Telegram Premium', code: 'PREM', units: 0, revenue: 0, pctOfTotal: '0%' },
+                      { id: 'telegram_stars', name: 'Telegram Stars', code: 'STARS', units: 0, revenue: 0, pctOfTotal: '0%' },
+                    ]).map((p: any) => (
                       <div key={p.id} className="mini-pcard">
                         <div className="mini-pcard-val">{p.revenue.toLocaleString()} <span style={{ fontSize: '0.7rem', color: '#94A3B8' }}>ETB</span></div>
                         <div className="mini-pcard-pct">{p.pctOfTotal} volume</div>
@@ -573,17 +577,22 @@ export const AdminDashboard: React.FC = () => {
                 </div>
 
                 {/* SVG Line & Area Chart */}
-                <div className="svg-chart-wrap">
+                <div className="svg-chart-wrap" style={{ position: 'relative' }}>
                   <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} style={{ width: '100%', height: '100%', overflow: 'visible' }}>
                     <defs>
                       <linearGradient id="emeraldAreaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" stopColor="#059669" stopOpacity="0.35" />
+                        <stop offset="0%" stopColor="#059669" stopOpacity="0.3" />
                         <stop offset="100%" stopColor="#008A45" stopOpacity="0.0" />
                       </linearGradient>
                       <filter id="emeraldGlow" x="-20%" y="-20%" width="140%" height="140%">
                         <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="#10B981" floodOpacity="0.5" />
                       </filter>
                     </defs>
+
+                    {/* Horizontal Grid Track Lines */}
+                    <line x1="20" y1="30" x2="740" y2="30" stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" />
+                    <line x1="20" y1="75" x2="740" y2="75" stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" />
+                    <line x1="20" y1="120" x2="740" y2="120" stroke="rgba(255,255,255,0.06)" />
 
                     {/* Area fill */}
                     {areaPath && <path d={areaPath} fill="url(#emeraldAreaGradient)" />}
