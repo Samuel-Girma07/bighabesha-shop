@@ -79,4 +79,23 @@ This document records technical and design decisions made throughout the develop
 - **Wallet Pay:** `PaymentAdapter` architecture with `MockWalletPay` for local development (supports `/wp_simulate <order_id>`) and `LiveWalletPay` for production.
 - **Manual Rails (Telebirr / CBE / Abyssinia):** User uploads receipt photo $\rightarrow$ transitions order to `pending_approval` $\rightarrow$ both admins receive instant photo notifications with `[✅ Approve]` and `[❌ Reject]` action buttons.
 
+---
+
+## Phase 3: Username Gate, Auto-Delivery & Orders History
+
+### 1. Username Gate Enforcement
+- **Requirement:** Users purchasing Telegram Premium or Telegram Stars MUST have a public `@username` set.
+- **Gating Mechanism:** If `username` is missing, checkout is halted, displaying step-by-step guidance to set a username in Telegram Settings, along with a `[🔄 I created it — recheck]` button that queries the user's latest Telegram profile data via Bot API without restarting checkout.
+- **Gemini Pro Exemption:** Gemini Pro 18m does not require a public username since fulfillment is delivered directly in-chat via unique activation links.
+
+### 2. Automated Delivery Engine
+- Instant single-use link allocation for Gemini Pro 18m upon payment verification on all payment rails.
+- Delivery message embeds customizable activation steps and instructions template with VPN connection guidance.
+- If inventory is exhausted before payment settles, order enters `pending_fulfillment` with instant high-priority alerts to admins.
+
+### 3. Orders & Navigation
+- `/orders` displays chronological order history with state badges (`✅ Delivered`, `⏳ Processing`, `⏳ Verifying Receipt`, `💳 Awaiting Payment`, `❌ Rejected`).
+- Detail view surfaces delivered activation links, receipt review status, and direct support routing to `@Vweah`.
+
+
 

@@ -24,11 +24,12 @@ import {
   promptAdminReject,
   renderPaymentRailSelection,
 } from './handlers/checkout.js';
+import { isUsernameRequired, hasPublicUsername, renderUsernameGate, handleGateRecheck } from './handlers/gate.js';
+import { renderMyOrders, renderOrderDetail, renderLanguageMenu, handleSetLanguage } from './handlers/orders.js';
 import { handleTextInput, handleDocumentInput, handlePhotoInput } from './handlers/input.js';
 import { getOrderById, approveReceipt, updateOrderStatus } from '../services/orders.service.js';
 import { getProductById, formatPriceETB } from '../services/catalog.service.js';
-import { fetchLiveUSDToETB } from '../services/rate_engine.service.js';
-import { setSetting, getSetting } from '../services/settings.service.js';
+import { getSetting } from '../services/settings.service.js';
 import { getConfig } from '../config/env.js';
 import { t } from '../i18n/index.js';
 
@@ -51,6 +52,7 @@ export function createBot(token: string): Bot {
   // Commands
   bot.command('start', startHandler);
   bot.command('admin', renderAdminMenu);
+  bot.command('orders', renderMyOrders);
   bot.command('health', healthHandler);
   bot.command('ping', pingHandler);
 
@@ -190,30 +192,58 @@ export function createBot(token: string): Bot {
     } else if (data === 'nav_shop') {
       await renderCatalog(ctx);
     } else if (data === 'nav_orders') {
-      await ctx.reply('📦 *My Orders*\n\nYou have no active or previous orders yet. Browse our catalog to place your first order!', { parse_mode: 'Markdown' });
+      await renderMyOrders(ctx);
+    } else if (data.startsWith('order_detail_')) {
+      const orderId = data.replace('order_detail_', '');
+      await renderOrderDetail(ctx, orderId);
+    } else if (data.startsWith('resume_pay_')) {
+      const orderId = data.replace('resume_pay_', '');
+      const order = getOrderById(orderId);
+      if (order) {
+        const product = getProductById(order.product_id);
+        await renderPaymentRailSelection(ctx, order, product ? product.name : 'Subscription');
+      }
+    } else if (data.startsWith('cancel_order_')) {
+      const orderId = data.replace('cancel_order_', '');
+      updateOrderStatus(orderId, 'cancelled');
+      await ctx.reply(`🚫 Order \`${orderId}\` has been cancelled.`, { parse_mode: 'Markdown' });
+      await renderMyOrders(ctx);
     } else if (data === 'nav_language') {
-      await ctx.reply(t('en', 'language.current'), { parse_mode: 'Markdown' });
+      await renderLanguageMenu(ctx);
+    } else if (data.startsWith('set_lang_')) {
+      const lang = data.replace('set_lang_', '');
+      await handleSetLanguage(ctx, lang);
     } else if (data.startsWith('prod_')) {
       const productId = data.replace('prod_', '');
       await renderProductDetails(ctx, productId);
+    } else if (data.startsWith('gate_recheck_')) {
+      await handleGateRecheck(ctx, data);
     } else if (data.startsWith('buy_var_')) {
       const variantId = data.replace('buy_var_', '');
-      const variant = getProductById(variantId) || null; // or getVariantById
-      // Determine product id from variant
-      if (variantId.startsWith('gemini_')) {
-        await initiateCheckout(ctx, 'gemini_pro_18m', variantId);
-      } else if (variantId.startsWith('tg_prem_')) {
-        await initiateCheckout(ctx, 'telegram_premium', variantId);
+      let productId = 'gemini_pro_18m';
+
+      if (variantId.startsWith('tg_prem_')) {
+        productId = 'telegram_premium';
       } else if (variantId.startsWith('tg_stars_')) {
-        await initiateCheckout(ctx, 'telegram_stars', variantId);
+        productId = 'telegram_stars';
+      }
+
+      // Check username gate for Premium and Stars
+      if (isUsernameRequired(productId) && !hasPublicUsername(ctx.from)) {
+        await renderUsernameGate(ctx, productId, variantId);
       } else {
-        await initiateCheckout(ctx, 'gemini_pro_18m', variantId);
+        await initiateCheckout(ctx, productId, variantId);
       }
     } else if (data.startsWith('buy_custom_stars_')) {
       const parts = data.replace('buy_custom_stars_', '').split('_');
       const stars = parseInt(parts[0], 10);
       const priceETB = parseInt(parts[1], 10);
-      await initiateCheckout(ctx, 'telegram_stars', undefined, stars, priceETB);
+
+      if (!hasPublicUsername(ctx.from)) {
+        await renderUsernameGate(ctx, 'telegram_stars', undefined, stars, priceETB);
+      } else {
+        await initiateCheckout(ctx, 'telegram_stars', undefined, stars, priceETB);
+      }
     } else if (data.startsWith('checkout_back_')) {
       const orderId = data.replace('checkout_back_', '');
       const order = getOrderById(orderId);

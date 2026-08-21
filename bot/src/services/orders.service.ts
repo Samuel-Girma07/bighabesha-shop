@@ -110,7 +110,7 @@ export function getOrdersByUserId(userId: number, limit: number = 20): Order[] {
     return db.prepare(`
       SELECT * FROM orders
       WHERE user_id = ?
-      ORDER BY created_at DESC
+      ORDER BY created_at DESC, rowid DESC
       LIMIT ?
     `).all(userId, limit) as Order[];
   } catch (err) {

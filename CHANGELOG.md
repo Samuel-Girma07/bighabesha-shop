@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - Phase 3 (2026-08-21)
+### Added
+- Username Gate mechanism for Telegram Premium and Telegram Stars, preventing order initiation for users without public `@username`.
+- Step-by-step setup guide and `[🔄 I created it — recheck]` handler querying live profile data via Bot API.
+- Automated instant delivery engine for Gemini Pro 18m upon payment settlement across all payment rails (Stars, Wallet Pay, and manual approval).
+- Admin-customizable instructions template for Gemini activation with VPN guidelines.
+- `My Orders` screen (`/orders` & menu) listing order history with status badges, delivered payload secrets, and receipt status.
+- Language preference selector with user database persistence.
+- Phase 3 test suite covering gate block/unblock paths, Gemini stock link decrement and auto-delivery, and order history formatting.
+
 ## [0.3.0] - Phase 2 (2026-08-21)
 ### Added
 - Rate Engine implementing ETB to USD, Telegram Stars (XTR), and TON/USDT conversions with ceil rounding and 5% margin.
