@@ -55,12 +55,12 @@ export function seedDatabase(db: Database.Database): void {
     insertVariant.run('tg_prem_12m', 'telegram_premium', '12 Months Subscription', 3400, 1, 3, JSON.stringify({ months: 12 }));
 
     // Telegram Stars preset packages
-    insertVariant.run('tg_stars_50', 'telegram_stars', '50 Stars ⭐', 125, 1, 1, JSON.stringify({ stars_count: 50 }));
-    insertVariant.run('tg_stars_100', 'telegram_stars', '100 Stars ⭐', 250, 1, 2, JSON.stringify({ stars_count: 100 }));
-    insertVariant.run('tg_stars_250', 'telegram_stars', '250 Stars ⭐', 625, 1, 3, JSON.stringify({ stars_count: 250 }));
-    insertVariant.run('tg_stars_500', 'telegram_stars', '500 Stars ⭐', 1250, 1, 4, JSON.stringify({ stars_count: 500 }));
-    insertVariant.run('tg_stars_1000', 'telegram_stars', '1,000 Stars ⭐', 2500, 1, 5, JSON.stringify({ stars_count: 1000 }));
-    insertVariant.run('tg_stars_2500', 'telegram_stars', '2,500 Stars ⭐', 6250, 1, 6, JSON.stringify({ stars_count: 2500 }));
+    insertVariant.run('tg_stars_50', 'telegram_stars', '50 Stars', 125, 1, 1, JSON.stringify({ stars_count: 50 }));
+    insertVariant.run('tg_stars_100', 'telegram_stars', '100 Stars', 250, 1, 2, JSON.stringify({ stars_count: 100 }));
+    insertVariant.run('tg_stars_250', 'telegram_stars', '250 Stars', 625, 1, 3, JSON.stringify({ stars_count: 250 }));
+    insertVariant.run('tg_stars_500', 'telegram_stars', '500 Stars', 1250, 1, 4, JSON.stringify({ stars_count: 500 }));
+    insertVariant.run('tg_stars_1000', 'telegram_stars', '1,000 Stars', 2500, 1, 5, JSON.stringify({ stars_count: 1000 }));
+    insertVariant.run('tg_stars_2500', 'telegram_stars', '2,500 Stars', 6250, 1, 6, JSON.stringify({ stars_count: 2500 }));
 
     // 3. Settings
     const insertSetting = db.prepare(`

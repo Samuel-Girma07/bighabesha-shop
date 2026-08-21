@@ -1,0 +1,12 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="128" height="128" rx="28" fill="#0B111A"/>
+  <rect x="4" y="4" width="120" height="120" rx="24" stroke="#F59E0B" stroke-width="2" stroke-opacity="0.4"/>
+  <circle cx="64" cy="64" r="42" fill="url(#starsGrad)"/>
+  <path d="M64 36L72.4 53.6L91.8 56.4L77.8 70.1L81.1 89.4L64 80.3L46.9 89.4L50.2 70.1L36.2 56.4L55.6 53.6L64 36Z" fill="#FFFFFF"/>
+  <defs>
+    <linearGradient id="starsGrad" x1="22" y1="22" x2="106" y2="106" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FBBF24"/>
+      <stop offset="1" stop-color="#D97706"/>
+    </linearGradient>
+  </defs>
+</svg>

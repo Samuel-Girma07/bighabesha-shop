@@ -1,0 +1,16 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="128" height="128" rx="28" fill="#0B111A"/>
+  <rect x="4" y="4" width="120" height="120" rx="24" stroke="url(#geminiBorder)" stroke-width="2"/>
+  <path d="M64 16C64 42.5 42.5 64 16 64C42.5 64 64 85.5 64 112C64 85.5 85.5 64 112 64C85.5 64 64 42.5 64 16Z" fill="url(#geminiGrad)"/>
+  <defs>
+    <linearGradient id="geminiBorder" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38BDF8" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#C084FC" stop-opacity="0.2"/>
+    </linearGradient>
+    <linearGradient id="geminiGrad" x1="16" y1="16" x2="112" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38BDF8"/>
+      <stop offset="0.5" stop-color="#818CF8"/>
+      <stop offset="1" stop-color="#C084FC"/>
+    </linearGradient>
+  </defs>
+</svg>

@@ -18,6 +18,20 @@ import {
   updateAdminSettingsApi,
   broadcastMessageApi,
 } from './adminApi.ts';
+import {
+  BarChartIcon,
+  PackageIcon,
+  KeyIcon,
+  UsersIcon,
+  MegaphoneIcon,
+  SettingsIcon,
+  SearchIcon,
+  BellIcon,
+  LogOutIcon,
+  GeminiBrandIcon,
+  TelegramBrandIcon,
+  StarsBrandIcon,
+} from '../components/Icons.tsx';
 import './admin.css';
 
 export const AdminDashboard: React.FC = () => {
@@ -370,28 +384,35 @@ export const AdminDashboard: React.FC = () => {
 
           <nav className="admin-nav">
             <button className={`admin-nav-item ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
-              <span>📊</span> Dashboard
+              <BarChartIcon size={18} />
+              <span>Dashboard</span>
             </button>
             <button className={`admin-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
-              <span>📦</span> Orders &amp; Receipts ({overview?.metrics?.pendingApprovalOrders || 0})
+              <PackageIcon size={18} />
+              <span>Orders &amp; Receipts ({overview?.metrics?.pendingApprovalOrders || 0})</span>
             </button>
             <button className={`admin-nav-item ${activeTab === 'stock' ? 'active' : ''}`} onClick={() => setActiveTab('stock')}>
-              <span>🔑</span> Gemini Stock ({stockData.summary.available || 0})
+              <KeyIcon size={18} />
+              <span>Gemini Stock ({stockData.summary.available || 0})</span>
             </button>
             <button className={`admin-nav-item ${activeTab === 'users' ? 'active' : ''}`} onClick={() => setActiveTab('users')}>
-              <span>👥</span> User CRM ({users.length})
+              <UsersIcon size={18} />
+              <span>User CRM ({users.length})</span>
             </button>
             <button className={`admin-nav-item ${activeTab === 'broadcast' ? 'active' : ''}`} onClick={() => setActiveTab('broadcast')}>
-              <span>📢</span> Broadcast Tool
+              <MegaphoneIcon size={18} />
+              <span>Broadcast Tool</span>
             </button>
           </nav>
 
           <div className="sidebar-bottom">
             <button className={`admin-nav-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
-              <span>⚙️</span> Store Settings
+              <SettingsIcon size={18} />
+              <span>Store Settings</span>
             </button>
-            <button className="admin-logout-btn" onClick={handleLogout}>
-              Sign Out
+            <button className="admin-logout-btn" onClick={handleLogout} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <LogOutIcon size={16} />
+              <span>Sign Out</span>
             </button>
           </div>
         </aside>
@@ -407,7 +428,7 @@ export const AdminDashboard: React.FC = () => {
 
             <div className="topbar-right">
               <div className="search-pill-box">
-                <span style={{ color: '#94A3B8' }}>🔍</span>
+                <SearchIcon size={16} color="#94A3B8" />
                 <input
                   type="text"
                   placeholder="Search orders, users..."
@@ -421,7 +442,7 @@ export const AdminDashboard: React.FC = () => {
               </div>
 
               <div className="icon-btn-pill" onClick={() => setActiveTab('orders')} title="Pending Receipts">
-                <span>🔔</span>
+                <BellIcon size={18} />
                 {overview?.metrics?.pendingApprovalOrders > 0 && <span className="icon-badge-dot" />}
               </div>
 
@@ -500,7 +521,13 @@ export const AdminDashboard: React.FC = () => {
                         <div key={ord.id} className="activity-row">
                           <div className="activity-info">
                             <div className="activity-badge-icon">
-                              {ord.product_id?.includes('gemini') ? '✦' : ord.product_id?.includes('prem') ? '★' : '🪙'}
+                              {ord.product_id?.includes('gemini') ? (
+                                <GeminiBrandIcon size={18} />
+                              ) : ord.product_id?.includes('prem') ? (
+                                <TelegramBrandIcon size={18} />
+                              ) : (
+                                <StarsBrandIcon size={18} />
+                              )}
                             </div>
                             <div>
                               <div className="activity-name">{ord.username ? `@${ord.username}` : `User #${ord.user_id}`}</div>
@@ -667,11 +694,11 @@ export const AdminDashboard: React.FC = () => {
                     style={{ background: '#131A24', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '8px 14px', borderRadius: '12px' }}
                   >
                     <option value="all">All Orders</option>
-                    <option value="pending_approval">Pending Approval ⏳</option>
-                    <option value="pending_fulfillment">Pending Delivery 🎁</option>
-                    <option value="fulfilled">Fulfilled ✅</option>
-                    <option value="awaiting_payment">Awaiting Payment 💳</option>
-                    <option value="rejected">Rejected ❌</option>
+                    <option value="pending_approval">Pending Approval</option>
+                    <option value="pending_fulfillment">Pending Delivery</option>
+                    <option value="fulfilled">Fulfilled</option>
+                    <option value="awaiting_payment">Awaiting Payment</option>
+                    <option value="rejected">Rejected</option>
                   </select>
                 </div>
               </div>
@@ -772,7 +799,7 @@ export const AdminDashboard: React.FC = () => {
               </div>
 
               <div className="dash-card" style={{ marginBottom: '24px' }}>
-                <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '8px' }}>📥 Bulk Add Activation Links</div>
+                <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '8px' }}>Bulk Add Activation Links</div>
                 <div style={{ fontSize: '0.85rem', color: '#94A3B8', marginBottom: '12px' }}>Paste redeem links line-by-line (e.g. <code>https://gemini.google.com/redeem/XXXXX</code>):</div>
                 <textarea
                   rows={4}
@@ -898,7 +925,7 @@ export const AdminDashboard: React.FC = () => {
 
               <form onSubmit={handleSaveSettings}>
                 <div className="dash-card" style={{ marginBottom: '20px' }}>
-                  <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '16px' }}>💱 Rates &amp; Margins</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '16px' }}>Rates &amp; Margins</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
                     <div>
                       <label style={{ fontSize: '0.8rem', color: '#94A3B8', fontWeight: 700 }}>ETB per 1 Telegram Star</label>
@@ -924,7 +951,7 @@ export const AdminDashboard: React.FC = () => {
                 </div>
 
                 <div className="dash-card" style={{ marginBottom: '20px' }}>
-                  <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '16px' }}>🏦 Bank Accounts</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '16px' }}>Bank Accounts</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
                     <div>
                       <label style={{ fontSize: '0.8rem', color: '#94A3B8', fontWeight: 700 }}>CBE Account Number</label>
@@ -1012,7 +1039,7 @@ export const AdminDashboard: React.FC = () => {
                   disabled={broadcasting || !broadcastMessage.trim()}
                   style={{ background: 'linear-gradient(135deg, #059669 0%, #008A45 100%)', color: '#fff', padding: '12px 24px', borderRadius: '10px', border: 'none', fontWeight: 800, cursor: 'pointer', alignSelf: 'flex-start' }}
                 >
-                  {broadcasting ? 'Sending Broadcast...' : '📢 Send Message Now'}
+                  {broadcasting ? 'Sending Broadcast...' : 'Send Message Now'}
                 </button>
               </div>
             </div>

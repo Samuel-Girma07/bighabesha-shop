@@ -38,6 +38,9 @@ export async function inlineQueryHandler(ctx: Context): Promise<void> {
         {
           description: 'Google AI Suite + 2,048 GB Cloud Storage. Automated delivery.',
           reply_markup: keyboard,
+          thumbnail_url: `${webAppUrl}/icons/gemini.svg`,
+          thumbnail_width: 128,
+          thumbnail_height: 128,
         }
       ).text(text, { parse_mode: 'Markdown' });
 
@@ -60,6 +63,9 @@ export async function inlineQueryHandler(ctx: Context): Promise<void> {
         {
           description: 'Official Fragment direct gift to @username without password.',
           reply_markup: keyboard,
+          thumbnail_url: `${webAppUrl}/icons/telegram_premium.svg`,
+          thumbnail_width: 128,
+          thumbnail_height: 128,
         }
       ).text(text, { parse_mode: 'Markdown' });
 
@@ -84,6 +90,9 @@ export async function inlineQueryHandler(ctx: Context): Promise<void> {
         {
           description: 'In-app currency for digital gifts, channel boosts, and bots.',
           reply_markup: keyboard,
+          thumbnail_url: `${webAppUrl}/icons/telegram_stars.svg`,
+          thumbnail_width: 128,
+          thumbnail_height: 128,
         }
       ).text(text, { parse_mode: 'Markdown' });
 
@@ -109,6 +118,9 @@ export async function inlineQueryHandler(ctx: Context): Promise<void> {
     {
       description: 'Browse all subscriptions, pricing, and Ethiopian payment rails.',
       reply_markup: generalKeyboard,
+      thumbnail_url: `${webAppUrl}/icons/logo.svg`,
+      thumbnail_width: 128,
+      thumbnail_height: 128,
     }
   ).text(generalText, { parse_mode: 'Markdown' });
 
