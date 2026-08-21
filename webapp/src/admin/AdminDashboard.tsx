@@ -476,45 +476,220 @@ export const AdminDashboard: React.FC = () => {
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
             <div>
-              {/* Top Row: 3 Dashboard Cards */}
-              <div className="dashboard-overview-grid">
-                {/* Card 1: Total Holding / Revenue */}
-                <div className="dash-card">
-                  <div className="dash-card-header">
-                    <span className="dash-card-title">Total Settled Revenue</span>
+              {/* Row 1: Top 4 KPI Metrics */}
+              <div className="admin-metrics-row">
+                {/* Metric 1: Settled Revenue */}
+                <div className="kpi-stat-card">
+                  <div className="kpi-top-meta">
+                    <span className="kpi-label">Total Settled Revenue</span>
                     <button className="dash-pill-btn" onClick={() => setTimeRange(timeRange === '6M' ? '1Y' : '6M')}>
                       {timeRange} ▾
                     </button>
                   </div>
-                  <div className="main-revenue-num">
-                    {(overview?.metrics?.totalRevenueETB || 0).toLocaleString()} <span style={{ fontSize: '1rem', color: '#10B981', fontWeight: 700 }}>ETB</span>
+                  <div className="kpi-hero-value">
+                    {(overview?.metrics?.totalRevenueETB || 0).toLocaleString()}
+                    <span className="kpi-hero-unit">ETB</span>
                   </div>
+                  <div className="kpi-footer-sub">
+                    <span>Confirmed Bank &amp; Crypto</span>
+                    <span style={{ color: '#10B981' }}>100% Settled</span>
+                  </div>
+                </div>
 
-                  {/* Ambient Card */}
-                  <div className="ambient-action-card">
-                    <div className="ambient-action-title">Gemini Stock Ready</div>
-                    <div className="ambient-action-desc">
-                      {overview?.metrics?.geminiStockAvailable || 0} activation links currently available for automated 1-second delivery.
+                {/* Metric 2: Pending Approval */}
+                <div className="kpi-stat-card">
+                  <div className="kpi-top-meta">
+                    <span className="kpi-label">Pending Verification</span>
+                    <div className="kpi-icon-badge">
+                      <PackageIcon size={18} color={overview?.metrics?.pendingApprovalOrders > 0 ? '#F59E0B' : '#10B981'} />
                     </div>
-                    <button className="btn-ambient-pill" onClick={() => setActiveTab('stock')}>
-                      + Ingest Stock Links
+                  </div>
+                  <div className="kpi-hero-value">
+                    {overview?.metrics?.pendingApprovalOrders || 0}
+                    <span className="kpi-hero-unit">Orders</span>
+                  </div>
+                  <div className="kpi-footer-sub">
+                    <span>Awaiting receipt review</span>
+                    <button className="kpi-quick-btn" onClick={() => { setActiveTab('orders'); setOrderFilter('pending_approval'); }}>
+                      Review Queue ↗
                     </button>
                   </div>
                 </div>
 
-                {/* Card 2: Recent Activity / Watchlist */}
+                {/* Metric 3: Gemini Stock */}
+                <div className="kpi-stat-card">
+                  <div className="kpi-top-meta">
+                    <span className="kpi-label">Gemini Stock Ready</span>
+                    <div className="kpi-icon-badge">
+                      <KeyIcon size={18} color="#38BDF8" />
+                    </div>
+                  </div>
+                  <div className="kpi-hero-value">
+                    {stockData.summary.available || 0}
+                    <span className="kpi-hero-unit">Links</span>
+                  </div>
+                  <div className="kpi-footer-sub">
+                    <span>Instant auto-delivery</span>
+                    <button className="kpi-quick-btn" onClick={() => setActiveTab('stock')}>
+                      + Add Stock
+                    </button>
+                  </div>
+                </div>
+
+                {/* Metric 4: Registered CRM Users */}
+                <div className="kpi-stat-card">
+                  <div className="kpi-top-meta">
+                    <span className="kpi-label">Verified Customers</span>
+                    <div className="kpi-icon-badge">
+                      <UsersIcon size={18} color="#10B981" />
+                    </div>
+                  </div>
+                  <div className="kpi-hero-value">
+                    {overview?.metrics?.registeredUsers || 0}
+                    <span className="kpi-hero-unit">/ {overview?.metrics?.totalUsers || 0}</span>
+                  </div>
+                  <div className="kpi-footer-sub">
+                    <span>+251 Verified Phone</span>
+                    <button className="kpi-quick-btn" onClick={() => setActiveTab('users')}>
+                      CRM Directory ↗
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 2: Dual Workspaces (Product Breakdown & Recent Activity) */}
+              <div className="admin-dual-grid">
+                {/* Left Card: Wide Product Breakdown */}
                 <div className="dash-card">
                   <div className="dash-card-header">
-                    <span className="dash-card-title">Recent Activity</span>
+                    <div>
+                      <div className="dash-card-title">Product Sales &amp; Inventory</div>
+                      <div style={{ fontSize: '0.78rem', color: '#94A3B8', marginTop: '2px' }}>Real-time revenue, units, and inventory volume distribution</div>
+                    </div>
                     <button className="dash-pill-btn" onClick={() => setActiveTab('orders')}>
-                      See all ↗
+                      Full Orders ↗
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {/* 1. Gemini Pro 18M */}
+                    {(() => {
+                      const p = (overview?.productStats || []).find((x: any) => x.id === 'gemini_pro_18m') || { revenue: 0, units: 0, pctOfTotal: '0%' };
+                      const pctNum = parseFloat(p.pctOfTotal) || 0;
+                      return (
+                        <div className="product-row-item">
+                          <div className="product-row-top">
+                            <div className="product-row-identity">
+                              <div className="product-avatar-box">
+                                <GeminiBrandIcon size={24} />
+                              </div>
+                              <div>
+                                <div className="product-title-bold">Gemini Pro (18 Months)</div>
+                                <div className="product-sku-tag">SKU: GEMINI-18M • Google AI Suite &amp; 2TB</div>
+                              </div>
+                            </div>
+                            <div className="product-financials">
+                              <div className="product-rev-amount">{p.revenue.toLocaleString()} ETB</div>
+                              <div className="product-units-sold">{p.units} units sold</div>
+                            </div>
+                          </div>
+                          <div className="volume-bar-track">
+                            <div className="volume-bar-fill" style={{ width: `${Math.max(pctNum, p.revenue > 0 ? 15 : 0)}%`, background: 'linear-gradient(90deg, #38BDF8, #818CF8)' }} />
+                          </div>
+                          <div className="volume-meta-row">
+                            <span>{p.pctOfTotal} of total revenue</span>
+                            <span style={{ color: stockData.summary.available > 0 ? '#10B981' : '#EF4444' }}>
+                              {stockData.summary.available || 0} links available in stock
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* 2. Telegram Premium */}
+                    {(() => {
+                      const p = (overview?.productStats || []).find((x: any) => x.id === 'telegram_premium') || { revenue: 0, units: 0, pctOfTotal: '0%' };
+                      const pctNum = parseFloat(p.pctOfTotal) || 0;
+                      return (
+                        <div className="product-row-item">
+                          <div className="product-row-top">
+                            <div className="product-row-identity">
+                              <div className="product-avatar-box">
+                                <TelegramBrandIcon size={24} />
+                              </div>
+                              <div>
+                                <div className="product-title-bold">Telegram Premium</div>
+                                <div className="product-sku-tag">SKU: TG-PREM • 3, 6, 12 Months Subscriptions</div>
+                              </div>
+                            </div>
+                            <div className="product-financials">
+                              <div className="product-rev-amount">{p.revenue.toLocaleString()} ETB</div>
+                              <div className="product-units-sold">{p.units} gifts fulfilled</div>
+                            </div>
+                          </div>
+                          <div className="volume-bar-track">
+                            <div className="volume-bar-fill" style={{ width: `${Math.max(pctNum, p.revenue > 0 ? 15 : 0)}%`, background: 'linear-gradient(90deg, #8B5CF6, #6366F1)' }} />
+                          </div>
+                          <div className="volume-meta-row">
+                            <span>{p.pctOfTotal} of total revenue</span>
+                            <span>Direct Fragment @username delivery</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* 3. Telegram Stars */}
+                    {(() => {
+                      const p = (overview?.productStats || []).find((x: any) => x.id === 'telegram_stars') || { revenue: 0, units: 0, pctOfTotal: '0%' };
+                      const pctNum = parseFloat(p.pctOfTotal) || 0;
+                      return (
+                        <div className="product-row-item">
+                          <div className="product-row-top">
+                            <div className="product-row-identity">
+                              <div className="product-avatar-box">
+                                <StarsBrandIcon size={24} />
+                              </div>
+                              <div>
+                                <div className="product-title-bold">Telegram Stars (Coins)</div>
+                                <div className="product-sku-tag">SKU: TG-STARS • In-App Currency &amp; Gifts</div>
+                              </div>
+                            </div>
+                            <div className="product-financials">
+                              <div className="product-rev-amount">{p.revenue.toLocaleString()} ETB</div>
+                              <div className="product-units-sold">{p.units} coins minted</div>
+                            </div>
+                          </div>
+                          <div className="volume-bar-track">
+                            <div className="volume-bar-fill" style={{ width: `${Math.max(pctNum, p.revenue > 0 ? 15 : 0)}%`, background: 'linear-gradient(90deg, #F59E0B, #FBBF24)' }} />
+                          </div>
+                          <div className="volume-meta-row">
+                            <span>{p.pctOfTotal} of total revenue</span>
+                            <span>Rate: {settings.etb_per_star || '2.5'} ETB / Star</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* Right Card: Recent Activity Stream */}
+                <div className="dash-card">
+                  <div className="dash-card-header">
+                    <div>
+                      <div className="dash-card-title">Recent Activity Stream</div>
+                      <div style={{ fontSize: '0.78rem', color: '#94A3B8', marginTop: '2px' }}>Live incoming orders and transfer confirmations</div>
+                    </div>
+                    <button className="dash-pill-btn" onClick={() => setActiveTab('orders')}>
+                      See all orders ↗
                     </button>
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'center' }}>
                     {(overview?.recentOrders || []).length === 0 ? (
-                      <div style={{ textAlign: 'center', color: '#64748B', fontSize: '0.85rem', padding: '24px' }}>
-                        No orders recorded yet.
+                      <div style={{ textAlign: 'center', color: '#64748B', fontSize: '0.88rem', padding: '40px 20px' }}>
+                        <div style={{ fontSize: '1.8rem', marginBottom: '10px', opacity: 0.5 }}>📦</div>
+                        <div style={{ fontWeight: 700, color: '#94A3B8', marginBottom: '4px' }}>No orders recorded yet</div>
+                        <div style={{ fontSize: '0.78rem', color: '#64748B' }}>Live customer orders will appear here automatically in real-time.</div>
                       </div>
                     ) : (
                       (overview?.recentOrders || []).map((ord: any) => (
@@ -522,16 +697,16 @@ export const AdminDashboard: React.FC = () => {
                           <div className="activity-info">
                             <div className="activity-badge-icon">
                               {ord.product_id?.includes('gemini') ? (
-                                <GeminiBrandIcon size={18} />
+                                <GeminiBrandIcon size={20} />
                               ) : ord.product_id?.includes('prem') ? (
-                                <TelegramBrandIcon size={18} />
+                                <TelegramBrandIcon size={20} />
                               ) : (
-                                <StarsBrandIcon size={18} />
+                                <StarsBrandIcon size={20} />
                               )}
                             </div>
                             <div>
                               <div className="activity-name">{ord.username ? `@${ord.username}` : `User #${ord.user_id}`}</div>
-                              <div className="activity-sub">{ord.payment_rail?.toUpperCase()}</div>
+                              <div className="activity-sub">{ord.product_id} • {ord.payment_rail?.toUpperCase()}</div>
                             </div>
                           </div>
                           <div className="activity-val">
@@ -545,44 +720,9 @@ export const AdminDashboard: React.FC = () => {
                     )}
                   </div>
                 </div>
-
-                {/* Card 3: 2x2 Products Portfolio */}
-                <div className="dash-card">
-                  <div className="dash-card-header">
-                    <span className="dash-card-title">Products Breakdown</span>
-                    <button className="dash-pill-btn" onClick={() => setActiveTab('orders')}>
-                      Details ↗
-                    </button>
-                  </div>
-
-                  <div className="mini-portfolio-grid">
-                    {((overview?.productStats && overview.productStats.length > 0) ? overview.productStats : [
-                      { id: 'gemini_pro_18m', name: 'Gemini Pro 18M', code: 'GEMINI', units: 0, revenue: 0, pctOfTotal: '0%' },
-                      { id: 'telegram_premium', name: 'Telegram Premium', code: 'PREM', units: 0, revenue: 0, pctOfTotal: '0%' },
-                      { id: 'telegram_stars', name: 'Telegram Stars', code: 'STARS', units: 0, revenue: 0, pctOfTotal: '0%' },
-                    ]).map((p: any) => (
-                      <div key={p.id} className="mini-pcard">
-                        <div className="mini-pcard-val">{p.revenue.toLocaleString()} <span style={{ fontSize: '0.7rem', color: '#94A3B8' }}>ETB</span></div>
-                        <div className="mini-pcard-pct">{p.pctOfTotal} volume</div>
-                        <div className="mini-pcard-footer">
-                          <span>{p.code}</span>
-                          <span>{p.units} units</span>
-                        </div>
-                      </div>
-                    ))}
-                    <div className="mini-pcard">
-                      <div className="mini-pcard-val">{overview?.metrics?.registeredUsers || 0} <span style={{ fontSize: '0.7rem', color: '#94A3B8' }}>Users</span></div>
-                      <div className="mini-pcard-pct" style={{ color: '#10B981' }}>+251 Verified</div>
-                      <div className="mini-pcard-footer">
-                        <span>CRM</span>
-                        <span>{overview?.metrics?.totalUsers || 0} Total</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </div>
 
-              {/* Bottom Card: Full-Width Real Performance Area Chart */}
+              {/* Row 3: Full-Width Real Performance Area Chart */}
               <div className="chart-container-card">
                 <div className="chart-header">
                   <div>
