@@ -153,21 +153,22 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
 adminRouter.get('/overview', requireAdminAuth, (req: Request, res: Response): void => {
   const db = getDatabase();
   const timeRange = (req.query.range as string) || '6M';
+  const rail = (req.query.rail as string) || 'all';
+
+  const railFilter = rail !== 'all' ? ' AND payment_rail = ?' : '';
 
   // 1. Total lifetime revenue from fulfilled orders
-  const totalRevenue = db.prepare(
-    "SELECT COALESCE(SUM(amount_etb), 0) as total FROM orders WHERE status = 'fulfilled'"
-  ).get() as { total: number };
+  const totalRevSql = `SELECT COALESCE(SUM(amount_etb), 0) as total FROM orders WHERE status = 'fulfilled'${railFilter}`;
+  const totalRevenue = (rail !== 'all' ? db.prepare(totalRevSql).get(rail) : db.prepare(totalRevSql).get()) as { total: number };
 
   // 2. Orders status breakdown
-  const ordersCount = db.prepare(
-    "SELECT COUNT(*) as total, " +
-    "SUM(CASE WHEN status = 'fulfilled' THEN 1 ELSE 0 END) as fulfilled, " +
-    "SUM(CASE WHEN status = 'pending_approval' THEN 1 ELSE 0 END) as pendingApproval, " +
-    "SUM(CASE WHEN status = 'pending_fulfillment' THEN 1 ELSE 0 END) as pendingFulfillment, " +
-    "SUM(CASE WHEN status = 'awaiting_payment' THEN 1 ELSE 0 END) as awaitingPayment " +
-    "FROM orders"
-  ).get() as any;
+  const ordersCountSql = `SELECT COUNT(*) as total, ` +
+    `SUM(CASE WHEN status = 'fulfilled' THEN 1 ELSE 0 END) as fulfilled, ` +
+    `SUM(CASE WHEN status = 'pending_approval' THEN 1 ELSE 0 END) as pendingApproval, ` +
+    `SUM(CASE WHEN status = 'pending_fulfillment' THEN 1 ELSE 0 END) as pendingFulfillment, ` +
+    `SUM(CASE WHEN status = 'awaiting_payment' THEN 1 ELSE 0 END) as awaitingPayment ` +
+    `FROM orders WHERE 1=1${railFilter}`;
+  const ordersCount = (rail !== 'all' ? db.prepare(ordersCountSql).get(rail) : db.prepare(ordersCountSql).get()) as any;
 
   // 3. User counts
   const usersCount = db.prepare(
@@ -182,15 +183,14 @@ adminRouter.get('/overview', requireAdminAuth, (req: Request, res: Response): vo
     "SELECT payment_rail, COUNT(*) as count, SUM(amount_etb) as total_etb FROM orders WHERE status = 'fulfilled' GROUP BY payment_rail"
   ).all();
 
-  // 6. Product Revenue Breakdown (2x2 grid)
+  // 6. Product Revenue Breakdown
   const productStats = [
     { id: 'gemini_pro_18m', name: 'Gemini Pro (18M)', code: 'GEMINI' },
     { id: 'telegram_premium', name: 'Telegram Premium', code: 'PREM' },
     { id: 'telegram_stars', name: 'Telegram Stars', code: 'STARS' },
   ].map((p) => {
-    const row = db.prepare(
-      "SELECT COUNT(*) as units, COALESCE(SUM(amount_etb), 0) as revenue FROM orders WHERE product_id = ? AND status = 'fulfilled'"
-    ).get(p.id) as { units: number; revenue: number };
+    const pSql = `SELECT COUNT(*) as units, COALESCE(SUM(amount_etb), 0) as revenue FROM orders WHERE product_id = ? AND status = 'fulfilled'${railFilter}`;
+    const row = (rail !== 'all' ? db.prepare(pSql).get(p.id, rail) : db.prepare(pSql).get(p.id)) as { units: number; revenue: number };
     const pct = totalRevenue.total > 0 ? ((row.revenue / totalRevenue.total) * 100).toFixed(1) : '0';
     return {
       id: p.id,
@@ -202,16 +202,15 @@ adminRouter.get('/overview', requireAdminAuth, (req: Request, res: Response): vo
     };
   });
 
-  // 7. Dynamic Timeline Chart Data based on timeRange
+  // 7. Dynamic Timeline Chart Data based on timeRange & rail
   const chartPoints: { label: string; revenue: number; orders: number }[] = [];
 
   if (timeRange === '1D') {
     // Hourly for today
     for (let h = 0; h < 24; h += 3) {
       const hourStr = h.toString().padStart(2, '0');
-      const row = db.prepare(
-        "SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND strftime('%H', created_at) = ?"
-      ).get(hourStr) as any;
+      const hSql = `SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND strftime('%H', created_at) = ?${railFilter}`;
+      const row = (rail !== 'all' ? db.prepare(hSql).get(hourStr, rail) : db.prepare(hSql).get(hourStr)) as any;
       chartPoints.push({
         label: `${hourStr}:00`,
         revenue: row?.rev || 0,
@@ -225,9 +224,8 @@ adminRouter.get('/overview', requireAdminAuth, (req: Request, res: Response): vo
       date.setDate(date.getDate() - d);
       const dateStr = date.toISOString().split('T')[0];
       const dayLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
-      const row = db.prepare(
-        "SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND date(created_at) = date(?)"
-      ).get(dateStr) as any;
+      const dSql = `SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND date(created_at) = date(?)${railFilter}`;
+      const row = (rail !== 'all' ? db.prepare(dSql).get(dateStr, rail) : db.prepare(dSql).get(dateStr)) as any;
       chartPoints.push({
         label: dayLabel,
         revenue: row?.rev || 0,
@@ -240,9 +238,8 @@ adminRouter.get('/overview', requireAdminAuth, (req: Request, res: Response): vo
       const weekLabel = `W${4 - w}`;
       const startDaysAgo = (w + 1) * 7;
       const endDaysAgo = w * 7;
-      const row = db.prepare(
-        "SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND created_at >= datetime('now', '-' || ? || ' days') AND created_at < datetime('now', '-' || ? || ' days')"
-      ).get(startDaysAgo, endDaysAgo) as any;
+      const wSql = `SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND created_at >= datetime('now', '-' || ? || ' days') AND created_at < datetime('now', '-' || ? || ' days')${railFilter}`;
+      const row = (rail !== 'all' ? db.prepare(wSql).get(startDaysAgo, endDaysAgo, rail) : db.prepare(wSql).get(startDaysAgo, endDaysAgo)) as any;
       chartPoints.push({
         label: weekLabel,
         revenue: row?.rev || 0,
@@ -261,9 +258,8 @@ adminRouter.get('/overview', requireAdminAuth, (req: Request, res: Response): vo
       const monthFormatted = (mIdx + 1).toString().padStart(2, '0');
       const yearStr = d.getFullYear().toString();
 
-      const row = db.prepare(
-        "SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND strftime('%m', created_at) = ? AND strftime('%Y', created_at) = ?"
-      ).get(monthFormatted, yearStr) as any;
+      const mSql = `SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND strftime('%m', created_at) = ? AND strftime('%Y', created_at) = ?${railFilter}`;
+      const row = (rail !== 'all' ? db.prepare(mSql).get(monthFormatted, yearStr, rail) : db.prepare(mSql).get(monthFormatted, yearStr)) as any;
 
       chartPoints.push({
         label: monthLabel,
@@ -273,10 +269,9 @@ adminRouter.get('/overview', requireAdminAuth, (req: Request, res: Response): vo
     }
   }
 
-  // 8. Recent 5 orders for Watchlist card
-  const recentOrders = db.prepare(
-    "SELECT id, user_id, username, product_id, amount_etb, payment_rail, status, created_at FROM orders ORDER BY created_at DESC LIMIT 5"
-  ).all();
+  // 8. Recent 5 orders
+  const recSql = `SELECT id, user_id, username, product_id, amount_etb, payment_rail, status, created_at FROM orders WHERE 1=1${railFilter} ORDER BY created_at DESC LIMIT 5`;
+  const recentOrders = (rail !== 'all' ? db.prepare(recSql).all(rail) : db.prepare(recSql).all()) as any[];
 
   res.json({
     metrics: {

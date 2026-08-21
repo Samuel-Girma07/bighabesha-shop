@@ -51,11 +51,23 @@ export const AdminDashboard: React.FC = () => {
   const [timeRange, setTimeRange] = useState<string>('6M');
   const [hoveredPoint, setHoveredPoint] = useState<any | null>(null);
 
+  // Live Auto-Sync & Real-time Polling
+  const [liveSync, setLiveSync] = useState<boolean>(true);
+  const [isSyncLoading, setIsSyncLoading] = useState<boolean>(false);
+  const [lastSync, setLastSync] = useState<Date>(new Date());
+
   // Filter & Search States
   const [categoryRail, setCategoryRail] = useState<string>('all');
   const [orderFilter, setOrderFilter] = useState<string>('all');
   const [orderSearch, setOrderSearch] = useState<string>('');
   const [orders, setOrders] = useState<any[]>([]);
+  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
+
+  // Quick Action Modals on Overview
+  const [quickStockOpen, setQuickStockOpen] = useState<boolean>(false);
+  const [quickRateOpen, setQuickRateOpen] = useState<boolean>(false);
+  const [newRateStars, setNewRateStars] = useState<string>('');
+  const [newRateUsd, setNewRateUsd] = useState<string>('');
 
   // Stock, Users & Settings States
   const [stockData, setStockData] = useState<{ summary: any; items: any[] }>({ summary: {}, items: [] });
@@ -77,10 +89,11 @@ export const AdminDashboard: React.FC = () => {
   const [fulfillProof, setFulfillProof] = useState('');
   const [modalType, setModalType] = useState<'receipt' | 'reject' | 'fulfill' | null>(null);
 
-  const loadAllAdminData = async () => {
+  const loadAllAdminData = async (range = timeRange, rail = categoryRail) => {
     try {
+      setIsSyncLoading(true);
       const [ov, ords, stk, usrs, stgs] = await Promise.all([
-        fetchAdminOverviewApi(timeRange).catch(() => null),
+        fetchAdminOverviewApi(range, rail).catch(() => null),
         fetchAdminOrdersApi(orderFilter, orderSearch).catch(() => ({ orders: [] })),
         fetchAdminStockApi().catch(() => ({ summary: {}, items: [] })),
         fetchAdminUsersApi().catch(() => ({ users: [] })),
@@ -92,16 +105,64 @@ export const AdminDashboard: React.FC = () => {
       setStockData(stk);
       setUsers(usrs.users);
       setSettings(stgs.settings);
+      setLastSync(new Date());
     } catch (err) {
       console.error('Admin data load error:', err);
+    } finally {
+      setIsSyncLoading(false);
     }
   };
 
   useEffect(() => {
     if (isLoggedIn) {
-      loadAllAdminData();
+      loadAllAdminData(timeRange, categoryRail);
     }
-  }, [isLoggedIn, orderFilter, timeRange]);
+  }, [isLoggedIn, orderFilter, timeRange, categoryRail]);
+
+  // Live Sync interval
+  useEffect(() => {
+    if (!isLoggedIn || !liveSync) return;
+    const interval = setInterval(() => {
+      loadAllAdminData(timeRange, categoryRail);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [isLoggedIn, liveSync, timeRange, categoryRail, orderFilter]);
+
+  // Keyboard Shortcuts Listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        if (e.key === 'Escape') {
+          (e.target as HTMLElement).blur();
+          setIsSearchOpen(false);
+        }
+        return;
+      }
+      if (e.key === '1') setActiveTab('overview');
+      if (e.key === '2') setActiveTab('orders');
+      if (e.key === '3') setActiveTab('stock');
+      if (e.key === '4') setActiveTab('users');
+      if (e.key === '5') setActiveTab('broadcast');
+      if (e.key === '6') setActiveTab('settings');
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        loadAllAdminData(timeRange, categoryRail);
+      }
+      if (e.key === '/') {
+        e.preventDefault();
+        const searchInput = document.getElementById('admin-global-search') as HTMLInputElement;
+        if (searchInput) searchInput.focus();
+      }
+      if (e.key === 'Escape') {
+        setModalType(null);
+        setQuickStockOpen(false);
+        setQuickRateOpen(false);
+        setIsSearchOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [timeRange, categoryRail]);
 
   // Auth Handlers
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -422,26 +483,104 @@ export const AdminDashboard: React.FC = () => {
           {/* Top Bar */}
           <div className="admin-topbar">
             <div>
-              <h1 className="greeting-title">Welcome, Administrator</h1>
-              <div className="greeting-subtitle">Here's your live digital store performance overview</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <h1 className="greeting-title">Welcome, Administrator</h1>
+                <div
+                  className="live-sync-pill"
+                  onClick={() => setLiveSync(!liveSync)}
+                  title={liveSync ? 'Live Auto-Sync Active (Click to pause)' : 'Sync Paused (Click to resume)'}
+                >
+                  <span className={liveSync ? 'pulse-dot' : ''} style={{ background: liveSync ? '#10B981' : '#64748B' }} />
+                  <span>{liveSync ? 'Live Sync' : 'Paused'}</span>
+                </div>
+                <button
+                  className="dash-pill-btn"
+                  onClick={() => loadAllAdminData(timeRange, categoryRail)}
+                  title="Manual Sync (Shortcut: R)"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <span className={isSyncLoading ? 'sync-rotate-anim' : ''}>↻</span>
+                  <span>Sync</span>
+                  <span className="kbd-shortcut">R</span>
+                </button>
+              </div>
+              <div className="greeting-subtitle">
+                Live digital store performance overview • Last synced {lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </div>
             </div>
 
             <div className="topbar-right">
-              <div className="search-pill-box">
-                <SearchIcon size={16} color="#94A3B8" />
-                <input
-                  type="text"
-                  placeholder="Search orders, users..."
-                  value={orderSearch}
-                  onChange={(e) => {
-                    setOrderSearch(e.target.value);
-                    loadAllAdminData();
-                  }}
-                  className="search-pill-input"
-                />
+              {/* Universal Search Box with Auto-Dropdown */}
+              <div className="search-wrapper-rel">
+                <div className="search-pill-box">
+                  <SearchIcon size={16} color="#94A3B8" />
+                  <input
+                    id="admin-global-search"
+                    type="text"
+                    placeholder="Search orders, @users... (/)"
+                    value={orderSearch}
+                    onFocus={() => setIsSearchOpen(true)}
+                    onChange={(e) => {
+                      setOrderSearch(e.target.value);
+                      setIsSearchOpen(true);
+                    }}
+                    className="search-pill-input"
+                  />
+                  {orderSearch && (
+                    <button
+                      onClick={() => { setOrderSearch(''); setIsSearchOpen(false); }}
+                      style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', fontSize: '0.8rem', padding: 0 }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Live Search Quick Results Dropdown */}
+                {isSearchOpen && orderSearch.trim().length > 1 && (
+                  <div className="global-search-dropdown">
+                    <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '8px', padding: '0 4px' }}>
+                      Quick Matches
+                    </div>
+                    {orders
+                      .filter((o) =>
+                        o.id.toLowerCase().includes(orderSearch.toLowerCase()) ||
+                        (o.username && o.username.toLowerCase().includes(orderSearch.toLowerCase())) ||
+                        o.product_id.toLowerCase().includes(orderSearch.toLowerCase())
+                      )
+                      .slice(0, 5)
+                      .map((o) => (
+                        <div
+                          key={o.id}
+                          className="search-result-item"
+                          onClick={() => {
+                            setSelectedOrder(o);
+                            setModalType('receipt');
+                            setIsSearchOpen(false);
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#FFFFFF' }}>
+                              {o.username ? `@${o.username}` : `Order #${o.id.slice(0, 8)}`}
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: '#94A3B8' }}>{o.product_id} • {o.payment_rail?.toUpperCase()}</div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#10B981' }}>{o.amount_etb} ETB</div>
+                            <div style={{ fontSize: '0.7rem', color: o.status === 'fulfilled' ? '#10B981' : '#F59E0B' }}>{o.status}</div>
+                          </div>
+                        </div>
+                      ))}
+                    {orders.filter((o) => o.id.toLowerCase().includes(orderSearch.toLowerCase()) || (o.username && o.username.toLowerCase().includes(orderSearch.toLowerCase()))).length === 0 && (
+                      <div style={{ padding: '12px', textAlign: 'center', color: '#64748B', fontSize: '0.8rem' }}>
+                        No orders matching "{orderSearch}"
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              <div className="icon-btn-pill" onClick={() => setActiveTab('orders')} title="Pending Receipts">
+              <div className="icon-btn-pill" onClick={() => { setActiveTab('orders'); setOrderFilter('pending_approval'); }} title="Pending Receipts">
                 <BellIcon size={18} />
                 {overview?.metrics?.pendingApprovalOrders > 0 && <span className="icon-badge-dot" />}
               </div>
@@ -453,7 +592,7 @@ export const AdminDashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Category Rail Filter Pills */}
+          {/* Category Rail Filter Pills with Dynamic Counts */}
           <div className="filter-pills-row">
             {[
               { id: 'all', label: 'All Rails' },
@@ -462,15 +601,21 @@ export const AdminDashboard: React.FC = () => {
               { id: 'abyssinia', label: 'Bank of Abyssinia' },
               { id: 'stars', label: 'Telegram Stars' },
               { id: 'wallet_pay', label: 'Crypto (TON / USDT)' },
-            ].map((rail) => (
-              <button
-                key={rail.id}
-                className={`filter-pill ${categoryRail === rail.id ? 'active' : ''}`}
-                onClick={() => setCategoryRail(rail.id)}
-              >
-                {rail.label}
-              </button>
-            ))}
+            ].map((rail) => {
+              const railData = (overview?.railBreakdown || []).find((r: any) => r.payment_rail === rail.id);
+              return (
+                <button
+                  key={rail.id}
+                  className={`filter-pill ${categoryRail === rail.id ? 'active' : ''}`}
+                  onClick={() => setCategoryRail(rail.id)}
+                >
+                  <span>{rail.label}</span>
+                  {railData && railData.count > 0 && (
+                    <span className="rail-count-badge">{railData.count}</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* TAB 1: OVERVIEW */}
@@ -491,7 +636,7 @@ export const AdminDashboard: React.FC = () => {
                     <span className="kpi-hero-unit">ETB</span>
                   </div>
                   <div className="kpi-footer-sub">
-                    <span>Confirmed Bank &amp; Crypto</span>
+                    <span>{categoryRail === 'all' ? 'All Payment Rails' : categoryRail.toUpperCase() + ' Volume'}</span>
                     <span style={{ color: '#10B981' }}>100% Settled</span>
                   </div>
                 </div>
@@ -530,7 +675,7 @@ export const AdminDashboard: React.FC = () => {
                   </div>
                   <div className="kpi-footer-sub">
                     <span>Instant auto-delivery</span>
-                    <button className="kpi-quick-btn" onClick={() => setActiveTab('stock')}>
+                    <button className="kpi-quick-btn" onClick={() => setQuickStockOpen(true)}>
                       + Add Stock
                     </button>
                   </div>
@@ -664,7 +809,19 @@ export const AdminDashboard: React.FC = () => {
                           </div>
                           <div className="volume-meta-row">
                             <span>{p.pctOfTotal} of total revenue</span>
-                            <span>Rate: {settings.etb_per_star || '2.5'} ETB / Star</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span>Rate: {settings.etb_per_star || '2.5'} ETB / Star</span>
+                              <button
+                                className="kpi-quick-btn"
+                                onClick={() => {
+                                  setNewRateStars(settings.etb_per_star || '2.5');
+                                  setNewRateUsd(settings.usd_to_etb_rate || '135');
+                                  setQuickRateOpen(true);
+                                }}
+                              >
+                                Edit ⚙
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -677,7 +834,7 @@ export const AdminDashboard: React.FC = () => {
                   <div className="dash-card-header">
                     <div>
                       <div className="dash-card-title">Recent Activity Stream</div>
-                      <div style={{ fontSize: '0.78rem', color: '#94A3B8', marginTop: '2px' }}>Live incoming orders and transfer confirmations</div>
+                      <div style={{ fontSize: '0.78rem', color: '#94A3B8', marginTop: '2px' }}>Live incoming orders and transfer confirmations (Click to review)</div>
                     </div>
                     <button className="dash-pill-btn" onClick={() => setActiveTab('orders')}>
                       See all orders ↗
@@ -693,7 +850,16 @@ export const AdminDashboard: React.FC = () => {
                       </div>
                     ) : (
                       (overview?.recentOrders || []).map((ord: any) => (
-                        <div key={ord.id} className="activity-row">
+                        <div
+                          key={ord.id}
+                          className="activity-row"
+                          onClick={() => {
+                            setSelectedOrder(ord);
+                            setModalType('receipt');
+                          }}
+                          style={{ cursor: 'pointer' }}
+                          title="Click to inspect and approve receipt"
+                        >
                           <div className="activity-info">
                             <div className="activity-badge-icon">
                               {ord.product_id?.includes('gemini') ? (
@@ -1267,6 +1433,179 @@ export const AdminDashboard: React.FC = () => {
                 Mark Delivered
               </button>
               <button onClick={() => setModalType(null)} style={{ flex: 1, background: '#192230', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px', cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QUICK INGEST STOCK MODAL */}
+      {quickStockOpen && (
+        <div className="quick-modal-backdrop" onClick={() => setQuickStockOpen(false)}>
+          <div className="quick-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="quick-modal-head">
+              <div className="quick-modal-title">⚡ Quick Stock Ingestion</div>
+              <button className="quick-modal-close" onClick={() => setQuickStockOpen(false)}>✕</button>
+            </div>
+            <p style={{ fontSize: '0.85rem', color: '#94A3B8', margin: '0 0 16px 0' }}>
+              Paste raw Gemini Pro 18-Month activation links (one per line). They will be encrypted and staged for instant automated delivery.
+            </p>
+            <textarea
+              rows={6}
+              value={bulkLinks}
+              onChange={(e) => setBulkLinks(e.target.value)}
+              placeholder="https://g.co/gemini/redeem?token=SAMPLE1&#10;https://g.co/gemini/redeem?token=SAMPLE2"
+              style={{
+                width: '100%',
+                background: '#131A24',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '12px',
+                padding: '12px',
+                color: '#FFFFFF',
+                fontSize: '0.85rem',
+                fontFamily: 'monospace',
+                boxSizing: 'border-box',
+                marginBottom: '16px',
+                resize: 'vertical',
+              }}
+            />
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={async () => {
+                  if (!bulkLinks.trim()) return;
+                  await handleAddStock();
+                  setQuickStockOpen(false);
+                }}
+                style={{
+                  flex: 1,
+                  background: 'linear-gradient(135deg, #059669 0%, #008A45 100%)',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  padding: '12px',
+                  borderRadius: '12px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 15px rgba(5, 150, 105, 0.4)',
+                }}
+              >
+                + Ingest Links
+              </button>
+              <button
+                onClick={() => setQuickStockOpen(false)}
+                style={{
+                  flex: 1,
+                  background: '#192230',
+                  color: '#FFFFFF',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  padding: '12px',
+                  borderRadius: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QUICK EXCHANGE RATE MODAL */}
+      {quickRateOpen && (
+        <div className="quick-modal-backdrop" onClick={() => setQuickRateOpen(false)}>
+          <div className="quick-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="quick-modal-head">
+              <div className="quick-modal-title">⚙ Quick Rate Adjuster</div>
+              <button className="quick-modal-close" onClick={() => setQuickRateOpen(false)}>✕</button>
+            </div>
+            <p style={{ fontSize: '0.85rem', color: '#94A3B8', margin: '0 0 16px 0' }}>
+              Adjust live exchange rates used for dynamic Star calculations and USD banking conversion across both the Bot and Web App.
+            </p>
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '6px' }}>
+                ETB Per Telegram Star (ETB)
+              </label>
+              <input
+                type="number"
+                step="0.1"
+                value={newRateStars}
+                onChange={(e) => setNewRateStars(e.target.value)}
+                style={{
+                  width: '100%',
+                  background: '#131A24',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '10px',
+                  padding: '10px',
+                  color: '#FFFFFF',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '6px' }}>
+                USD to ETB Reference Rate
+              </label>
+              <input
+                type="number"
+                step="1"
+                value={newRateUsd}
+                onChange={(e) => setNewRateUsd(e.target.value)}
+                style={{
+                  width: '100%',
+                  background: '#131A24',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '10px',
+                  padding: '10px',
+                  color: '#FFFFFF',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={async () => {
+                  try {
+                    const updated = {
+                      ...settings,
+                      etb_per_star: newRateStars || '2.5',
+                      usd_to_etb_rate: newRateUsd || '135',
+                    };
+                    await updateAdminSettingsApi(updated);
+                    setSettings(updated);
+                    setQuickRateOpen(false);
+                    loadAllAdminData(timeRange, categoryRail);
+                  } catch (err: any) {
+                    alert(err.message || 'Failed to update rates');
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  background: 'linear-gradient(135deg, #059669 0%, #008A45 100%)',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  padding: '12px',
+                  borderRadius: '12px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 15px rgba(5, 150, 105, 0.4)',
+                }}
+              >
+                Save Live Rates
+              </button>
+              <button
+                onClick={() => setQuickRateOpen(false)}
+                style={{
+                  flex: 1,
+                  background: '#192230',
+                  color: '#FFFFFF',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  padding: '12px',
+                  borderRadius: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
                 Cancel
               </button>
             </div>
