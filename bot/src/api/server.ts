@@ -13,10 +13,38 @@ import { notifyAdminsNewReceipt } from '../bot/handlers/checkout.js';
 import { getConfig } from '../config/env.js';
 import { logger } from '../logger/index.js';
 
+// In-memory IP rate limiter (max 60 requests per minute per IP)
+const ipRequestCounts = new Map<string, { count: number; resetTime: number }>();
+
+function isRateLimited(ip: string, limit = 60, windowMs = 60000): boolean {
+  const now = Date.now();
+  const entry = ipRequestCounts.get(ip);
+
+  if (!entry || now > entry.resetTime) {
+    ipRequestCounts.set(ip, { count: 1, resetTime: now + windowMs });
+    return false;
+  }
+
+  if (entry.count >= limit) {
+    return true;
+  }
+
+  entry.count++;
+  return false;
+}
+
 export function createApiServer(bot: Bot): http.Server {
   const config = getConfig();
 
   const server = http.createServer(async (req, res) => {
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1';
+
+    if (isRateLimited(clientIp)) {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Too Many Requests', message: 'Rate limit exceeded. Please wait a moment.' }));
+      return;
+    }
+
     // Enable CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');

@@ -5,7 +5,14 @@ All notable changes to the **Bighabesha Shop** project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - Phase 6 (2026-08-21)
+### Added
+- Automated VPS provisioning script (`deploy/vps-setup.sh`) for Ubuntu 22.04 LTS with Node.js 20, PM2, and log rotation.
+- Automated SQLite safe online backup script (`deploy/backup.sh`) with 7-day retention.
+- PM2 runtime process configuration (`deploy/ecosystem.config.cjs`).
+- API request rate-limiting security middleware.
+- Client owner-onboarding and credential handover checklist in `README.md`.
+- Final end-to-end verification passing all 61 automated tests and manual verification scripts.
 
 ## [0.6.0] - Phase 5 (2026-08-21)
 ### Added

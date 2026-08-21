@@ -131,6 +131,22 @@ This document records technical and design decisions made throughout the develop
 - Design palette adhering strictly to SPEC tokens: bg `#17212B`, card `#242F3D`, primary `#078930`, CTA `#FCDD09` with dark text `#0E1621`, danger `#DA121A`.
 - Fully responsive layout optimized for standard 360px and 414px mobile viewports.
 
+---
+
+## Phase 6: Production Deployment & Handover
+
+### 1. Free-Tier Infrastructure Target
+- **Compute:** Oracle Cloud Free Tier VPS (Ubuntu 22.04 LTS, Node.js 20, PM2 process management with auto-restart on memory limit > 350MB).
+- **Ingress:** Cloudflare Tunnel (`cloudflared`) exposing backend `/api` routes with zero open incoming firewall ports.
+- **Frontend:** Cloudflare Pages (Free SPA hosting) serving React Mini App bundle.
+- **Storage & Backup:** SQLite with WAL mode + nightly cron backup script retaining 7 daily snapshots.
+
+### 2. Security Pass & Handover
+- Complete segregation of production credentials via `.env`.
+- In-memory rate limiting on API endpoints (60 req/min/IP).
+- Detailed onboarding instructions in `README.md` for seamless ownership transfer to the client.
+
+
 
 
 
