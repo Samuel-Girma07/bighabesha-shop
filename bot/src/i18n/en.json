@@ -1,0 +1,41 @@
+{
+  "start": {
+    "welcome": "🇪🇹 *Welcome to Bighabesha Shop!*\n\nYour trusted platform for digital subscriptions in Ethiopia.\n\n✨ *Our Catalog:*\n• 🤖 *Gemini Pro (18 Months)* — Instant automated activation\n• ⭐️ *Telegram Premium* — 3, 6, or 12-month subscriptions\n• 🪙 *Telegram Stars* — Instant star packages & custom amounts\n\n💳 *Supported Payment Methods:*\n• Telebirr, CBE Bank, Bank of Abyssinia\n• Telegram Stars (XTR)\n• Wallet Pay (TON / USDT)\n\nSelect an option below to get started:",
+    "language_select": "🌐 *Please select your preferred language:*"
+  },
+  "menu": {
+    "shop": "🛍 Browse Shop",
+    "orders": "📦 My Orders",
+    "language": "🌐 Language",
+    "support": "💬 Contact Support",
+    "admin": "⚙️ Admin Dashboard"
+  },
+  "common": {
+    "back": "« Back",
+    "cancel": "❌ Cancel",
+    "confirm": "✅ Confirm",
+    "recheck": "🔄 Recheck",
+    "contact_support": "💬 Contact Support",
+    "error_occurred": "⚠️ An unexpected error occurred. Please try again or contact support."
+  },
+  "health": {
+    "ok": "✅ Bighabesha Shop Bot is running healthy and responsive!"
+  },
+  "support": {
+    "text": "💬 *Customer Support*\n\nNeed assistance with your purchase, custom orders, or payment verification?\n\nContact our official support agent: @{supportUsername}"
+  },
+  "language": {
+    "current": "🌐 Current language: *English*\n\nSelect your preferred language below:",
+    "updated": "✅ Language updated successfully!"
+  },
+  "username_gate": {
+    "title": "⚠️ *Telegram Username Required*",
+    "message": "To fulfill your subscription or stars order, your Telegram account must have a public **@username** set.\n\n*How to set your username:*\n1. Open Telegram **Settings**\n2. Tap **Edit Profile** / **Username**\n3. Set a unique public username and save\n\nOnce created, tap the **[I created it — recheck]** button below.",
+    "recheck_btn": "🔄 I created it — recheck",
+    "support_btn": "💬 Contact Support",
+    "recheck_failed": "❌ We still couldn't find a public username for your account. Please set one in Settings and try again."
+  },
+  "gemini": {
+    "default_instructions": "🎉 *Your Gemini Pro 18-Month activation is ready!*\n\n*Activation Instructions:*\n1. Ensure your VPN is connected to an eligible region (US/Europe).\n2. Click your personalized activation link below:\n{link}\n3. Complete the activation on your Google account.\n4. Once successfully activated, you may disconnect the VPN.\n\nNeed help? Reach out to @{supportUsername}."
+  }
+}

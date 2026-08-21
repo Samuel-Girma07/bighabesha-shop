@@ -1,0 +1,15 @@
+{
+  "name": "bighabesha-shop-root",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "bot:dev": "pnpm --filter bot dev",
+    "bot:start": "pnpm --filter bot start",
+    "bot:test": "pnpm --filter bot test",
+    "webapp:dev": "pnpm --filter webapp dev",
+    "webapp:build": "pnpm --filter webapp build"
+  }
+}
