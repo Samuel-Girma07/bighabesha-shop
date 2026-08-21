@@ -100,7 +100,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  flex: 1;
 }
 
 .admin-nav-item {
@@ -131,30 +130,84 @@ body {
   box-shadow: 0 4px 20px rgba(5, 150, 105, 0.35);
 }
 
-.sidebar-bottom {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 20px;
-  border-top: 1px solid var(--admin-border);
+.sidebar-divider {
+  height: 1px;
+  background: var(--admin-border);
+  margin: 10px 4px;
 }
 
 .admin-logout-btn {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
   color: #FCA5A5;
-  padding: 12px;
-  border-radius: 12px;
+  padding: 12px 16px;
+  border-radius: 14px;
   font-weight: 700;
   cursor: pointer;
-  text-align: center;
-  margin-top: 12px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.92rem;
   transition: all 0.2s;
 }
 
 .admin-logout-btn:hover {
   background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+/* Toast Notifications Container */
+.admin-toast-container {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.admin-toast {
+  pointer-events: auto;
+  min-width: 320px;
+  max-width: 440px;
+  background: #111827;
+  border-radius: 16px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+  animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid var(--admin-border);
+}
+
+.admin-toast.success {
+  border-color: rgba(16, 185, 129, 0.5);
+  background: linear-gradient(135deg, #0B1912 0%, #111827 100%);
+  color: #34D399;
+}
+
+.admin-toast.error {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: linear-gradient(135deg, #240E11 0%, #111827 100%);
+  color: #FCA5A5;
+}
+
+.admin-toast.info {
+  border-color: rgba(56, 189, 248, 0.5);
+  background: linear-gradient(135deg, #0B1B2B 0%, #111827 100%);
+  color: #7DD3FC;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
 }
 
 /* Main Workspace */

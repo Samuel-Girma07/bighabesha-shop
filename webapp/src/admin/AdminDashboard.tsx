@@ -17,6 +17,7 @@ import {
   fetchAdminSettingsApi,
   updateAdminSettingsApi,
   broadcastMessageApi,
+  onSessionExpired,
 } from './adminApi.ts';
 import {
   BarChartIcon,
@@ -37,6 +38,25 @@ import './admin.css';
 export const AdminDashboard: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(hasAdminSession());
   const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'stock' | 'users' | 'settings' | 'broadcast'>('overview');
+
+  // In-App Toast Notification Engine
+  const [toasts, setToasts] = useState<{ id: string; message: string; type: 'success' | 'error' | 'info' }[]>([]);
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  };
+
+  // Custom Sleek Confirmation Modal
+  const [confirmModal, setConfirmModal] = useState<{
+    title: string;
+    message: string;
+    actionLabel: string;
+    isDanger?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
 
   // Auth State
   const [password, setPassword] = useState('');
@@ -89,6 +109,15 @@ export const AdminDashboard: React.FC = () => {
   const [fulfillProof, setFulfillProof] = useState('');
   const [modalType, setModalType] = useState<'receipt' | 'reject' | 'fulfill' | null>(null);
 
+  // Listen to 401 Session Expiry globally
+  useEffect(() => {
+    onSessionExpired(() => {
+      setIsLoggedIn(false);
+      setAuthError('Your admin session has expired. Please sign in again.');
+      showToast('Your session has expired. Please log in again.', 'error');
+    });
+  }, []);
+
   const loadAllAdminData = async (range = timeRange, rail = categoryRail) => {
     try {
       setIsSyncLoading(true);
@@ -106,8 +135,10 @@ export const AdminDashboard: React.FC = () => {
       setUsers(usrs.users);
       setSettings(stgs.settings);
       setLastSync(new Date());
-    } catch (err) {
-      console.error('Admin data load error:', err);
+    } catch (err: any) {
+      if (err.message && !err.message.includes('expired')) {
+        console.error('Admin data load error:', err);
+      }
     } finally {
       setIsSyncLoading(false);
     }
@@ -158,6 +189,7 @@ export const AdminDashboard: React.FC = () => {
         setQuickStockOpen(false);
         setQuickRateOpen(false);
         setIsSearchOpen(false);
+        setConfirmModal(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -173,8 +205,10 @@ export const AdminDashboard: React.FC = () => {
       const res = await adminLoginApi(password);
       setRequire2FA(true);
       setAdminId(res.adminId);
+      showToast('2FA verification code dispatched to Telegram', 'info');
     } catch (err: any) {
       setAuthError(err.message || 'Login failed');
+      showToast(err.message || 'Login failed', 'error');
     } finally {
       setAuthLoading(false);
     }
@@ -189,8 +223,10 @@ export const AdminDashboard: React.FC = () => {
       saveAdminToken(res.token);
       setIsLoggedIn(true);
       setRequire2FA(false);
+      showToast('Authenticated successfully as Administrator', 'success');
     } catch (err: any) {
       setAuthError(err.message || '2FA verification failed');
+      showToast(err.message || '2FA verification failed', 'error');
     } finally {
       setAuthLoading(false);
     }
@@ -201,32 +237,44 @@ export const AdminDashboard: React.FC = () => {
     setIsLoggedIn(false);
     setPassword('');
     setOtp('');
+    showToast('Signed out of admin portal.', 'info');
   };
 
   // Order Actions
-  const handleApprove = async (orderId: string) => {
-    if (!confirm(`Approve order #${orderId}? This will auto-deliver activation links / notify buyer immediately.`)) return;
-    try {
-      await approveOrderApi(orderId);
-      loadAllAdminData();
-      if (modalType) setModalType(null);
-    } catch (err: any) {
-      alert(err.message || 'Failed to approve order');
-    }
+  const handleApprove = (orderId: string) => {
+    setConfirmModal({
+      title: 'Approve Payment Transfer',
+      message: `Approve Order #${orderId}? This will automatically deliver activation credentials to the buyer immediately.`,
+      actionLabel: 'Approve Transfer',
+      isDanger: false,
+      onConfirm: async () => {
+        try {
+          await approveOrderApi(orderId);
+          showToast(`Order #${orderId} approved and fulfilled!`, 'success');
+          loadAllAdminData();
+          if (modalType) setModalType(null);
+        } catch (err: any) {
+          showToast(err.message || 'Failed to approve order', 'error');
+        } finally {
+          setConfirmModal(null);
+        }
+      },
+    });
   };
 
   const handleReject = async () => {
     if (!selectedOrder || !rejectReason.trim()) {
-      alert('Please enter a rejection reason.');
+      showToast('Please enter a rejection reason for the buyer.', 'error');
       return;
     }
     try {
       await rejectOrderApi(selectedOrder.id, rejectReason);
+      showToast(`Order #${selectedOrder.id} rejected.`, 'info');
       setModalType(null);
       setRejectReason('');
       loadAllAdminData();
     } catch (err: any) {
-      alert(err.message || 'Failed to reject order');
+      showToast(err.message || 'Failed to reject order', 'error');
     }
   };
 
@@ -234,35 +282,53 @@ export const AdminDashboard: React.FC = () => {
     if (!selectedOrder) return;
     try {
       await fulfillOrderApi(selectedOrder.id, fulfillProof);
+      showToast(`Order #${selectedOrder.id} marked as delivered!`, 'success');
       setModalType(null);
       setFulfillProof('');
       loadAllAdminData();
     } catch (err: any) {
-      alert(err.message || 'Failed to fulfill order');
+      showToast(err.message || 'Failed to fulfill order', 'error');
     }
   };
 
   // Stock Actions
   const handleAddStock = async () => {
-    if (!bulkLinks.trim()) return;
+    if (!bulkLinks.trim()) {
+      showToast('Please paste at least one activation link.', 'error');
+      return;
+    }
     try {
       const res = await addStockLinksApi(bulkLinks);
-      alert(`Added ${res.addedCount} Gemini activation links to stock.`);
+      if (res.duplicateCount && res.duplicateCount > 0 && res.addedCount > 0) {
+        showToast(`Added ${res.addedCount} new link(s) (${res.duplicateCount} duplicate links skipped)`, 'info');
+      } else {
+        showToast(`Successfully added ${res.addedCount} activation link(s) to stock!`, 'success');
+      }
       setBulkLinks('');
       loadAllAdminData();
     } catch (err: any) {
-      alert(err.message || 'Failed to add stock');
+      showToast(err.message || 'Failed to add stock', 'error');
     }
   };
 
-  const handleDeleteStock = async (id: string) => {
-    if (!confirm('Delete this stock item?')) return;
-    try {
-      await deleteStockItemApi(id);
-      loadAllAdminData();
-    } catch (err: any) {
-      alert(err.message || 'Failed to delete item');
-    }
+  const handleDeleteStock = (id: string) => {
+    setConfirmModal({
+      title: 'Delete Stock Item',
+      message: 'Are you sure you want to remove this activation link from stock?',
+      actionLabel: 'Delete Item',
+      isDanger: true,
+      onConfirm: async () => {
+        try {
+          await deleteStockItemApi(id);
+          showToast('Stock item removed.', 'info');
+          loadAllAdminData();
+        } catch (err: any) {
+          showToast(err.message || 'Failed to delete item', 'error');
+        } finally {
+          setConfirmModal(null);
+        }
+      },
+    });
   };
 
   // Settings Actions
@@ -271,32 +337,41 @@ export const AdminDashboard: React.FC = () => {
     try {
       await updateAdminSettingsApi(settings);
       setSettingsSaved(true);
+      showToast('Store settings saved successfully!', 'success');
       setTimeout(() => setSettingsSaved(false), 3000);
       loadAllAdminData();
     } catch (err: any) {
-      alert(err.message || 'Failed to save settings');
+      showToast(err.message || 'Failed to save settings', 'error');
     }
   };
 
   // Broadcast Action
-  const handleSendBroadcast = async () => {
+  const handleSendBroadcast = () => {
     if (!broadcastMessage.trim()) {
-      alert('Please enter a message to broadcast.');
+      showToast('Please enter a message to broadcast.', 'error');
       return;
     }
-    if (!confirm(`Broadcast this message to ${broadcastTarget.toUpperCase()} users?`)) return;
-
-    setBroadcasting(true);
-    setBroadcastResult(null);
-    try {
-      const res = await broadcastMessageApi(broadcastMessage, broadcastTarget);
-      setBroadcastResult(res);
-      setBroadcastMessage('');
-    } catch (err: any) {
-      alert(err.message || 'Broadcast failed');
-    } finally {
-      setBroadcasting(false);
-    }
+    setConfirmModal({
+      title: 'Confirm Broadcast',
+      message: `Send this broadcast notification to all ${broadcastTarget.toUpperCase()} users?`,
+      actionLabel: 'Send Broadcast',
+      isDanger: false,
+      onConfirm: async () => {
+        setBroadcasting(true);
+        setBroadcastResult(null);
+        try {
+          const res = await broadcastMessageApi(broadcastMessage, broadcastTarget);
+          setBroadcastResult(res);
+          showToast(`Broadcast delivered to ${res.sentCount} users!`, 'success');
+          setBroadcastMessage('');
+        } catch (err: any) {
+          showToast(err.message || 'Broadcast failed', 'error');
+        } finally {
+          setBroadcasting(false);
+          setConfirmModal(null);
+        }
+      },
+    });
   };
 
   // -------------------------------------------------------------
@@ -464,18 +539,16 @@ export const AdminDashboard: React.FC = () => {
               <MegaphoneIcon size={18} />
               <span>Broadcast Tool</span>
             </button>
-          </nav>
-
-          <div className="sidebar-bottom">
             <button className={`admin-nav-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
               <SettingsIcon size={18} />
               <span>Store Settings</span>
             </button>
-            <button className="admin-logout-btn" onClick={handleLogout} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <LogOutIcon size={16} />
+            <div className="sidebar-divider" />
+            <button className="admin-logout-btn" onClick={handleLogout}>
+              <LogOutIcon size={18} />
               <span>Sign Out</span>
             </button>
-          </div>
+          </nav>
         </aside>
 
         {/* Main Workspace */}
@@ -1574,9 +1647,10 @@ export const AdminDashboard: React.FC = () => {
                     await updateAdminSettingsApi(updated);
                     setSettings(updated);
                     setQuickRateOpen(false);
+                    showToast('Exchange rates updated successfully!', 'success');
                     loadAllAdminData(timeRange, categoryRail);
                   } catch (err: any) {
-                    alert(err.message || 'Failed to update rates');
+                    showToast(err.message || 'Failed to update rates', 'error');
                   }
                 }}
                 style={{
@@ -1612,6 +1686,76 @@ export const AdminDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* CONFIRMATION MODAL */}
+      {confirmModal && (
+        <div className="quick-modal-backdrop" onClick={() => setConfirmModal(null)}>
+          <div className="quick-modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+            <div className="quick-modal-head">
+              <div className="quick-modal-title">{confirmModal.title}</div>
+              <button className="quick-modal-close" onClick={() => setConfirmModal(null)}>✕</button>
+            </div>
+            <p style={{ fontSize: '0.9rem', color: '#94A3B8', margin: '0 0 20px 0', lineHeight: 1.5 }}>
+              {confirmModal.message}
+            </p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={confirmModal.onConfirm}
+                style={{
+                  flex: 1,
+                  background: confirmModal.isDanger
+                    ? 'rgba(239, 68, 68, 0.2)'
+                    : 'linear-gradient(135deg, #059669 0%, #008A45 100%)',
+                  color: confirmModal.isDanger ? '#FCA5A5' : '#FFFFFF',
+                  border: confirmModal.isDanger ? '1px solid rgba(239, 68, 68, 0.4)' : 'none',
+                  padding: '12px',
+                  borderRadius: '12px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  boxShadow: confirmModal.isDanger ? 'none' : '0 4px 15px rgba(5, 150, 105, 0.4)',
+                }}
+              >
+                {confirmModal.actionLabel}
+              </button>
+              <button
+                onClick={() => setConfirmModal(null)}
+                style={{
+                  flex: 1,
+                  background: '#192230',
+                  color: '#FFFFFF',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  padding: '12px',
+                  borderRadius: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOAST NOTIFICATION CONTAINER */}
+      <div className="admin-toast-container">
+        {toasts.map((t) => (
+          <div key={t.id} className={`admin-toast ${t.type}`}>
+            <span>
+              {t.type === 'success' && '✓ '}
+              {t.type === 'error' && '✕ '}
+              {t.type === 'info' && 'ℹ '}
+              {t.message}
+            </span>
+            <button
+              onClick={() => setToasts((prev) => prev.filter((item) => item.id !== t.id))}
+              style={{ background: 'none', border: 'none', color: 'inherit', opacity: 0.7, cursor: 'pointer', padding: 0, fontSize: '0.9rem' }}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

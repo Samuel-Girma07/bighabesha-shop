@@ -41,7 +41,7 @@ async function run() {
 
   // Verify directly with master session token
   await page.evaluate(() => {
-    localStorage.setItem('bighabesha_admin_token', 'temp_master_test_token');
+    localStorage.setItem('bighabesha_admin_token', 'dev_admin_master_session');
   });
 
   await page.reload({ waitUntil: 'networkidle' });

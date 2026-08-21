@@ -25,6 +25,11 @@ export function addStockLink(productId: string, rawLink: string): StockItem {
   }
 
   const db = getDatabase();
+  const existing = db.prepare('SELECT id, status FROM stock_items WHERE payload = ?').get(link) as { id: number; status: string } | undefined;
+  if (existing) {
+    throw new Error(`Duplicate link: this activation link is already registered in stock (${existing.status}).`);
+  }
+
   const stmt = db.prepare(`
     INSERT INTO stock_items (product_id, payload, status)
     VALUES (?, ?, 'available')
@@ -100,6 +105,14 @@ export function importStockCSV(productId: string, csvContent: string): CSVImport
     if (linkCandidate.length < 3) {
       result.errors.push(`Row ${i + 1}: Content too short ("${rawLine}")`);
       result.skipped++;
+      continue;
+    }
+
+    // Duplicate check against database and current batch
+    const existing = db.prepare('SELECT id FROM stock_items WHERE payload = ?').get(linkCandidate);
+    if (existing || validLinks.includes(linkCandidate)) {
+      result.skipped++;
+      result.errors.push(`Row ${i + 1}: Duplicate link ignored ("${linkCandidate}")`);
       continue;
     }
 
