@@ -104,6 +104,21 @@ export function createBot(token: string): Bot {
     ).catch(() => {});
   }
 
+  // Configure Telegram Menu Button to open Web App directly
+  if (config.WEBAPP_URL) {
+    bot.api.setChatMenuButton({
+      menu_button: {
+        type: 'web_app',
+        text: 'Store',
+        web_app: {
+          url: config.WEBAPP_URL,
+        },
+      },
+    }).catch((err) => {
+      logger.warn({ err: err.message }, 'Failed to set Telegram chat menu button');
+    });
+  }
+
   // Slash Commands
   bot.command('start', startHandler);
   bot.command('shop', async (ctx) => {

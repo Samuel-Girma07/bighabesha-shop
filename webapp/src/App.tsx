@@ -28,14 +28,76 @@ import {
 } from './components/Icons.tsx';
 import './index.css';
 
+const DEFAULT_BOOTSTRAP: BootstrapData = {
+  user: null,
+  products: [
+    {
+      id: 'gemini_pro_18m',
+      type: 'stock',
+      name: 'Gemini Pro (18 Months)',
+      description: 'Google AI Suite + 2TB Google Cloud Storage. Instant automated delivery.',
+      is_active: 1,
+      meta: '{}',
+      variants: [
+        { id: 'gemini_pro_18m_default', product_id: 'gemini_pro_18m', name: '18 Months Access', price_etb: 1500, is_active: 1, sort_order: 1 }
+      ],
+      availableStock: 5
+    },
+    {
+      id: 'telegram_premium',
+      type: 'order',
+      name: 'Telegram Premium',
+      description: 'Official Fragment direct gift to @username without password.',
+      is_active: 1,
+      meta: '{}',
+      variants: [
+        { id: 'tg_prem_3m', product_id: 'telegram_premium', name: '3 Months Plan', price_etb: 1100, is_active: 1, sort_order: 1 },
+        { id: 'tg_prem_6m', product_id: 'telegram_premium', name: '6 Months Plan', price_etb: 1850, is_active: 1, sort_order: 2 },
+        { id: 'tg_prem_12m', product_id: 'telegram_premium', name: '12 Months Plan', price_etb: 3200, is_active: 1, sort_order: 3 }
+      ],
+      availableStock: null
+    },
+    {
+      id: 'telegram_stars',
+      type: 'order',
+      name: 'Telegram Stars (Coins)',
+      description: 'In-app currency for digital gifts, channel boosts, and bots.',
+      is_active: 1,
+      meta: '{}',
+      variants: [
+        { id: 'tg_stars_50', product_id: 'telegram_stars', name: '50 Stars', price_etb: 125, is_active: 1, sort_order: 1 },
+        { id: 'tg_stars_100', product_id: 'telegram_stars', name: '100 Stars', price_etb: 250, is_active: 1, sort_order: 2 },
+        { id: 'tg_stars_250', product_id: 'telegram_stars', name: '250 Stars', price_etb: 625, is_active: 1, sort_order: 3 },
+        { id: 'tg_stars_500', product_id: 'telegram_stars', name: '500 Stars', price_etb: 1250, is_active: 1, sort_order: 4 },
+        { id: 'tg_stars_1000', product_id: 'telegram_stars', name: '1,000 Stars', price_etb: 2500, is_active: 1, sort_order: 5 },
+        { id: 'tg_stars_2500', product_id: 'telegram_stars', name: '2,500 Stars', price_etb: 6250, is_active: 1, sort_order: 6 }
+      ],
+      availableStock: null
+    }
+  ],
+  settings: {
+    etb_per_star: '2.5',
+    cbe_account: '1000510711258',
+    cbe_name: 'Bighabesha Shop',
+    telebirr_account: '0965579045',
+    telebirr_name: 'Bighabesha Shop',
+    abyssinia_account: 'Bank of Abyssinia',
+    abyssinia_name: 'Bighabesha Shop',
+    support_username: 'Vweah'
+  },
+  cryptoRates: {
+    tonUsd: 1.45,
+    usdtUsd: 1.0
+  }
+};
+
 export const App: React.FC = () => {
   const [lang, setLang] = useState<Language>('en');
   const t = translations[lang];
 
   const [activeTab, setActiveTab] = useState<'catalog' | 'orders' | 'support'>('catalog');
-  const [data, setData] = useState<BootstrapData | null>(null);
+  const [data, setData] = useState<BootstrapData>(DEFAULT_BOOTSTRAP);
   const [orders, setOrders] = useState<OrderItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Selections
@@ -84,7 +146,6 @@ export const App: React.FC = () => {
 
   const loadData = async () => {
     try {
-      setLoading(true);
       const res = await fetchBootstrap();
       setData(res);
       if (res.user?.languageCode?.startsWith('am')) {
@@ -94,9 +155,8 @@ export const App: React.FC = () => {
       setOrders(ords.orders);
       setErrorMessage(null);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Connecting to store...');
-    } finally {
-      setLoading(false);
+      // Keep DEFAULT_BOOTSTRAP data active
+      console.warn('Bootstrap fetch warning:', err);
     }
   };
 
@@ -220,18 +280,6 @@ export const App: React.FC = () => {
       setUploadingReceipt(false);
     }
   };
-
-  if (loading) {
-    return (
-      <div className="app-frame" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center', padding: '20px' }}>
-          <LogoIcon size={44} />
-          <div style={{ color: 'var(--eth-yellow)', fontWeight: 800, fontSize: '1.2rem', marginTop: '12px' }}>{t.brandName}</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '4px' }}>{t.instantDelivery}</div>
-        </div>
-      </div>
-    );
-  }
 
   const geminiProd = data?.products.find((p) => p.id === 'gemini_pro_18m');
   const premProd = data?.products.find((p) => p.id === 'telegram_premium');
