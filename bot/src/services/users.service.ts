@@ -24,6 +24,16 @@ export function getUserById(userId: number): User | null {
   }
 }
 
+export function getAllUsers(): User[] {
+  try {
+    const db = getDatabase();
+    return db.prepare('SELECT * FROM users ORDER BY created_at DESC').all() as User[];
+  } catch (err) {
+    logger.error({ err }, 'Failed to fetch all users');
+    return [];
+  }
+}
+
 export function upsertUser(user: {
   id: number;
   username?: string | null;

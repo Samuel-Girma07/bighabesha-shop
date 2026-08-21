@@ -36,6 +36,17 @@ export function addStockLink(productId: string, rawLink: string): StockItem {
   return item;
 }
 
+export function deleteStockItem(id: number | string): boolean {
+  try {
+    const db = getDatabase();
+    const result = db.prepare("DELETE FROM stock_items WHERE id = ? AND status = 'available'").run(id);
+    return result.changes > 0;
+  } catch (err) {
+    logger.error({ err, id }, 'Failed to delete stock item');
+    return false;
+  }
+}
+
 export function importStockCSV(productId: string, csvContent: string): CSVImportResult {
   const lines = csvContent
     .split(/\r?\n/)

@@ -13,7 +13,9 @@
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
     "better-sqlite3": "^11.8.1",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.7",
+    "express": "^5.2.1",
     "grammy": "^1.35.0",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
@@ -21,6 +23,8 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.13.4",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",

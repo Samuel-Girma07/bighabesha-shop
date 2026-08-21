@@ -26,6 +26,7 @@ import {
   UploadCloudIcon,
   CloseIcon,
 } from './components/Icons.tsx';
+import { AdminDashboard } from './admin/AdminDashboard.tsx';
 import './index.css';
 
 const DEFAULT_BOOTSTRAP: BootstrapData = {
@@ -92,6 +93,26 @@ const DEFAULT_BOOTSTRAP: BootstrapData = {
 };
 
 export const App: React.FC = () => {
+  const [isAdminRoute, setIsAdminRoute] = useState<boolean>(
+    window.location.pathname.startsWith('/admin') || window.location.hash.startsWith('#admin')
+  );
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setIsAdminRoute(window.location.pathname.startsWith('/admin') || window.location.hash.startsWith('#admin'));
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    window.addEventListener('popstate', handleHashChange);
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+      window.removeEventListener('popstate', handleHashChange);
+    };
+  }, []);
+
+  if (isAdminRoute) {
+    return <AdminDashboard />;
+  }
+
   const [lang, setLang] = useState<Language>('en');
   const t = translations[lang];
 

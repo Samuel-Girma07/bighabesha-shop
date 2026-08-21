@@ -55,8 +55,9 @@ export const EnvSchema = z.object({
     }),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
-  WEBAPP_URL: z.string().url().default('https://shop.bighabesha.com'),
+  WEBAPP_URL: z.string().url().default('https://capabilities-aims-modular-reward.trycloudflare.com'),
   SUPPORT_USERNAME: z.string().default('Vweah'),
+  ADMIN_PASSWORD: z.string().default('Bighabesha2026!Admin'),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema>;

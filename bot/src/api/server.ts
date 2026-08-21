@@ -1,5 +1,6 @@
+import express, { Request, Response } from 'express';
+import cors from 'cors';
 import http from 'http';
-import { URL } from 'url';
 import { Bot } from 'grammy';
 import { validateTelegramInitData, TelegramUser } from './auth.js';
 import { getAllProducts, getProductById, getProductVariants, getVariantById } from '../services/catalog.service.js';
@@ -12,269 +13,223 @@ import { isUsernameRequired, hasPublicUsername } from '../bot/handlers/gate.js';
 import { notifyAdminsNewReceipt } from '../bot/handlers/checkout.js';
 import { getConfig } from '../config/env.js';
 import { logger } from '../logger/index.js';
+import { adminRouter, setAdminBotInstance } from './admin.js';
 
-// In-memory IP rate limiter (max 60 requests per minute per IP)
-const ipRequestCounts = new Map<string, { count: number; resetTime: number }>();
-
-function isRateLimited(ip: string, limit = 60, windowMs = 60000): boolean {
-  const now = Date.now();
-  const entry = ipRequestCounts.get(ip);
-
-  if (!entry || now > entry.resetTime) {
-    ipRequestCounts.set(ip, { count: 1, resetTime: now + windowMs });
-    return false;
-  }
-
-  if (entry.count >= limit) {
-    return true;
-  }
-
-  entry.count++;
-  return false;
-}
-
-export function createApiServer(bot: Bot): http.Server {
+export function createExpressApp(bot: Bot): express.Express {
+  const app = express();
   const config = getConfig();
 
-  const server = http.createServer(async (req, res) => {
-    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1';
+  // Bind bot instance to admin routes for sending Telegram 2FA codes and buyer notifications
+  setAdminBotInstance(bot);
 
-    if (isRateLimited(clientIp)) {
-      res.writeHead(429, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Too Many Requests', message: 'Rate limit exceeded. Please wait a moment.' }));
-      return;
-    }
+  app.use(cors());
+  app.use(express.json({ limit: '10mb' }));
 
-    // Enable CORS
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  // Helper: Authenticate Telegram initData
+  const authenticateTelegramUser = (req: Request): TelegramUser | null => {
+    const authHeader = req.headers['authorization'];
+    if (!authHeader) return null;
 
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
+    const rawInitData = authHeader.replace(/^tma\s+/i, '').replace(/^bearer\s+/i, '');
+    const validated = validateTelegramInitData(rawInitData, config.BOT_TOKEN);
+    return validated ? validated.user : null;
+  };
 
-    const reqUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-    const pathname = reqUrl.pathname;
+  // 1. Health check
+  app.get('/api/health', (_req: Request, res: Response) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
 
-    const sendJson = (statusCode: number, data: any) => {
-      res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(data));
-    };
-
-    const parseBody = async (): Promise<any> => {
-      return new Promise((resolve, reject) => {
-        let body = '';
-        req.on('data', (chunk) => (body += chunk));
-        req.on('end', () => {
-          try {
-            resolve(body ? JSON.parse(body) : {});
-          } catch (e) {
-            reject(e);
-          }
-        });
-        req.on('error', reject);
-      });
-    };
-
-    // Helper: Authenticate Telegram initData
-    const authenticate = (): TelegramUser | null => {
-      const authHeader = req.headers['authorization'];
-      if (!authHeader) return null;
-
-      const rawInitData = authHeader.replace(/^tma\s+/i, '').replace(/^bearer\s+/i, '');
-      const validated = validateTelegramInitData(rawInitData, config.BOT_TOKEN);
-      return validated ? validated.user : null;
-    };
-
+  // 2. Mini App Bootstrap data
+  app.get('/api/bootstrap', async (req: Request, res: Response) => {
     try {
-      // 1. Health check
-      if (pathname === '/api/health' && req.method === 'GET') {
-        sendJson(200, { status: 'ok', timestamp: new Date().toISOString() });
-        return;
-      }
+      const user = authenticateTelegramUser(req);
+      const products = getAllProducts();
+      const catalogWithDetails = products.map((prod) => {
+        const variants = getProductVariants(prod.id);
+        const stock = prod.type === 'stock' ? getAvailableStockCount(prod.id) : null;
+        return {
+          ...prod,
+          variants,
+          availableStock: stock,
+        };
+      });
 
-      // 2. Bootstrap data
-      if (pathname === '/api/bootstrap' && req.method === 'GET') {
-        const user = authenticate();
-        const products = getAllProducts();
-        const catalogWithDetails = products.map((prod) => {
-          const variants = getProductVariants(prod.id);
-          const stock = prod.type === 'stock' ? getAvailableStockCount(prod.id) : null;
-          return {
-            ...prod,
-            variants,
-            availableStock: stock,
-          };
-        });
+      const settings = getAllSettings();
+      const cryptoRates = await fetchCoinGeckoPrices();
 
-        const settings = getAllSettings();
-        const cryptoRates = await fetchCoinGeckoPrices();
-
-        sendJson(200, {
-          user: user
-            ? {
-                id: user.id,
-                username: user.username,
-                firstName: user.first_name,
-                languageCode: user.language_code || 'en',
-                isAdmin: config.ADMIN_IDS.includes(user.id),
-              }
-            : null,
-          products: catalogWithDetails,
-          settings,
-          cryptoRates,
-        });
-        return;
-      }
-
-      // Authentication required for subsequent endpoints
-      const user = authenticate();
-      if (!user) {
-        sendJson(401, { error: 'Unauthorized: Invalid or missing Telegram initData' });
-        return;
-      }
-
-      // 3. User Orders list
-      if (pathname === '/api/orders' && req.method === 'GET') {
-        const orders = getOrdersByUserId(user.id, 50);
-        sendJson(200, { orders });
-        return;
-      }
-
-      // 4. Single Order Detail
-      if (pathname.startsWith('/api/orders/') && req.method === 'GET') {
-        const orderId = pathname.replace('/api/orders/', '');
-        const order = getOrderById(orderId);
-        if (!order) {
-          sendJson(404, { error: 'Order not found' });
-          return;
-        }
-
-        // Must be owner or admin
-        if (order.user_id !== user.id && !config.ADMIN_IDS.includes(user.id)) {
-          sendJson(403, { error: 'Access denied' });
-          return;
-        }
-
-        sendJson(200, { order });
-        return;
-      }
-
-      // 5. Create Order
-      if (pathname === '/api/orders' && req.method === 'POST') {
-        const body = await parseBody();
-        const { productId, variantId, customStars, amountETB, paymentRail } = body;
-
-        if (!productId || !amountETB || !paymentRail) {
-          sendJson(400, { error: 'Missing required parameters (productId, amountETB, paymentRail)' });
-          return;
-        }
-
-        // Username Gate check
-        if (isUsernameRequired(productId) && !hasPublicUsername(user)) {
-          sendJson(403, {
-            error: 'USERNAME_REQUIRED',
-            message: 'Telegram public @username is required to purchase Telegram Premium or Stars.',
-          });
-          return;
-        }
-
-        const product = getProductById(productId);
-        if (!product) {
-          sendJson(404, { error: 'Product not found' });
-          return;
-        }
-
-        const order = createOrder({
-          userId: user.id,
-          username: user.username || null,
-          productId,
-          variantId: variantId || null,
-          quantity: customStars || 1,
-          amountETB,
-          paymentRail,
-          status: 'awaiting_payment',
-        });
-
-        let invoiceLink: string | undefined;
-        let payUrl: string | undefined;
-
-        if (paymentRail === 'stars') {
-          const starsDue = calculateStarsDue(order.amount_etb);
-          try {
-            // Generate Telegram Bot Payments invoice link
-            invoiceLink = await bot.api.createInvoiceLink(
-              `Bighabesha: ${product.name}`,
-              `Order #${order.id}`,
-              `order_${order.id}`,
-              '', // Provider token empty for XTR
-              'XTR',
-              [{ label: product.name, amount: starsDue }]
-            );
-          } catch (err: any) {
-            logger.warn({ err: err.message, orderId: order.id }, 'Failed to generate stars invoice link via Bot API');
-          }
-        } else if (paymentRail === 'wallet_pay') {
-          const adapter = getWalletPayAdapter();
-          const payment = await adapter.createPayment({
-            orderId: order.id,
-            userId: user.id,
-            amountETB: order.amount_etb,
-            productName: product.name,
-            currency: 'TON',
-          });
-          payUrl = payment.payUrl;
-        }
-
-        sendJson(201, { order, invoiceLink, payUrl });
-        return;
-      }
-
-      // 6. Submit Receipt
-      if (pathname === '/api/receipt' && req.method === 'POST') {
-        const body = await parseBody();
-        const { orderId, receiptImageBase64, note } = body;
-
-        if (!orderId) {
-          sendJson(400, { error: 'orderId is required' });
-          return;
-        }
-
-        const order = getOrderById(orderId);
-        if (!order || order.user_id !== user.id) {
-          sendJson(404, { error: 'Order not found' });
-          return;
-        }
-
-        const fileId = receiptImageBase64 ? `base64_upload_${Date.now()}` : 'web_receipt_upload';
-        const updated = submitReceipt(orderId, fileId, note);
-
-        // Send alert to admin via Bot API
-        try {
-          const alertContext: any = {
-            api: bot.api,
-          };
-          await notifyAdminsNewReceipt(alertContext, updated);
-        } catch (err) {
-          logger.warn({ err }, 'Failed to send admin notification for web receipt');
-        }
-
-        sendJson(200, { order: updated, success: true });
-        return;
-      }
-
-      // 404 for unknown endpoints
-      sendJson(404, { error: 'Endpoint not found' });
+      res.json({
+        user: user
+          ? {
+              id: user.id,
+              username: user.username,
+              firstName: user.first_name,
+              languageCode: user.language_code || 'en',
+              isAdmin: config.ADMIN_IDS.includes(user.id),
+            }
+          : null,
+        products: catalogWithDetails,
+        settings,
+        cryptoRates,
+      });
     } catch (err: any) {
-      logger.error({ err: err.message, pathname }, 'API server error');
-      sendJson(500, { error: 'Internal Server Error', message: err.message });
+      logger.error({ err }, 'Error in /api/bootstrap');
+      res.status(500).json({ error: 'Failed to load bootstrap data' });
     }
   });
 
-  return server;
+  // 3. User Orders list (Authenticated with Telegram initData)
+  app.get('/api/orders', (req: Request, res: Response): void => {
+    const user = authenticateTelegramUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const orders = getOrdersByUserId(user.id, 50);
+    res.json({ orders });
+  });
+
+  // 4. Single Order Detail
+  app.get('/api/orders/:id', (req: Request, res: Response): void => {
+    const user = authenticateTelegramUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const orderId = req.params.id as string;
+    const order = getOrderById(orderId);
+    if (!order) {
+      res.status(404).json({ error: 'Order not found' });
+      return;
+    }
+
+    if (order.user_id !== user.id && !config.ADMIN_IDS.includes(user.id)) {
+      res.status(403).json({ error: 'Access denied' });
+      return;
+    }
+
+    res.json({ order });
+  });
+
+  // 5. Create Order
+  app.post('/api/orders', async (req: Request, res: Response): Promise<void> => {
+    const user = authenticateTelegramUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const { productId, variantId, customStars, amountETB, paymentRail } = req.body;
+
+    if (!productId || !amountETB || !paymentRail) {
+      res.status(400).json({ error: 'Missing required parameters' });
+      return;
+    }
+
+    // Username Gate check
+    if (isUsernameRequired(productId) && !hasPublicUsername(user)) {
+      res.status(403).json({
+        error: 'USERNAME_REQUIRED',
+        message: 'Telegram public @username is required to purchase Telegram Premium or Stars.',
+      });
+      return;
+    }
+
+    const product = getProductById(productId);
+    if (!product) {
+      res.status(404).json({ error: 'Product not found' });
+      return;
+    }
+
+    const order = createOrder({
+      userId: user.id,
+      username: user.username || null,
+      productId,
+      variantId: variantId || null,
+      quantity: customStars || 1,
+      amountETB,
+      paymentRail,
+      status: 'awaiting_payment',
+    });
+
+    let invoiceLink: string | undefined;
+    let payUrl: string | undefined;
+
+    if (paymentRail === 'stars') {
+      const starsDue = calculateStarsDue(order.amount_etb);
+      try {
+        invoiceLink = await bot.api.createInvoiceLink(
+          `Bighabesha: ${product.name}`,
+          `Order #${order.id}`,
+          `order_${order.id}`,
+          '',
+          'XTR',
+          [{ label: product.name, amount: starsDue }]
+        );
+      } catch (err: any) {
+        logger.warn({ err: err.message, orderId: order.id }, 'Failed to generate stars invoice link');
+      }
+    } else if (paymentRail === 'wallet_pay') {
+      const adapter = getWalletPayAdapter();
+      const payment = await adapter.createPayment({
+        orderId: order.id,
+        userId: user.id,
+        amountETB: order.amount_etb,
+        productName: product.name,
+        currency: 'TON',
+      });
+      payUrl = payment.payUrl;
+    }
+
+    res.status(201).json({ order, invoiceLink, payUrl });
+  });
+
+  // 6. Submit Receipt
+  app.post('/api/receipt', async (req: Request, res: Response): Promise<void> => {
+    const user = authenticateTelegramUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const { orderId, receiptImageBase64, note } = req.body;
+    if (!orderId) {
+      res.status(400).json({ error: 'orderId is required' });
+      return;
+    }
+
+    const order = getOrderById(orderId);
+    if (!order || order.user_id !== user.id) {
+      res.status(404).json({ error: 'Order not found' });
+      return;
+    }
+
+    const fileId = receiptImageBase64 ? `base64_upload_${Date.now()}` : 'web_receipt_upload';
+    const updated = submitReceipt(orderId, fileId, note);
+
+    try {
+      const alertContext: any = {
+        api: bot.api,
+      };
+      await notifyAdminsNewReceipt(alertContext, updated);
+    } catch (err) {
+      logger.warn({ err }, 'Failed to notify admin of new receipt');
+    }
+
+    res.json({ order: updated, success: true });
+  });
+
+  // 7. Mount Web Admin Dashboard API Routes
+  app.use('/api/admin', adminRouter);
+
+  return app;
+}
+
+export function createApiServer(bot: Bot): http.Server {
+  const app = createExpressApp(bot);
+  return http.createServer(app);
 }
 
 export function startApiServer(bot: Bot, port: number = 3000): http.Server {
