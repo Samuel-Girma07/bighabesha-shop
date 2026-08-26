@@ -29,6 +29,8 @@ export async function startHandler(ctx: Context): Promise<void> {
   const from = ctx.from;
   if (!from) return;
 
+  const payload = String(ctx.match || '').trim();
+
   const user = upsertUser({
     id: from.id,
     username: from.username || null,
@@ -43,27 +45,61 @@ export async function startHandler(ctx: Context): Promise<void> {
 
   const language_code = user.language_code || 'en';
   const config = getConfig();
-  const webAppUrl = config.WEBAPP_URL || 'https://capabilities-aims-modular-reward.trycloudflare.com';
 
-  const welcomeHtml = `<b>Bighabesha Shop — Official Digital Store</b>\n\n` +
-    `• <b>Gemini Pro (18 Months)</b> — Instant link delivery with 2TB storage\n` +
-    `• <b>Telegram Premium</b> — 3, 6, 12-month Fragment gifts\n` +
-    `• <b>Telegram Stars</b> — Packages & custom coin quantities\n\n` +
-    `<i>Instant automated verification via Telebirr, CBE, Abyssinia, Stars & Crypto.</i>`;
+  // Referral attribution: /start ref_<CODE>. Runs AFTER the user row exists;
+  // only brand-new buyers (no purchases, no prior referrer) can be attributed.
+  if (payload.startsWith('ref_')) {
+    try {
+      const { attributeReferral } = await import('../../services/referral.service.js');
+      attributeReferral(from.id, payload);
+    } catch (err) {
+      logger.warn({ err }, 'Referral attribution failed');
+    }
+  }
 
-  const keyboard = new InlineKeyboard()
-    .webApp('Open Web App Store', webAppUrl)
+  // No ephemeral fallback URLs: if WEBAPP_URL is not configured, we simply
+  // omit the WebApp menu button instead of pointing users at a dead tunnel.
+  const webAppUrl = config.WEBAPP_URL;
+
+  const welcomeHtml =
+    `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
+    `<blockquote>💎 <b>Ethiopia's Premier Digital Goods & AI Subscriptions</b></blockquote>\n\n` +
+    `⚡ <b>Featured Products & Instant Activation:</b>\n` +
+    `• 🤖 <b>Gemini Pro (18 Months)</b> — <code>2 TB Storage</code> · One-Click Link\n` +
+    `• ⭐ <b>Telegram Premium</b> — <code>3, 6, 12 Months</code> · Direct Gift\n` +
+    `• 🪙 <b>Telegram Stars</b> — <code>Packs & Custom</code> · Instant Top-up\n\n` +
+    `<blockquote>💳 <b>Accepted Payment Rails:</b>\n` +
+    `Telebirr · CBE Birr · Bank of Abyssinia · Telegram Stars · TON / USDT</blockquote>\n\n` +
+    `<i>👇 Choose an option below or open the Web App to get started:</i>`;
+
+  const keyboard = new InlineKeyboard();
+
+  if (webAppUrl) {
+    keyboard.webApp('🚀 Open Web App Store', webAppUrl).row();
+    try {
+      void ctx.setChatMenuButton({
+        menu_button: {
+          type: 'web_app',
+          text: '🛍️ Open Shop',
+          web_app: { url: webAppUrl },
+        },
+      });
+    } catch {
+      // Non-critical: menu button update fails gracefully if chat is restricted
+    }
+  }
+
+  keyboard
+    .text(`🛍️ ${t(language_code, 'menu.shop')}`, 'nav_shop')
+    .text(`📦 ${t(language_code, 'menu.orders')}`, 'nav_orders')
     .row()
-    .text(t(language_code, 'menu.shop'), 'nav_shop')
-    .text(t(language_code, 'menu.orders'), 'nav_orders')
+    .text('👤 My Profile', 'nav_profile')
+    .text(`🌐 ${t(language_code, 'menu.language')}`, 'nav_language')
     .row()
-    .text('My Profile', 'nav_profile')
-    .text(t(language_code, 'menu.language'), 'nav_language')
-    .row()
-    .text('Contact Support', 'nav_support');
+    .text(`💬 ${t(language_code, 'menu.support')}`, 'nav_support');
 
   if (isAdmin(from.id)) {
-    keyboard.row().text('Admin Panel', 'admin_menu');
+    keyboard.row().text('⚡ Admin Panel', 'admin_menu');
   }
 
   if (ctx.callbackQuery) {

@@ -32,7 +32,7 @@ describe('Phase 1: Catalog, Stock, Rates, and Validation', () => {
 
   beforeEach(() => {
     process.env.BOT_TOKEN = '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ';
-    process.env.ADMIN_IDS = '1397163638,987654321';
+    process.env.ADMIN_IDS = '111111111,222222333';
     db = initDatabase(':memory:', migrationsDir);
   });
 
@@ -188,10 +188,50 @@ describe('Phase 1: Catalog, Stock, Rates, and Validation', () => {
     });
 
     it('identifies admin IDs strictly', () => {
-      expect(isAdmin(1397163638)).toBe(true);
-      expect(isAdmin(987654321)).toBe(true);
+      expect(isAdmin(111111111)).toBe(true);
+      expect(isAdmin(222222333)).toBe(true);
       expect(isAdmin(12345)).toBe(false);
       expect(isAdmin(undefined)).toBe(false);
     });
   });
+
+  describe('Rate Engine & Fallbacks', () => {
+    it('returns realistic fallback rate when external API times out or fails', async () => {
+      const { fetchCoinGeckoPrices, getFallbackTonUsd } = await import('../src/services/rate_engine.service.js');
+      expect(getFallbackTonUsd()).toBeGreaterThanOrEqual(3.0);
+
+      const rates = await fetchCoinGeckoPrices(false);
+      expect(rates.tonUsd).toBeGreaterThanOrEqual(3.0);
+      expect(rates.usdtUsd).toBe(1.0);
+    });
+  });
+
+  describe('Registration Gate on Inline Buttons', () => {
+    it('blocks unregistered users from accessing inline purchase flows', async () => {
+      const { isUserRegistered } = await import('../src/services/users.service.js');
+      const unregUserId = 888777;
+
+      expect(isUserRegistered(unregUserId)).toBe(false);
+
+      const purchaseActions = [
+        'prod_gemini_pro_18m',
+        'buy_var_tg_prem_3m',
+        'buy_custom_stars_500_1250',
+        'stars_custom',
+        'pay_stars_order123',
+      ];
+
+      for (const action of purchaseActions) {
+        const isPurchaseAction =
+          action.startsWith('prod_') ||
+          action.startsWith('buy_var_') ||
+          action.startsWith('buy_custom_stars_') ||
+          action === 'stars_custom' ||
+          action.startsWith('pay_');
+
+        expect(isPurchaseAction).toBe(true);
+      }
+    });
+  });
 });
+

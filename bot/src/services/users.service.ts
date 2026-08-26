@@ -66,13 +66,28 @@ export function upsertUser(user: {
 
 export function saveUserPhone(userId: number, phoneNumber: string): User {
   const db = getDatabase();
+
+  // Ensure the user row exists before updating. Users can reach phone
+  // registration via commands like /shop WITHOUT ever sending /start, so the
+  // row may not exist yet — a bare UPDATE would silently no-op and trap the
+  // user in an infinite re-registration loop.
+  db.prepare(`
+    INSERT INTO users (id, username, first_name)
+    VALUES (?, NULL, 'User')
+    ON CONFLICT(id) DO NOTHING
+  `).run(userId);
+
   db.prepare(`
     UPDATE users
     SET phone_number = ?, is_registered = 1, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(phoneNumber, userId);
 
-  return getUserById(userId)!;
+  const user = getUserById(userId);
+  if (!user || user.is_registered !== 1) {
+    throw new Error(`Failed to persist phone registration for user ${userId}`);
+  }
+  return user;
 }
 
 export function isUserRegistered(userId: number): boolean {

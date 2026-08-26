@@ -5,6 +5,7 @@ import { getSetting } from '../../services/settings.service.js';
 import { getDatabase } from '../../db/index.js';
 import { getConfig } from '../../config/env.js';
 import { renderPaymentRailSelection } from './checkout.js';
+import { escapeHtml } from '../../utils/html.js';
 import { t } from '../../i18n/index.js';
 
 export function getStatusBadge(status: string): string {
@@ -28,6 +29,27 @@ export function getStatusBadge(status: string): string {
   }
 }
 
+export function getStatusEmoji(status: string): string {
+  switch (status) {
+    case 'fulfilled':
+      return '🟢';
+    case 'pending_fulfillment':
+      return '⚡';
+    case 'pending_approval':
+      return '🟡';
+    case 'awaiting_payment':
+      return '💳';
+    case 'rejected':
+      return '🔴';
+    case 'refunded':
+      return '🔄';
+    case 'cancelled':
+      return '⚪';
+    default:
+      return '📦';
+  }
+}
+
 export async function renderMyOrders(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
   if (!userId) return;
@@ -36,27 +58,32 @@ export async function renderMyOrders(ctx: Context): Promise<void> {
   const keyboard = new InlineKeyboard();
 
   if (orders.length === 0) {
-    const text = '*My Orders*\n\n' +
-      'You have not placed any orders yet.\n' +
-      'Browse our catalog to order Gemini Pro subscriptions, Telegram Premium, or Telegram Stars.';
+    const text =
+      '<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n' +
+      '📦 <b>My Orders</b>\n\n' +
+      '<blockquote>You have not placed any orders yet.</blockquote>\n\n' +
+      'Browse our catalog to order Gemini Pro subscriptions, Telegram Premium, or Telegram Stars with instant automated delivery!';
 
-    keyboard.text('Browse Shop', 'nav_shop').row().text('« Main Menu', 'nav_home');
+    keyboard.text('🛍️ Browse Shop', 'nav_shop').text('« Main Menu', 'nav_home');
 
     if (ctx.callbackQuery) {
-      await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
     } else {
-      await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
     }
     return;
   }
 
-  let text = '*Your Order History*\n\n' +
-    'Select an order below to view details and activation links:\n\n';
+  let text =
+    '<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n' +
+    '📦 <b>Your Order History</b>\n\n' +
+    '<blockquote><i>Select an order below to view live status, receipt details, or activation credentials:</i></blockquote>\n\n';
 
   for (const order of orders) {
     const product = getProductById(order.product_id);
     const prodName = product ? product.name : order.product_id;
     const badge = getStatusBadge(order.status);
+    const emoji = getStatusEmoji(order.status);
     const dateStr = new Date(order.created_at).toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -64,18 +91,18 @@ export async function renderMyOrders(ctx: Context): Promise<void> {
       minute: '2-digit',
     });
 
-    text += `• \`${order.id}\` — *${prodName}* (${formatPriceETB(order.amount_etb)})\n` +
-      `   Status: [${badge}] | _${dateStr}_\n\n`;
+    text += `• <code>${order.id}</code> — <b>${escapeHtml(prodName)}</b>\n` +
+      `   └ ${emoji} <b>[${badge}]</b> · <code>${formatPriceETB(order.amount_etb)}</code> · <i>${dateStr}</i>\n\n`;
 
-    keyboard.text(`Order #${order.id} • ${badge}`, `order_detail_${order.id}`).row();
+    keyboard.text(`${emoji} #${order.id} • ${badge}`, `order_detail_${order.id}`).row();
   }
 
-  keyboard.text('Browse Shop', 'nav_shop').row().text('« Main Menu', 'nav_home');
+  keyboard.row().text('🛍️ Browse Shop', 'nav_shop').text('« Main Menu', 'nav_home');
 
   if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   } else {
-    await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
   }
 }
 
@@ -90,14 +117,17 @@ export async function renderOrderDetail(ctx: Context, orderId: string): Promise<
   const product = getProductById(order.product_id);
   const prodName = product ? product.name : order.product_id;
   const badge = getStatusBadge(order.status);
+  const emoji = getStatusEmoji(order.status);
   const keyboard = new InlineKeyboard();
 
-  let text = `*Order Details — \`${order.id}\`*\n\n` +
-    `• Product: ${prodName}\n` +
-    `• Amount: *${formatPriceETB(order.amount_etb)}*\n` +
-    `• Payment Method: ${order.payment_rail.toUpperCase()}\n` +
-    `• Status: [${badge}]\n` +
-    `• Date Placed: ${new Date(order.created_at).toLocaleString('en-US')}\n`;
+  let text =
+    `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
+    `🧾 <b>Order Details — <code>${order.id}</code></b>\n\n` +
+    `• 📦 <b>Product:</b> <b>${escapeHtml(prodName)}</b>\n` +
+    `• 💰 <b>Payable Amount:</b> <code>${formatPriceETB(order.amount_etb)}</code>\n` +
+    `• 💳 <b>Payment Rail:</b> <code>${order.payment_rail.toUpperCase()}</code>\n` +
+    `• 📊 <b>Status:</b> ${emoji} <b>[${badge}]</b>\n` +
+    `• 📅 <b>Date Placed:</b> <i>${new Date(order.created_at).toLocaleString('en-US')}</i>\n`;
 
   if (order.status === 'fulfilled') {
     if (order.fulfillment_payload) {
@@ -105,53 +135,55 @@ export async function renderOrderDetail(ctx: Context, orderId: string): Promise<
         'gemini_instructions',
         'After payment, you will receive a one-time activation link.\n\n1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.'
       );
-      text += `\n*Activation Link:*\n` +
-        `\`${order.fulfillment_payload}\`\n\n` +
-        `*Instructions:*\n${instructions}\n`;
+      text += `\n🔑 <b>Activation Link:</b>\n` +
+        `<code>${order.fulfillment_payload}</code>\n\n` +
+        `📋 <b>Activation Instructions:</b>\n<blockquote>${escapeHtml(instructions)}</blockquote>\n`;
     }
     if (order.fulfillment_proof) {
-      text += `\n*Fulfillment Proof:* ${order.fulfillment_proof}\n`;
+      text += `\n🧾 <b>Fulfillment Proof:</b>\n<code>${escapeHtml(order.fulfillment_proof)}</code>\n`;
     }
   } else if (order.status === 'pending_approval') {
-    text += `\n*Status Update:* Your receipt has been received and is currently under review by our administration team.`;
+    text += `\n<blockquote>🟡 <b>Status Update: Under Review</b>\nYour transfer slip has been received and is currently being verified by our administration team.</blockquote>`;
   } else if (order.status === 'pending_fulfillment') {
-    text += `\n*Status Update:* Payment confirmed. Fulfillment is in progress for **@${order.username || 'your account'}**.`;
+    text += `\n<blockquote>⚡ <b>Status Update: Processing Fulfillment</b>\nPayment confirmed! Fulfillment is in progress for <b>@${escapeHtml(order.username || 'your account')}</b>.</blockquote>`;
   } else if (order.status === 'awaiting_payment') {
-    text += `\n*Payment Pending:* This order has not been completed.`;
-    keyboard.text('Resume Payment', `resume_pay_${order.id}`).row();
-    keyboard.text('Cancel Order', `cancel_order_${order.id}`).row();
+    text += `\n<blockquote>💳 <b>Status Update: Awaiting Payment</b>\nThis order is waiting for payment confirmation. Tap below to resume payment or upload your transfer slip.</blockquote>`;
+    keyboard.text('💳 Resume Payment', `resume_pay_${order.id}`).text('🚫 Cancel Order', `cancel_order_${order.id}`).row();
   } else if (order.status === 'rejected') {
-    text += `\n*Rejection Reason:* ${order.rejection_reason || 'Payment verification failed'}\n` +
-      `_If you have questions, please contact support._`;
+    text += `\n<blockquote>🔴 <b>Status Update: Rejected</b>\n<b>Reason:</b> ${escapeHtml(order.rejection_reason || 'Payment verification failed')}\n<i>If you have questions, please contact support.</i></blockquote>`;
+  } else if (order.status === 'refunded') {
+    text += `\n<blockquote>🔄 <b>Status Update: Refunded</b>\nThis order was refunded to your payment method.</blockquote>`;
+  } else if (order.status === 'cancelled') {
+    text += `\n<blockquote>⚪ <b>Status Update: Cancelled</b>\nThis order was cancelled.</blockquote>`;
   }
 
-  keyboard.text('« Back to Orders', 'nav_orders').row();
-  keyboard.url('Contact Support', `https://t.me/${config.SUPPORT_USERNAME}`);
+  keyboard.row().text('« Back to Orders', 'nav_orders').url('💬 Contact Support', `https://t.me/${config.SUPPORT_USERNAME}`);
 
   if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   } else {
-    await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
   }
 }
 
 export async function renderLanguageMenu(ctx: Context): Promise<void> {
-  const text = '*Language Settings / ቋንቋ*\n\n' +
-    'Choose your preferred language for the store:\n\n' +
-    '• English (Default)\n' +
-    '• Amharic (አማርኛ)';
+  const text =
+    '<b>🌐 Language Settings / የቋንቋ ምርጫ</b>\n\n' +
+    '<blockquote>Choose your preferred language for the store interface:</blockquote>\n\n' +
+    '• 🇬🇧 <b>English</b> (Active Default)\n' +
+    '• 🇪🇹 <b>አማርኛ (Amharic)</b>';
 
   const keyboard = new InlineKeyboard()
-    .text('English (Active)', 'set_lang_en')
+    .text('🇬🇧 English (Active)', 'set_lang_en')
     .row()
-    .text('አማርኛ (Amharic)', 'set_lang_am')
+    .text('🇪🇹 አማርኛ (Amharic)', 'set_lang_am')
     .row()
     .text('« Main Menu', 'nav_home');
 
   if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   } else {
-    await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
   }
 }
 

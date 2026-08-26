@@ -14,6 +14,11 @@ build/
 *.db-shm
 data/
 *.sqlite
+*.sqlite3
+# Database snapshots & backup archives (never commit)
+*.bak.db
+shop_*.db
+bighabesha_*.tar.gz
 
 # Environment variables & secrets
 .env
@@ -39,3 +44,30 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Scratch screenshots, debug images & throwaway scripts
+scratch_*.png
+scratch_*.jpg
+screenshot*.png
+Screenshot*.png
+photo_*.jpg
+take_screenshots.mjs
+*.tmp.png
+/tmp/
+scratch/
+webapp/admin_backup/
+bot/assets/banners/
+
+# Binary executables and vendor tool binaries
+*.exe
+*.dll
+*.so
+*.dylib
+cloudflared*
+
+# Test & coverage artifacts
+coverage/
+.nyc_output/
+
+# Visual QA screenshots
+shots/

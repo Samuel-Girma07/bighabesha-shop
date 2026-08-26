@@ -1,7 +1,10 @@
 import { Resvg } from '@resvg/resvg-js';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { logger } from '../logger/index.js';
+import { getProductVariants } from './catalog.service.js';
+import { getNumericSetting, getSetting } from './settings.service.js';
 
 const ASSETS_DIR = path.resolve(process.cwd(), 'assets/banners');
 
@@ -11,9 +14,36 @@ function ensureAssetsDir() {
   }
 }
 
+/** All displayed account numbers/prices are read live from admin-managed data — never hardcoded. */
+function storeSnapshot() {
+  const geminiVariants = getProductVariants('gemini_pro_18m');
+  const premVariants = getProductVariants('telegram_premium');
+  const starsVariants = getProductVariants('telegram_stars');
+
+  const geminiPrice = geminiVariants[0]?.price_etb ?? 0;
+  const premPrices = premVariants.map((v) => v.price_etb);
+  const premFrom = premPrices.length > 0 ? Math.min(...premPrices) : 0;
+
+  return {
+    geminiPrice,
+    geminiPerMonth: geminiPrice > 0 ? Math.round(geminiPrice / 18) : 0,
+    premFrom,
+    prem3: premPrices[0] ?? 0,
+    prem6: premPrices[1] ?? 0,
+    prem12: premPrices[2] ?? 0,
+    etbPerStar: getNumericSetting('etb_per_star', 2.5),
+    stars50: Math.ceil(50 * getNumericSetting('etb_per_star', 2.5)),
+    stars500: Math.ceil(500 * getNumericSetting('etb_per_star', 2.5)),
+    stars1000: Math.ceil(1000 * getNumericSetting('etb_per_star', 2.5)),
+    cbeAccount: getSetting('cbe_account', '0000000000000'),
+    telebirrAccount: getSetting('telebirr_account', '0000000000'),
+  };
+}
+
 export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'stars' | 'checkout'): string {
   switch (type) {
-    case 'welcome':
+    case 'welcome': {
+      const s = storeSnapshot();
       return `
       <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
         <defs>
@@ -65,32 +95,31 @@ export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'star
         <text x="100" y="320" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="500" fill="#94A3B8">Instant automated delivery, Fragment verified gifts, and direct Ethiopian local payments.</text>
 
         <!-- Product Cards Showcase -->
-        <!-- Card 1: Gemini -->
         <g transform="translate(100, 380)">
           <rect width="300" height="150" rx="16" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
           <text x="24" y="44" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="800" fill="#FCDD09">Gemini Pro 18M</text>
           <text x="24" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">Google AI + 2TB Storage</text>
-          <text x="24" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="800" fill="#FFFFFF">1,500 ETB</text>
+          <text x="24" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="800" fill="#FFFFFF">${s.geminiPrice.toLocaleString('en-US')} ETB</text>
         </g>
 
-        <!-- Card 2: Premium -->
         <g transform="translate(440, 380)">
           <rect width="300" height="150" rx="16" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
           <text x="24" y="44" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="800" fill="#38BDF8">Telegram Premium</text>
           <text x="24" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">3, 6, or 12 Months Gift</text>
-          <text x="24" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="800" fill="#FFFFFF">from 1,100 ETB</text>
+          <text x="24" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="800" fill="#FFFFFF">from ${s.premFrom.toLocaleString('en-US')} ETB</text>
         </g>
 
-        <!-- Card 3: Stars -->
         <g transform="translate(780, 380)">
           <rect width="300" height="150" rx="16" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
           <text x="24" y="44" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="800" fill="#10B981">Telegram Stars</text>
           <text x="24" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">Packages &amp; Custom</text>
-          <text x="24" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="800" fill="#FFFFFF">1 Star = 2.5 ETB</text>
+          <text x="24" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="800" fill="#FFFFFF">1 Star = ${s.etbPerStar} ETB</text>
         </g>
       </svg>`;
+    }
 
-    case 'gemini':
+    case 'gemini': {
+      const s = storeSnapshot();
       return `
       <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
         <defs>
@@ -120,7 +149,7 @@ export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'star
         <g transform="translate(100, 320)">
           <text x="0" y="30" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="600" fill="#FFFFFF">&#x2022; Full 18-month duration subscription</text>
           <text x="0" y="70" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="600" fill="#FFFFFF">&#x2022; 2,048 GB Google Drive, Gmail &amp; Photos storage</text>
-          <text x="0" y="110" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="600" fill="#FFFFFF">&#x2022; Gemini 1.5 Pro with Deep Research &amp; Python runtime</text>
+          <text x="0" y="110" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="600" fill="#FFFFFF">&#x2022; Gemini Pro with Deep Research &amp; Python runtime</text>
           <text x="0" y="150" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="600" fill="#FFFFFF">&#x2022; Automated one-time activation link with instructions</text>
         </g>
 
@@ -128,12 +157,14 @@ export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'star
         <g transform="translate(800, 290)">
           <rect width="300" height="180" rx="20" fill="#16202E" stroke="rgba(252, 221, 9, 0.4)" stroke-width="2"/>
           <text x="30" y="55" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#94A3B8">TOTAL PRICE</text>
-          <text x="30" y="110" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="44" font-weight="800" fill="#FCDD09">1,500 ETB</text>
-          <text x="30" y="145" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="600" fill="#10B981">&#x223C;83.3 ETB / Month</text>
+          <text x="30" y="110" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="44" font-weight="800" fill="#FCDD09">${s.geminiPrice.toLocaleString('en-US')} ETB</text>
+          <text x="30" y="145" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="600" fill="#10B981">&#x223C;${s.geminiPerMonth.toLocaleString('en-US')} ETB / Month</text>
         </g>
       </svg>`;
+    }
 
-    case 'premium':
+    case 'premium': {
+      const s = storeSnapshot();
       return `
       <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
         <defs>
@@ -160,27 +191,26 @@ export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'star
 
         <!-- Plans -->
         <g transform="translate(100, 330)">
-          <!-- 3m -->
           <rect x="0" y="0" width="300" height="150" rx="16" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
           <text x="24" y="44" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">3 Months</text>
           <text x="24" y="74" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">Standard Plan</text>
-          <text x="24" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="26" font-weight="800" fill="#38BDF8">1,100 ETB</text>
+          <text x="24" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="26" font-weight="800" fill="#38BDF8">${s.prem3.toLocaleString('en-US')} ETB</text>
 
-          <!-- 6m -->
           <rect x="340" y="0" width="300" height="150" rx="16" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
           <text x="364" y="44" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">6 Months</text>
           <text x="364" y="74" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">Popular Choice</text>
-          <text x="364" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="26" font-weight="800" fill="#38BDF8">1,850 ETB</text>
+          <text x="364" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="26" font-weight="800" fill="#38BDF8">${s.prem6.toLocaleString('en-US')} ETB</text>
 
-          <!-- 12m -->
           <rect x="680" y="0" width="320" height="150" rx="16" fill="#16202E" stroke="rgba(56, 189, 248, 0.4)" stroke-width="2"/>
           <text x="704" y="44" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">12 Months (1 Year)</text>
-          <text x="704" y="74" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="600" fill="#10B981">Best Value — Save 400 ETB</text>
-          <text x="704" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="26" font-weight="800" fill="#FCDD09">3,200 ETB</text>
+          <text x="704" y="74" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="600" fill="#10B981">Best Value</text>
+          <text x="704" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="26" font-weight="800" fill="#FCDD09">${s.prem12.toLocaleString('en-US')} ETB</text>
         </g>
       </svg>`;
+    }
 
-    case 'stars':
+    case 'stars': {
+      const s = storeSnapshot();
       return `
       <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
         <defs>
@@ -208,30 +238,32 @@ export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'star
         <!-- Rate pill -->
         <g transform="translate(100, 310)">
           <rect width="460" height="60" rx="14" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
-          <text x="24" y="38" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="700" fill="#FFFFFF">Exchange Rate: <tspan fill="#FCDD09">1 Star = 2.5 ETB</tspan></text>
+          <text x="24" y="38" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="700" fill="#FFFFFF">Exchange Rate: <tspan fill="#FCDD09">1 Star = ${s.etbPerStar} ETB</tspan></text>
         </g>
 
         <!-- Packages sample grid -->
         <g transform="translate(100, 400)">
           <rect x="0" y="0" width="220" height="100" rx="14" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
-          <text x="20" y="40" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">100 Stars</text>
-          <text x="20" y="75" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#10B981">250 ETB</text>
+          <text x="20" y="40" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">50 Stars</text>
+          <text x="20" y="75" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#10B981">${s.stars50.toLocaleString('en-US')} ETB</text>
 
           <rect x="250" y="0" width="220" height="100" rx="14" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
           <text x="270" y="40" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">500 Stars</text>
-          <text x="270" y="75" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#10B981">1,250 ETB</text>
+          <text x="270" y="75" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#10B981">${s.stars500.toLocaleString('en-US')} ETB</text>
 
           <rect x="500" y="0" width="220" height="100" rx="14" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
           <text x="520" y="40" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">1,000 Stars</text>
-          <text x="520" y="75" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#10B981">2,500 ETB</text>
+          <text x="520" y="75" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#10B981">${s.stars1000.toLocaleString('en-US')} ETB</text>
 
           <rect x="750" y="0" width="250" height="100" rx="14" fill="#16202E" stroke="rgba(252, 221, 9, 0.4)" stroke-width="2"/>
           <text x="770" y="40" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">Custom Amount</text>
           <text x="770" y="75" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="600" fill="#FCDD09">Interactive Slider</text>
         </g>
       </svg>`;
+    }
 
-    case 'checkout':
+    case 'checkout': {
+      const s = storeSnapshot();
       return `
       <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
         <defs>
@@ -252,41 +284,52 @@ export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'star
         <text x="100" y="260" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="24" font-weight="500" fill="#94A3B8">Instant verification via bank receipt upload or Telegram Stars &amp; Crypto</text>
 
         <g transform="translate(100, 330)">
-          <!-- CBE -->
           <rect x="0" y="0" width="230" height="150" rx="16" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
           <text x="24" y="44" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="800" fill="#A78BFA">CBE Bank</text>
           <text x="24" y="74" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">Commercial Bank</text>
-          <text x="24" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">1000510711258</text>
+          <text x="24" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">${s.cbeAccount}</text>
 
-          <!-- Telebirr -->
           <rect x="250" y="0" width="230" height="150" rx="16" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
           <text x="274" y="44" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="800" fill="#00A651">Telebirr</text>
           <text x="274" y="74" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">Mobile Money</text>
-          <text x="274" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">0965579045</text>
+          <text x="274" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">${s.telebirrAccount}</text>
 
-          <!-- Abyssinia -->
           <rect x="500" y="0" width="230" height="150" rx="16" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
           <text x="524" y="44" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="800" fill="#F59E0B">Abyssinia</text>
           <text x="524" y="74" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">Bank of Abyssinia</text>
           <text x="524" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">Verified Account</text>
 
-          <!-- Stars / Crypto -->
           <rect x="750" y="0" width="250" height="150" rx="16" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
           <text x="774" y="44" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="800" fill="#38BDF8">Stars &amp; TON</text>
           <text x="774" y="74" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">Native In-Chat Pay</text>
           <text x="774" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#10B981">Auto-Settlement</text>
         </g>
       </svg>`;
+    }
+
+    default: {
+      // Exhaustive runtime guard: an unexpected banner type must fail loudly
+      // (caught by getBannerPngPath) instead of silently returning undefined.
+      const exhaustiveCheck: never = type;
+      throw new Error(`Unknown banner type: ${String(exhaustiveCheck)}`);
+    }
   }
 }
 
-export function getBannerPngPath(type: 'welcome' | 'gemini' | 'premium' | 'stars' | 'checkout'): string {
-  ensureAssetsDir();
-  const filePath = path.join(ASSETS_DIR, `${type}.png`);
+export type BannerType = 'welcome' | 'gemini' | 'premium' | 'stars' | 'checkout';
 
-  if (!fs.existsSync(filePath)) {
-    try {
-      const svg = generateSvgBanner(type);
+export function getBannerPngPath(type: BannerType): string {
+  ensureAssetsDir();
+
+  try {
+    const svg = generateSvgBanner(type);
+
+    // Content-addressed cache key: banners regenerate automatically when
+    // prices/accounts change in the database instead of serving stale PNGs.
+    const contentHash = crypto.createHash('md5').update(svg).digest('hex').slice(0, 10);
+    const filePath = path.join(ASSETS_DIR, `${type}_${contentHash}.png`);
+
+    if (!fs.existsSync(filePath)) {
       const resvg = new Resvg(svg, {
         fitTo: {
           mode: 'width',
@@ -297,10 +340,22 @@ export function getBannerPngPath(type: 'welcome' | 'gemini' | 'premium' | 'stars
       const pngBuffer = pngData.asPng();
       fs.writeFileSync(filePath, pngBuffer);
       logger.info({ type, filePath }, 'Generated high-DPI PNG banner');
+    }
+
+    return filePath;
+  } catch (err) {
+    logger.error({ err, type }, 'Failed to render PNG banner');
+    return path.join(ASSETS_DIR, `${type}.png`);
+  }
+}
+
+export async function prewarmAllBanners(): Promise<void> {
+  const standardTypes: Array<BannerType> = ['welcome', 'gemini', 'premium', 'stars', 'checkout'];
+  for (const type of standardTypes) {
+    try {
+      getBannerPngPath(type);
     } catch (err) {
-      logger.error({ err, type }, 'Failed to render PNG banner');
+      logger.warn({ type, err }, 'Banner prewarm non-fatal error');
     }
   }
-
-  return filePath;
 }

@@ -30,12 +30,12 @@ describe('Environment Configuration Validation', () => {
   it('successfully parses valid environment variables and sets defaults', () => {
     const config = loadEnv({
       BOT_TOKEN: '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ',
-      ADMIN_IDS: '123456789, 987654321',
+      ADMIN_IDS: '123456789, 222222333',
       PORT: '4000',
     });
 
     expect(config.BOT_TOKEN).toBe('123456789:ABCdefGHIjklMNOpqrSTUvwxYZ');
-    expect(config.ADMIN_IDS).toEqual([123456789, 987654321]);
+    expect(config.ADMIN_IDS).toEqual([123456789, 222222333]);
     expect(config.WALLET_PAY_MODE).toBe('mock');
     expect(config.DATABASE_PATH).toBe('./data/shop.db');
     expect(config.PORT).toBe(4000);

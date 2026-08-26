@@ -9,12 +9,16 @@ export interface CryptoPriceCache {
 
 // In-memory cache for crypto prices (5 minutes TTL)
 let priceCache: CryptoPriceCache = {
-  tonUsd: 1.45, // Sensible live baseline
+  tonUsd: 3.50, // Realistic market baseline
   usdtUsd: 1.0,
   lastFetchedAt: Date.now(),
 };
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+export function getFallbackTonUsd(): number {
+  return getNumericSetting('fallback_ton_usd', 3.50);
+}
 
 export async function fetchCoinGeckoPrices(forceRefresh = false): Promise<{ tonUsd: number; usdtUsd: number }> {
   const now = Date.now();
@@ -22,11 +26,18 @@ export async function fetchCoinGeckoPrices(forceRefresh = false): Promise<{ tonU
     return { tonUsd: priceCache.tonUsd, usdtUsd: priceCache.usdtUsd };
   }
 
+  const fallbackTon = getFallbackTonUsd();
+
   try {
     const res = await fetch(
       'https://api.coingecko.com/api/v3/simple/price?ids=the-open-network,tether&vs_currencies=usd',
-      { signal: AbortSignal.timeout(2000) }
+      { signal: AbortSignal.timeout(5000) }
     );
+
+    if (res.status === 429) {
+      logger.warn('CoinGecko API 429 rate limit reached, serving cached/fallback crypto prices');
+      return { tonUsd: priceCache.tonUsd || fallbackTon, usdtUsd: priceCache.usdtUsd || 1.0 };
+    }
 
     if (!res.ok) {
       throw new Error(`CoinGecko responded with status ${res.status}`);
@@ -37,7 +48,7 @@ export async function fetchCoinGeckoPrices(forceRefresh = false): Promise<{ tonU
       tether?: { usd?: number };
     };
 
-    const tonUsd = data['the-open-network']?.usd || priceCache.tonUsd;
+    const tonUsd = data['the-open-network']?.usd || priceCache.tonUsd || fallbackTon;
     const usdtUsd = data.tether?.usd || 1.0;
 
     priceCache = {
@@ -48,9 +59,9 @@ export async function fetchCoinGeckoPrices(forceRefresh = false): Promise<{ tonU
 
     logger.debug({ tonUsd, usdtUsd }, 'Updated crypto prices from CoinGecko');
     return { tonUsd, usdtUsd };
-  } catch (err) {
-    logger.warn({ err }, 'Failed to fetch CoinGecko rates, using cached or fallback prices.');
-    return { tonUsd: priceCache.tonUsd, usdtUsd: priceCache.usdtUsd };
+  } catch (err: any) {
+    logger.warn({ err: err?.message || err }, 'Failed to fetch CoinGecko rates, using cached or fallback prices.');
+    return { tonUsd: priceCache.tonUsd || fallbackTon, usdtUsd: priceCache.usdtUsd || 1.0 };
   }
 }
 

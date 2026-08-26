@@ -2,6 +2,7 @@ import { Api, InlineKeyboard, RawApi } from 'grammy';
 import { getConfig } from '../config/env.js';
 import { logger } from '../logger/index.js';
 import { getProductById } from './catalog.service.js';
+import { escapeHtml } from '../utils/html.js';
 
 export async function sendLowStockAlert(
   api: Api<RawApi>,
@@ -16,9 +17,9 @@ export async function sendLowStockAlert(
   const statusEmoji = isSoldOut ? '🚨' : '⚠️';
   const alertTitle = isSoldOut ? 'PRODUCT SOLD OUT' : 'LOW STOCK ALERT';
 
-  const message = `${statusEmoji} *${alertTitle}*\n\n` +
-    `📦 *Product:* ${productName}\n` +
-    `🔢 *Available Stock:* ${remainingCount} left\n\n` +
+  const message = `${statusEmoji} <b>${alertTitle}</b>\n\n` +
+    `📦 <b>Product:</b> ${escapeHtml(productName)}\n` +
+    `🔢 <b>Available Stock:</b> ${remainingCount} left\n\n` +
     `Please restock activation links soon to avoid fulfillment delays.`;
 
   const keyboard = new InlineKeyboard()
@@ -29,7 +30,7 @@ export async function sendLowStockAlert(
   for (const adminId of config.ADMIN_IDS) {
     try {
       await api.sendMessage(adminId, message, {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         reply_markup: keyboard,
       });
       logger.info({ adminId, productId, remainingCount }, 'Low stock alert sent to admin');
@@ -38,3 +39,4 @@ export async function sendLowStockAlert(
     }
   }
 }
+

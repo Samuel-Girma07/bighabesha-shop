@@ -11,8 +11,5 @@
     "bot:test": "pnpm --filter bot test",
     "webapp:dev": "pnpm --filter webapp dev",
     "webapp:build": "pnpm --filter webapp build"
-  },
-  "devDependencies": {
-    "playwright": "^1.62.1"
   }
 }

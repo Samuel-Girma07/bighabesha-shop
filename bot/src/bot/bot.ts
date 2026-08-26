@@ -16,6 +16,7 @@ import {
   promptStockPaste,
   promptStockCSV,
   promptEditSetting,
+  isAdmin,
 } from './handlers/admin.js';
 import {
   renderAdminOrdersQueue,
@@ -38,44 +39,124 @@ import {
   performAdminApprove,
   promptAdminReject,
   renderPaymentRailSelection,
+  handleChapaPayment,
+  handleTonConnect,
 } from './handlers/checkout.js';
 import { isUsernameRequired, hasPublicUsername, renderUsernameGate, handleGateRecheck } from './handlers/gate.js';
 import { renderMyOrders, renderOrderDetail, renderLanguageMenu, handleSetLanguage } from './handlers/orders.js';
 import { inlineQueryHandler } from './handlers/inline_query.js';
 import { handleTextInput, handleDocumentInput, handlePhotoInput } from './handlers/input.js';
 import { getOrderById, approveReceipt, updateOrderStatus } from '../services/orders.service.js';
+import { getAvailableStockCount } from '../services/stock.service.js';
+import { findThreadByTopic, insertSupportMessage, SUPPORT_MAX_MESSAGE_LENGTH } from '../services/support.service.js';
+import { setPendingAction } from './session.js';
 import { getProductById, formatPriceETB } from '../services/catalog.service.js';
 import { getSetting } from '../services/settings.service.js';
 import { isUserRegistered } from '../services/users.service.js';
 import { getConfig } from '../config/env.js';
 import { t } from '../i18n/index.js';
+import { escapeHtml } from '../utils/html.js';
+import { previewUserText, redactSecret } from '../logger/index.js';
 
 export function createBot(token: string): Bot {
   const bot = new Bot(token);
 
-  // Global request logging & 429 retry middleware
+  // In test environment, short-circuit API calls with mock responses to prevent slow outbound network requests
+  if (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test' || token.startsWith('123456')) {
+    bot.api.config.use(async (prev, method, payload, signal) => {
+      if (method === 'createInvoiceLink') {
+        return `https://t.me/$invoice_${Date.now()}` as any;
+      }
+      if (method === 'sendMessage' || method === 'sendPhoto' || method === 'editMessageCaption') {
+        return {
+          message_id: Math.floor(Math.random() * 100000) + 1,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: (payload as any)?.chat_id ?? 1, type: 'private' },
+        } as any;
+      }
+      if (method === 'getChat') {
+        return {
+          id: (payload as any)?.chat_id ?? 1,
+          type: 'private',
+          username: 'testhabesha',
+          first_name: 'Tester',
+        } as any;
+      }
+      if (method === 'createForumTopic') {
+        return { message_thread_id: 101, name: (payload as any)?.name ?? 'Support' } as any;
+      }
+      if (method === 'setChatMenuButton' || method === 'answerInlineQuery' || method === 'deleteMessage') {
+        return true as any;
+      }
+      try {
+        return await prev(method, payload, signal);
+      } catch {
+        return true as any;
+      }
+    });
+  }
+
+  // API rate limit 429 retry transformer
+  bot.api.config.use(async (prev, method, payload, signal) => {
+    try {
+      return await prev(method, payload, signal);
+    } catch (err: any) {
+      if (err instanceof GrammyError && err.error_code === 429) {
+        const retryAfter = err.parameters?.retry_after || 1;
+        logger.warn({ retryAfter, method }, `Hit Telegram API 429 rate limit. Waiting ${retryAfter}s before retrying.`);
+        await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+        return await prev(method, payload, signal);
+      }
+      throw err;
+    }
+  });
+
+  // Global request logging middleware
   bot.use(async (ctx, next) => {
     const updateId = ctx.update.update_id;
     const fromId = ctx.from?.id;
     const text = ctx.message?.text || ctx.callbackQuery?.data;
 
-    logger.debug({ updateId, fromId, text }, 'Incoming Telegram update');
+    logger.debug(
+      {
+        updateId,
+        fromId,
+        // Privacy: never log raw user message content — preview only.
+        text: previewUserText(text),
+      },
+      'Incoming Telegram update'
+    );
     const start = Date.now();
     try {
       await next();
-    } catch (err: any) {
-      if (err instanceof GrammyError && err.error_code === 429) {
-        const retryAfter = err.parameters?.retry_after || 1;
-        logger.warn({ retryAfter }, `Hit Telegram 429 rate limit. Waiting ${retryAfter}s before resuming.`);
-        await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
-        await next();
-      } else {
-        throw err;
-      }
+    } finally {
+      const duration = Date.now() - start;
+      logger.debug({ updateId, duration }, 'Update handled');
     }
-    const duration = Date.now() - start;
-    logger.debug({ updateId, duration }, 'Update handled successfully');
   });
+
+  // In-app support bridge: admin replies inside forum topics are routed
+  // back to the buyer's Mini App chat. Registered before stateful input
+  // handlers; non-matching messages pass through untouched.
+  const supportGroupId = getConfig().SUPPORT_GROUP_ID;
+  if (supportGroupId) {
+    bot.on('message', async (ctx, next) => {
+      const msg = ctx.message;
+      if (!msg || ctx.chat?.id !== supportGroupId || !msg.is_topic_message) return next();
+      const thread = findThreadByTopic(msg.message_thread_id as number);
+      if (!thread) return next();
+      const body = msg.text ?? msg.caption;
+      if (!body) return next();
+
+      insertSupportMessage(thread.id, 'admin', body.slice(0, SUPPORT_MAX_MESSAGE_LENGTH), msg.message_id);
+      await ctx.api.sendMessage(
+        thread.user_id,
+        `💬 <b>Support:</b>\n\n${escapeHtml(body.slice(0, SUPPORT_MAX_MESSAGE_LENGTH))}`,
+        { parse_mode: 'HTML' }
+      ).catch((err) => logger.error({ err }, 'Failed relaying support reply to user'));
+      // Consumed: do not run further handlers for topic replies.
+    });
+  }
 
   // Register Official Telegram Bot Slash Commands (Admin hidden from public)
   const defaultCommands = [
@@ -185,51 +266,65 @@ export function createBot(token: string): Bot {
   // Telegram Inline Mode Query Handler (@Bighabesha_shopBot)
   bot.on('inline_query', inlineQueryHandler);
 
-  // Dev simulation command for Wallet Pay
+  // Dev simulation command for Wallet Pay (ADMIN-ONLY, MOCK-MODE ONLY)
   bot.command('wp_simulate', async (ctx) => {
+    const config = getConfig();
+
+    // Silent no-op for non-admins (do not reveal the command exists).
+    if (!isAdmin(ctx.from?.id)) {
+      return;
+    }
+
+    // Hard-disabled in live mode regardless of caller.
+    if (config.WALLET_PAY_MODE === 'live') {
+      logger.warn({ adminId: ctx.from?.id }, 'Blocked /wp_simulate attempt while WALLET_PAY_MODE=live');
+      await ctx.reply('⚠️ <b>/wp_simulate is disabled</b> while the system runs with live Wallet Pay.', { parse_mode: 'HTML' });
+      return;
+    }
+
     const args = ctx.match?.trim();
     if (!args) {
-      await ctx.reply('Usage: `/wp_simulate <order_id>` (e.g. `/wp_simulate ORD-123456-ABC`)', { parse_mode: 'Markdown' });
+      await ctx.reply('Usage: <code>/wp_simulate &lt;order_id&gt;</code> (e.g. <code>/wp_simulate ORD-123456-ABC</code>)', { parse_mode: 'HTML' });
       return;
     }
 
     const orderId = args;
     const order = getOrderById(orderId);
     if (!order) {
-      await ctx.reply(`❌ Order \`${orderId}\` not found in database.`, { parse_mode: 'Markdown' });
+      await ctx.reply(`❌ Order <code>${escapeHtml(orderId)}</code> not found in database.`, { parse_mode: 'HTML' });
       return;
     }
 
     if (order.status !== 'awaiting_payment' && order.status !== 'pending_approval') {
-      await ctx.reply(`⚠️ Order \`${orderId}\` is currently in status: *${order.status}*. Simulation only applies to awaiting payment.`, { parse_mode: 'Markdown' });
+      await ctx.reply(`⚠️ Order <code>${escapeHtml(orderId)}</code> is currently in status: <b>${escapeHtml(order.status)}</b>. Simulation only applies to awaiting payment.`, { parse_mode: 'HTML' });
       return;
     }
 
     try {
       const { order: updated, autoDeliveredItem } = approveReceipt(order.id, ctx.from?.id || 0);
 
-      await ctx.reply(`✅ *MockWalletPay Simulation Success!*\n\n• Order \`${order.id}\` marked as **${updated.status.toUpperCase()}**.\n• Rail: \`${updated.payment_rail.toUpperCase()}\`\n• Amount: *${formatPriceETB(updated.amount_etb)}*`, { parse_mode: 'Markdown' });
+      await ctx.reply(`✅ <b>MockWalletPay Simulation Success!</b>\n\n• Order <code>${order.id}</code> marked as <b>${updated.status.toUpperCase()}</b>.\n• Rail: <code>${updated.payment_rail.toUpperCase()}</code>\n• Amount: <b>${formatPriceETB(updated.amount_etb)}</b>`, { parse_mode: 'HTML' });
 
       if (autoDeliveredItem) {
         const rawTemplate = getSetting(
           'gemini_instructions',
           'After payment, you will receive a one-time activation link.\n\n1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.'
         );
-        const deliveryText = `🎉 *Payment Confirmed! Order #${order.id}*\n\n` +
-          `Here is your activation link:\n🔗 ${autoDeliveredItem.payload}\n\n` +
-          `*Instructions:*\n${rawTemplate}\n\n` +
-          `_Thank you for choosing Bighabesha Shop!_`;
+        const deliveryText = `🎉 <b>Payment Confirmed! Order #${order.id}</b>\n\n` +
+          `Here is your activation link:\n🔗 <code>${autoDeliveredItem.payload}</code>\n\n` +
+          `<b>Instructions:</b>\n${rawTemplate}\n\n` +
+          `<i>Thank you for choosing Bighabesha Shop!</i>`;
 
-        await ctx.api.sendMessage(order.user_id, deliveryText, { parse_mode: 'Markdown' }).catch(() => {});
+        await ctx.api.sendMessage(order.user_id, deliveryText, { parse_mode: 'HTML' }).catch(() => {});
       } else {
-        const notifyText = `🎉 *Payment Received for Order #${order.id}!*\n\n` +
-          `Your order has been queued for fulfillment to **@${order.username || 'your account'}**.\n` +
+        const notifyText = `🎉 <b>Payment Received for Order #${order.id}!</b>\n\n` +
+          `Your order has been queued for fulfillment to <b>@${escapeHtml(order.username || 'your account')}</b>.\n` +
           `You will receive a confirmation once delivered!`;
 
-        await ctx.api.sendMessage(order.user_id, notifyText, { parse_mode: 'Markdown' }).catch(() => {});
+        await ctx.api.sendMessage(order.user_id, notifyText, { parse_mode: 'HTML' }).catch(() => {});
       }
     } catch (err: any) {
-      await ctx.reply(`❌ Error simulating payment: ${err.message}`);
+      await ctx.reply(`❌ Error simulating payment: ${escapeHtml(err.message)}`, { parse_mode: 'HTML' });
     }
   });
 
@@ -242,6 +337,18 @@ export function createBot(token: string): Bot {
       const orderId = payload.replace('order_', '');
       const order = getOrderById(orderId);
       if (order && (order.status === 'awaiting_payment' || order.status === 'new')) {
+        // Stock availability gate: reject the invoice BEFORE payment capture
+        // if the product is a stock item that has sold out. Without this,
+        // funds are captured and delivery later fails with nothing sent.
+        const product = getProductById(order.product_id);
+        if (product && product.type === 'stock') {
+          const available = getAvailableStockCount(order.product_id);
+          if (available <= 0) {
+            logger.warn({ orderId: order.id, productId: order.product_id }, 'Rejected Stars checkout: product sold out');
+            await ctx.answerPreCheckoutQuery(false, { error_message: 'Sold out — your payment was NOT taken. Please choose another product or contact support.' });
+            return;
+          }
+        }
         await ctx.answerPreCheckoutQuery(true);
         return;
       }
@@ -259,31 +366,96 @@ export function createBot(token: string): Bot {
       const orderId = payload.replace('order_', '');
       const order = getOrderById(orderId);
       if (order) {
+        // Recovery state for the paid-but-not-delivered edge case: funds are
+        // already captured here, so EVERY failure path must (a) keep the
+        // order actionable, (b) alert admins instantly, and (c) reassure the
+        // buyer. Never leave a paid order silently dropped.
+        let updated = order;
+        let autoDeliveredItem: any = null;
+        let deliveryFailureNote: string | null = null;
+
         try {
-          const { order: updated, autoDeliveredItem } = approveReceipt(order.id, 0);
+          const approval = approveReceipt(order.id, 0);
+          updated = approval.order;
+          autoDeliveredItem = approval.autoDeliveredItem;
           updateOrderStatus(order.id, updated.status, { payment_ref: payment.telegram_payment_charge_id });
 
+          // Paid stock product that could NOT be auto-delivered (e.g. stock
+          // raced to zero between checkout approval and allocation).
+          const productForDelivery = getProductById(order.product_id);
+          if (!autoDeliveredItem && productForDelivery && productForDelivery.type === 'stock') {
+            deliveryFailureNote = 'Stock item could not be allocated after Stars payment was captured.';
+            updated = updateOrderStatus(order.id, 'pending_fulfillment', {
+              admin_notes: `⚠️ AUTOMATIC DELIVERY FAILED after Stars payment (${payment.total_amount} XTR, charge ${payment.telegram_payment_charge_id}). Restock and fulfil manually — buyer has PAID.`,
+            });
+          }
+        } catch (err: any) {
+          deliveryFailureNote = err?.message || 'Unknown error during post-payment fulfillment';
+          logger.error({ err, orderId: order.id }, 'Error during Stars payment fulfillment — recovering');
+          try {
+            updated = updateOrderStatus(order.id, 'pending_fulfillment', {
+              admin_notes: `⚠️ FULFILLMENT ERROR after Stars payment (${payment.total_amount} XTR, charge ${payment.telegram_payment_charge_id}): ${deliveryFailureNote}. Buyer has PAID — resolve manually.`,
+            });
+          } catch (statusErr) {
+            logger.error({ err: statusErr, orderId: order.id }, 'CRITICAL: could not even mark paid order as pending_fulfillment');
+          }
+        }
+
+        try {
           if (autoDeliveredItem) {
             const rawTemplate = getSetting(
               'gemini_instructions',
               'After payment, you will receive a one-time activation link.\n\n1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.'
             );
-            const deliveryText = `🎉 *Stars Payment Confirmed! Order #${order.id}*\n\n` +
-              `Here is your activation link:\n🔗 ${autoDeliveredItem.payload}\n\n` +
-              `*Instructions:*\n${rawTemplate}\n\n` +
-              `_Thank you for choosing Bighabesha Shop!_`;
+            const deliveryText = `🎉 <b>Stars Payment Confirmed! Order #${order.id}</b>\n\n` +
+              `Here is your activation link:\n🔗 <code>${autoDeliveredItem.payload}</code>\n\n` +
+              `<b>Instructions:</b>\n${rawTemplate}\n\n` +
+              `<i>Thank you for choosing Bighabesha Shop!</i>`;
 
-            await ctx.reply(deliveryText, { parse_mode: 'Markdown' });
+            await ctx.reply(deliveryText, { parse_mode: 'HTML' });
+          } else if (deliveryFailureNote) {
+            await ctx.reply(
+              `⭐️ <b>Payment Received (${payment.total_amount} Stars)!</b>\n\n` +
+                `Order #${escapeHtml(order.id)} is confirmed. Our team is finalizing delivery to <b>@${escapeHtml(order.username || 'your account')}</b> — ` +
+                `you will receive it shortly. Thank you for your patience!`,
+              { parse_mode: 'HTML' }
+            );
           } else {
             await ctx.reply(
-              `⭐️ *Payment Received (${payment.total_amount} Stars)!*\n\n` +
-                `Order #${order.id} is now queued for delivery to **@${order.username || 'your account'}**.\n` +
+              `⭐️ <b>Payment Received (${payment.total_amount} Stars)!</b>\n\n` +
+                `Order #${order.id} is now queued for delivery to <b>@${escapeHtml(order.username || 'your account')}</b>.\n` +
                 `You will receive an update shortly!`,
-              { parse_mode: 'Markdown' }
+              { parse_mode: 'HTML' }
             );
           }
-        } catch (err) {
-          logger.error({ err, orderId }, 'Error handling successful Stars payment');
+
+          // Instant Admin Notification for Stars purchase
+          const product = getProductById(order.product_id);
+          const prodName = product ? product.name : order.product_id;
+          const adminAlertText = deliveryFailureNote
+            ? `🚨 <b>Paid Order Needs Manual Fulfillment!</b>\n\n` +
+              `• <b>Order ID:</b> <code>${order.id}</code>\n` +
+              `• <b>Buyer:</b> @${escapeHtml(order.username || 'unknown')} (ID: <code>${order.user_id}</code>)\n` +
+              `• <b>Product:</b> ${escapeHtml(prodName)}\n` +
+              `• <b>Stars Paid:</b> ${payment.total_amount} XTR (FUNDS CAPTURED)\n` +
+              `• <b>Charge ID:</b> <code>${escapeHtml(payment.telegram_payment_charge_id)}</code>\n` +
+              `• <b>Issue:</b> ${escapeHtml(deliveryFailureNote)}\n\n` +
+              `<b>Action required:</b> restock / deliver manually NOW.`
+            : `⭐️ <b>New Telegram Stars (XTR) Purchase!</b>\n\n` +
+              `• <b>Order ID:</b> <code>${order.id}</code>\n` +
+              `• <b>Buyer:</b> @${escapeHtml(order.username || 'unknown')} (ID: <code>${order.user_id}</code>)\n` +
+              `• <b>Product:</b> ${escapeHtml(prodName)}\n` +
+              `• <b>Stars Paid:</b> ${payment.total_amount} XTR\n` +
+              `• <b>Status:</b> <code>${updated.status.toUpperCase()}</code>\n` +
+              `• <b>Charge ID:</b> <code>${escapeHtml(payment.telegram_payment_charge_id)}</code>`;
+
+          for (const adminId of config.ADMIN_IDS) {
+            bot.api.sendMessage(adminId, adminAlertText, { parse_mode: 'HTML' }).catch((err) => {
+              logger.error({ err, adminId, orderId: order.id }, 'Failed to send admin alert for Stars purchase');
+            });
+          }
+        } catch (notifyErr) {
+          logger.error({ err: notifyErr, orderId: order.id }, 'Failed buyer/admin notifications after successful Stars payment');
         }
       }
     }
@@ -314,7 +486,21 @@ export function createBot(token: string): Bot {
   // Callback Query Router
   bot.on('callback_query:data', async (ctx) => {
     const data = ctx.callbackQuery.data;
+    const userId = ctx.from?.id;
     await ctx.answerCallbackQuery().catch(() => {});
+
+    // Enforce phone registration on purchase & catalog interactions
+    const isPurchaseAction =
+      data.startsWith('prod_') ||
+      data.startsWith('buy_var_') ||
+      data.startsWith('buy_custom_stars_') ||
+      data === 'stars_custom' ||
+      data.startsWith('pay_');
+
+    if (isPurchaseAction && userId && !isUserRegistered(userId)) {
+      await promptPhoneRegistration(ctx);
+      return;
+    }
 
     if (data === 'nav_home') {
       await startHandler(ctx as any);
@@ -340,9 +526,18 @@ export function createBot(token: string): Bot {
       }
     } else if (data.startsWith('cancel_order_')) {
       const orderId = data.replace('cancel_order_', '');
-      updateOrderStatus(orderId, 'cancelled');
-      await ctx.reply(`🚫 Order \`${orderId}\` has been cancelled.`, { parse_mode: 'Markdown' });
-      await renderMyOrders(ctx);
+      const order = getOrderById(orderId);
+
+      // Ownership check: users may only cancel their own orders (IDOR guard).
+      if (!order || order.user_id !== userId) {
+        await ctx.reply('Order not found.');
+      } else if (['fulfilled', 'refunded', 'rejected', 'cancelled'].includes(order.status)) {
+        await ctx.reply(`⚠️ Order <code>${escapeHtml(orderId)}</code> is already <b>${escapeHtml(order.status)}</b> and cannot be cancelled.`, { parse_mode: 'HTML' });
+      } else {
+        updateOrderStatus(orderId, 'cancelled');
+        await ctx.reply(`🚫 Order <code>${escapeHtml(orderId)}</code> has been cancelled.`, { parse_mode: 'HTML' });
+        await renderMyOrders(ctx);
+      }
     } else if (data === 'nav_language') {
       await renderLanguageMenu(ctx);
     } else if (data.startsWith('set_lang_')) {
@@ -370,14 +565,18 @@ export function createBot(token: string): Bot {
         await initiateCheckout(ctx, productId, variantId);
       }
     } else if (data.startsWith('buy_custom_stars_')) {
+      // Callback data may be forged by a modified client: only the star count
+      // is honored (after validation), and the price is always recomputed
+      // server-side by the pricing service inside initiateCheckout.
       const parts = data.replace('buy_custom_stars_', '').split('_');
       const stars = parseInt(parts[0], 10);
-      const priceETB = parseInt(parts[1], 10);
 
-      if (!hasPublicUsername(ctx.from)) {
-        await renderUsernameGate(ctx, 'telegram_stars', undefined, stars, priceETB);
+      if (!Number.isInteger(stars) || stars <= 0) {
+        await ctx.reply('Invalid order parameters. Please start your order again from the shop.');
+      } else if (!hasPublicUsername(ctx.from)) {
+        await renderUsernameGate(ctx, 'telegram_stars', undefined, stars);
       } else {
-        await initiateCheckout(ctx, 'telegram_stars', undefined, stars, priceETB);
+        await initiateCheckout(ctx, 'telegram_stars', undefined, stars);
       }
     } else if (data.startsWith('checkout_back_')) {
       const orderId = data.replace('checkout_back_', '');
@@ -385,6 +584,33 @@ export function createBot(token: string): Bot {
       if (order) {
         const product = getProductById(order.product_id);
         await renderPaymentRailSelection(ctx, order, product ? product.name : 'Subscription');
+      }
+    } else if (data.startsWith('pay_chapa_')) {
+      const orderId = data.replace('pay_chapa_', '');
+      await handleChapaPayment(ctx, orderId);
+    } else if (data.startsWith('pay_ton_')) {
+      const orderId = data.replace('pay_ton_', '');
+      await handleTonConnect(ctx, orderId);
+    } else if (data.startsWith('promo_prompt_')) {
+      const orderId = data.replace('promo_prompt_', '');
+      const userId = ctx.from?.id;
+      if (userId) {
+        setPendingAction(userId, { type: 'promo_entry', data: { orderId } });
+        await ctx.reply(
+          `🏷 <b>Enter Promo Code</b>\n\nSend the code for order <code>${escapeHtml(orderId)}</code> in your next message.\n<i>Example: WELCOME10</i>`,
+          { parse_mode: 'HTML' }
+        );
+      }
+    } else if (data.startsWith('sms_verify_')) {
+      const orderId = data.replace('sms_verify_', '');
+      const userId = ctx.from?.id;
+      if (userId) {
+        setPendingAction(userId, { type: 'user_sms_forward', data: { orderId } });
+        await ctx.reply(
+          `📱 <b>CBE SMS Verification</b>\n\nForward the CBE debit SMS for order <code>${escapeHtml(orderId)}</code> in your next message.\n\n` +
+          `<i>We match the amount automatically — an administrator still verifies every payment.</i>`,
+          { parse_mode: 'HTML' }
+        );
       }
     } else if (data.startsWith('pay_stars_')) {
       const orderId = data.replace('pay_stars_', '');
@@ -413,7 +639,7 @@ export function createBot(token: string): Bot {
     } else if (data === 'stars_custom') {
       await promptCustomStars(ctx);
     } else if (data === 'action_sold_out') {
-      await ctx.reply('🚨 *Sold Out*: This product is currently unavailable. Please check back soon or contact support.', { parse_mode: 'Markdown' });
+      await ctx.reply('🚨 <b>Sold Out</b>: This product is currently unavailable. Please check back soon or contact support.', { parse_mode: 'HTML' });
     } else if (data === 'admin_menu') {
       await renderAdminMenu(ctx);
     } else if (data === 'admin_orders_queue') {

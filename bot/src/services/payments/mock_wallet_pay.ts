@@ -1,5 +1,6 @@
 import { PaymentAdapter, CreatePaymentParams, PaymentResult } from './types.js';
 import { calculateCryptoQuote, fetchCoinGeckoPrices } from '../rate_engine.service.js';
+import { getConfig } from '../../config/env.js';
 import { logger } from '../../logger/index.js';
 
 export class MockWalletPayAdapter implements PaymentAdapter {
@@ -27,6 +28,13 @@ export class MockWalletPayAdapter implements PaymentAdapter {
   }
 
   async verifyPayment(paymentRef: string): Promise<boolean> {
+    // Fail-closed: the mock adapter must NEVER confirm a payment in production.
+    // (Production boots are already blocked from using mock mode by env validation;
+    // this is defense-in-depth.)
+    if (getConfig().NODE_ENV === 'production') {
+      logger.error({ paymentRef }, 'MockWalletPay.verifyPayment() refused in production mode');
+      return false;
+    }
     logger.info({ paymentRef }, 'MockWalletPay verifying payment');
     return true;
   }

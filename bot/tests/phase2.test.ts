@@ -30,7 +30,7 @@ describe('Phase 2: Rate Engine & Payment Rails', () => {
 
   beforeEach(() => {
     process.env.BOT_TOKEN = '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ';
-    process.env.ADMIN_IDS = '1397163638,987654321';
+    process.env.ADMIN_IDS = '111111111,222222333';
     db = initDatabase(':memory:', migrationsDir);
   });
 
@@ -128,7 +128,7 @@ describe('Phase 2: Rate Engine & Payment Rails', () => {
 
       submitReceipt(order.id, 'receipt_photo_id');
 
-      const approval = approveReceipt(order.id, 1397163638);
+      const approval = approveReceipt(order.id, 111111111);
       expect(approval.order.status).toBe('fulfilled');
       expect(approval.autoDeliveredItem).toBeDefined();
       expect(approval.autoDeliveredItem.payload).toBe('https://gemini.google.com/redeem/token_gemini_1');
@@ -147,7 +147,7 @@ describe('Phase 2: Rate Engine & Payment Rails', () => {
 
       submitReceipt(order.id, 'receipt_photo_id');
 
-      const approval = approveReceipt(order.id, 1397163638);
+      const approval = approveReceipt(order.id, 111111111);
       expect(approval.order.status).toBe('pending_fulfillment');
       expect(approval.autoDeliveredItem).toBeNull();
     });
@@ -163,7 +163,7 @@ describe('Phase 2: Rate Engine & Payment Rails', () => {
 
       submitReceipt(order.id, 'blurry_photo_id');
 
-      const rejected = rejectReceipt(order.id, 1397163638, 'Transaction amount was only 50 ETB, expected 250 ETB.');
+      const rejected = rejectReceipt(order.id, 111111111, 'Transaction amount was only 50 ETB, expected 250 ETB.');
       expect(rejected.status).toBe('rejected');
       expect(rejected.rejection_reason).toContain('Transaction amount was only 50 ETB');
     });

@@ -11,11 +11,11 @@ export async function healthHandler(ctx: CommandContext<Context>): Promise<void>
   const memoryUsageMB = Math.round(process.memoryUsage().rss / (1024 * 1024));
 
   const text = `${t('en', 'health.ok')}\n\n` +
-    `⏱ *Uptime:* ${uptimeStr}\n` +
-    `💾 *Memory RSS:* ${memoryUsageMB} MB\n` +
-    `📡 *Environment:* ${process.env.NODE_ENV || 'development'}`;
+    `⏱ <b>Uptime:</b> ${uptimeStr}\n` +
+    `💾 <b>Memory RSS:</b> ${memoryUsageMB} MB\n` +
+    `📡 <b>Environment:</b> ${process.env.NODE_ENV || 'development'}`;
 
-  await ctx.reply(text, { parse_mode: 'Markdown' });
+  await ctx.reply(text, { parse_mode: 'HTML' });
 }
 
 export async function pingHandler(ctx: CommandContext<Context>): Promise<void> {

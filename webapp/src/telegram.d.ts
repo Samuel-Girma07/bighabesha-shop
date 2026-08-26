@@ -10,6 +10,18 @@ declare global {
         openTelegramLink: (url: string) => void;
         openLink: (url: string) => void;
         initData: string;
+        version?: string;
+        colorScheme?: 'light' | 'dark';
+        CloudStorage?: {
+          setItem: (key: string, value: string, callback?: (err: unknown, ok: boolean) => void) => void;
+          getItem: (key: string, callback: (err: unknown, value: string | null) => void) => void;
+          removeItem: (key: string, callback?: (err: unknown, ok: boolean) => void) => void;
+        };
+        HapticFeedback?: {
+          impactOccurred: (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft') => void;
+          notificationOccurred: (type: 'error' | 'success' | 'warning') => void;
+          selectionChanged: () => void;
+        };
         initDataUnsafe?: {
           user?: {
             id: number;

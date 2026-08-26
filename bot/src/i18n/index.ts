@@ -10,9 +10,25 @@ type TranslationDict = Record<string, any>;
 
 const translations: Record<string, TranslationDict> = {};
 
+/**
+ * Loads all *.json locale dictionaries from the given directory.
+ *
+ * - Development (`pnpm dev` via tsx): reads directly from `src/i18n/`.
+ * - Production (`pnpm start` via dist): the build pipeline copies
+ *   `src/i18n/*.json` into `dist/i18n/` (see `scripts/copy-assets.mjs`,
+ *   wired into the package `build` script), so the compiled bundle finds
+ *   its dictionaries next to the emitted JS.
+ */
 export function loadTranslations(localesDir?: string): void {
   const dir = localesDir || __dirname;
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+
+  let files: string[];
+  try {
+    files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+  } catch (err) {
+    logger.error({ err, dir }, 'Could not read locales directory — translations will be unavailable');
+    return;
+  }
 
   for (const file of files) {
     const lang = path.basename(file, '.json');
@@ -26,8 +42,12 @@ export function loadTranslations(localesDir?: string): void {
   }
 }
 
-// Auto-load English on import
+// Auto-load English (and any sibling locales) on import
 loadTranslations();
+
+export function getLoadedLanguages(): string[] {
+  return Object.keys(translations);
+}
 
 export function t(
   lang: string = 'en',

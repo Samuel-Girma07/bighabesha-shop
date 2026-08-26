@@ -23,7 +23,7 @@ describe('Phase 4: Admin Fulfillment Queue, Alerts, Broadcast & Hardening', () =
 
   beforeEach(() => {
     process.env.BOT_TOKEN = '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ';
-    process.env.ADMIN_IDS = '1397163638,987654321';
+    process.env.ADMIN_IDS = '111111111,222222333';
     db = initDatabase(':memory:', migrationsDir);
   });
 
@@ -83,7 +83,7 @@ describe('Phase 4: Admin Fulfillment Queue, Alerts, Broadcast & Hardening', () =
         status: 'pending_fulfillment',
       });
 
-      const fulfilled = fulfillOrderWithProof(order.id, 1397163638, {
+      const fulfilled = fulfillOrderWithProof(order.id, 111111111, {
         fileId: 'photo_proof_file_id_999',
         text: 'Gifted 3 months Premium via Fragment transaction hash 0x123',
       });
@@ -91,7 +91,81 @@ describe('Phase 4: Admin Fulfillment Queue, Alerts, Broadcast & Hardening', () =
       expect(fulfilled.status).toBe('fulfilled');
       expect(fulfilled.fulfillment_proof).toContain('Fragment transaction hash 0x123');
       expect(fulfilled.receipt_file_id).toBe('photo_proof_file_id_999');
-      expect(fulfilled.admin_notes).toContain('Fulfilled by Admin 1397163638');
+      expect(fulfilled.admin_notes).toContain('Fulfilled by Admin 111111111');
+    });
+
+    it('enforces stock availability when fulfilling Gemini Pro from pending_fulfillment', async () => {
+      const { addStockLink, getAvailableStockCount } = await import('../src/services/stock.service.js');
+
+      const geminiOrder = createOrder({
+        userId: 301,
+        username: 'gemini_buyer',
+        productId: 'gemini_pro_18m',
+        amountETB: 1500,
+        paymentRail: 'cbe',
+        status: 'pending_fulfillment',
+      });
+
+      // Attempting to fulfill with 0 stock throws clear error
+      expect(() => fulfillOrderWithProof(geminiOrder.id, 111111111)).toThrow(
+        /Stock is currently sold out/i
+      );
+
+      // Add stock link
+      addStockLink('gemini_pro_18m', 'https://gemini.google.com/claim/stock-gemini-link-456');
+      expect(getAvailableStockCount('gemini_pro_18m')).toBe(1);
+
+      // Now fulfilling succeeds and attaches activation link
+      const fulfilled = fulfillOrderWithProof(geminiOrder.id, 111111111);
+      expect(fulfilled.status).toBe('fulfilled');
+      expect(fulfilled.fulfillment_payload).toBe('https://gemini.google.com/claim/stock-gemini-link-456');
+      expect(getAvailableStockCount('gemini_pro_18m')).toBe(0);
+    });
+
+    it('processes document upload for user bank receipt and sets order to pending_approval', async () => {
+      const { setPendingAction } = await import('../src/bot/session.js');
+      const { handleDocumentInput } = await import('../src/bot/handlers/input.js');
+
+      const docOrder = createOrder({
+        userId: 401,
+        username: 'doc_buyer',
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
+        paymentRail: 'cbe',
+        status: 'awaiting_payment',
+      });
+
+      setPendingAction(401, {
+        type: 'user_receipt_upload',
+        data: { orderId: docOrder.id },
+      });
+
+      const mockDocCtx: any = {
+        from: { id: 401, username: 'doc_buyer' },
+        message: {
+          document: {
+            file_id: 'telegram_doc_file_id_receipt_pdf',
+            file_name: 'receipt.pdf',
+            mime_type: 'application/pdf',
+          },
+          caption: 'CBE Mobile Transfer Ref #FT2608199999',
+        },
+        reply: async () => {},
+        api: {
+          sendPhoto: async () => {},
+          sendMessage: async () => {},
+        },
+      };
+
+      const handled = await handleDocumentInput(mockDocCtx);
+      expect(handled).toBe(true);
+
+      const updated = getOrderById(docOrder.id);
+      expect(updated).toBeDefined();
+      expect(updated?.status).toBe('pending_approval');
+      expect(updated?.receipt_file_id).toBe('telegram_doc_file_id_receipt_pdf');
+      expect(updated?.receipt_note).toBe('CBE Mobile Transfer Ref #FT2608199999');
     });
 
     it('processes order refund and records refund notes', () => {
@@ -104,10 +178,10 @@ describe('Phase 4: Admin Fulfillment Queue, Alerts, Broadcast & Hardening', () =
         status: 'pending_fulfillment',
       });
 
-      const refunded = refundOrder(order.id, 1397163638, 'User requested cancellation before Fragment transfer.');
+      const refunded = refundOrder(order.id, 111111111, 'User requested cancellation before Fragment transfer.');
       expect(refunded.status).toBe('refunded');
       expect(refunded.rejection_reason).toContain('User requested cancellation');
-      expect(refunded.admin_notes).toContain('Refunded by Admin 1397163638');
+      expect(refunded.admin_notes).toContain('Refunded by Admin 111111111');
     });
   });
 
@@ -151,8 +225,8 @@ describe('Phase 4: Admin Fulfillment Queue, Alerts, Broadcast & Hardening', () =
 
   describe('Admin Authorization Security', () => {
     it('restricts admin capabilities strictly to configured ADMIN_IDS', () => {
-      expect(isAdmin(1397163638)).toBe(true);
-      expect(isAdmin(987654321)).toBe(true);
+      expect(isAdmin(111111111)).toBe(true);
+      expect(isAdmin(222222333)).toBe(true);
       expect(isAdmin(1000000000)).toBe(false);
       expect(isAdmin(undefined)).toBe(false);
     });

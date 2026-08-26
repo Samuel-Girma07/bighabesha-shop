@@ -7,10 +7,13 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "echo \"Webapp tests placeholder\""
+    "test": "vitest run"
   },
   "dependencies": {
     "@telegram-apps/sdk-react": "^2.0.24",
+    "@ton/core": "^0.63.1",
+    "@tonconnect/ui-react": "^3.0.2",
+    "buffer": "^6.0.3",
     "lucide-react": "^0.475.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
@@ -20,7 +23,9 @@
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",
+    "puppeteer-core": "^25.8.0",
     "typescript": "^5.7.3",
-    "vite": "^6.1.0"
+    "vite": "^6.1.0",
+    "vitest": "^3.2.7"
   }
 }

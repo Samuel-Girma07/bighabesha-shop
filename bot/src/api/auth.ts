@@ -55,6 +55,14 @@ export function validateTelegramInitData(initDataRaw: string, botToken?: string)
     }
 
     const authDate = parseInt(params.get('auth_date') || '0', 10);
+    if (!authDate) return null;
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (authDate > nowSec || (nowSec - authDate) > 86400) {
+      logger.warn({ authDate, nowSec }, 'Telegram initData auth_date expired or in future (>24h)');
+      return null;
+    }
+
     const userRaw = params.get('user');
     if (!userRaw) return null;
 

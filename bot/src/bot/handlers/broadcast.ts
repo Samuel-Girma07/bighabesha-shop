@@ -2,13 +2,9 @@ import { Context, InlineKeyboard } from 'grammy';
 import { isAdmin } from './admin.js';
 import { getBroadcastTargets, executeBroadcast } from '../../services/broadcast.service.js';
 import { setPendingAction, getPendingAction, clearPendingAction } from '../session.js';
+import { getDatabase } from '../../db/index.js';
+import { escapeHtml } from '../../utils/html.js';
 import { logger } from '../../logger/index.js';
-
-let pendingBroadcastDraft: {
-  text: string;
-  photoFileId?: string;
-  targetLang: string;
-} | null = null;
 
 export async function renderBroadcastTargetSelection(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
@@ -17,11 +13,11 @@ export async function renderBroadcastTargetSelection(ctx: Context): Promise<void
   const totalAll = getBroadcastTargets('all').length;
   const totalEn = getBroadcastTargets('en').length;
 
-  const text = '📢 *Broadcast Announcement Tool*\n\n' +
+  const text = '📢 <b>Broadcast Announcement Tool</b>\n\n' +
     'Select the target audience for your broadcast message:\n\n' +
-    `• 🌐 *All Users:* \`${totalAll} recipients\`\n` +
-    `• 🇬🇧 *English Users:* \`${totalEn} recipients\`\n\n` +
-    `_After selecting, you will compose your message and preview it before sending._`;
+    `• 🌐 <b>All Users:</b> <code>${totalAll} recipients</code>\n` +
+    `• 🇬🇧 <b>English Users:</b> <code>${totalEn} recipients</code>\n\n` +
+    `<i>After selecting, you will compose your message and preview it before sending.</i>`;
 
   const keyboard = new InlineKeyboard()
     .text(`🌐 All Users (${totalAll})`, 'broadcast_select_all')
@@ -31,9 +27,9 @@ export async function renderBroadcastTargetSelection(ctx: Context): Promise<void
     .text('« Back to Admin Menu', 'admin_menu');
 
   if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   } else {
-    await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
   }
 }
 
@@ -46,17 +42,17 @@ export async function promptBroadcastContent(ctx: Context, targetLang: string): 
     data: { action: 'compose_broadcast', targetLang },
   });
 
-  const text = `📢 *Compose Broadcast Message*\n\n` +
-    `Target: *${targetLang.toUpperCase()}*\n\n` +
-    `Please send the broadcast **text message** or upload a **photo with a caption** in chat.\n\n` +
-    `_You will see a confirmation preview before the message is sent._`;
+  const text = `📢 <b>Compose Broadcast Message</b>\n\n` +
+    `Target: <b>${targetLang.toUpperCase()}</b>\n\n` +
+    `Please send the broadcast <b>text message</b> or upload a <b>photo with a caption</b> in chat.\n\n` +
+    `<i>You will see a confirmation preview before the message is sent.</i>`;
 
   const keyboard = new InlineKeyboard().text('❌ Cancel', 'admin_broadcast');
 
   if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   } else {
-    await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
   }
 }
 
@@ -69,21 +65,26 @@ export async function previewBroadcastDraft(
   const userId = ctx.from?.id;
   if (!isAdmin(userId) || !userId) return;
 
-  pendingBroadcastDraft = {
-    text: messageText,
-    photoFileId,
-    targetLang,
-  };
+  const db = getDatabase();
+  db.prepare(`
+    INSERT INTO broadcast_drafts (admin_id, text, photo_file_id, target_lang, updated_at)
+    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(admin_id) DO UPDATE SET
+      text = excluded.text,
+      photo_file_id = excluded.photo_file_id,
+      target_lang = excluded.target_lang,
+      updated_at = CURRENT_TIMESTAMP
+  `).run(userId, messageText, photoFileId || null, targetLang);
 
   const count = getBroadcastTargets(targetLang).length;
 
-  const summary = `🔍 *Broadcast Preview & Confirmation*\n\n` +
-    `• *Target Audience:* ${targetLang.toUpperCase()}\n` +
-    `• *Total Recipients:* ${count} users\n` +
-    `• *Media Attached:* ${photoFileId ? 'Yes 📸' : 'No (Text Only)'}\n\n` +
-    `👇 *Message Content Preview:*`;
+  const summary = `🔍 <b>Broadcast Preview & Confirmation</b>\n\n` +
+    `• <b>Target Audience:</b> ${targetLang.toUpperCase()}\n` +
+    `• <b>Total Recipients:</b> ${count} users\n` +
+    `• <b>Media Attached:</b> ${photoFileId ? 'Yes 📸' : 'No (Text Only)'}\n\n` +
+    `👇 <b>Message Content Preview:</b>`;
 
-  await ctx.reply(summary, { parse_mode: 'Markdown' });
+  await ctx.reply(summary, { parse_mode: 'HTML' });
 
   const keyboard = new InlineKeyboard()
     .text(`🚀 Send Broadcast to ${count} Users`, 'broadcast_confirm_send')
@@ -93,12 +94,12 @@ export async function previewBroadcastDraft(
   if (photoFileId) {
     await ctx.replyWithPhoto(photoFileId, {
       caption: messageText,
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: keyboard,
     });
   } else {
     await ctx.reply(messageText, {
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: keyboard,
     });
   }
@@ -106,23 +107,37 @@ export async function previewBroadcastDraft(
 
 export async function executeConfirmedBroadcast(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
-  if (!isAdmin(userId) || !pendingBroadcastDraft) {
+  if (!isAdmin(userId) || !userId) {
     await ctx.reply('No pending broadcast found.');
     return;
   }
 
-  const { text, photoFileId, targetLang } = pendingBroadcastDraft;
-  pendingBroadcastDraft = null;
+  const db = getDatabase();
+  const draft = db.prepare('SELECT admin_id, text, photo_file_id, target_lang FROM broadcast_drafts WHERE admin_id = ?').get(userId) as {
+    admin_id: number;
+    text: string;
+    photo_file_id: string | null;
+    target_lang: string;
+  } | undefined;
 
-  await ctx.reply('⏳ *Dispatching broadcast to users in background...*', { parse_mode: 'Markdown' });
+  if (!draft) {
+    await ctx.reply('No pending broadcast found.');
+    return;
+  }
 
-  const result = await executeBroadcast(ctx.api, text, photoFileId, targetLang);
+  db.prepare('DELETE FROM broadcast_drafts WHERE admin_id = ?').run(userId);
+
+  await ctx.reply('⏳ <b>Dispatching broadcast to users in background...</b>', { parse_mode: 'HTML' });
+
+  const result = await executeBroadcast(ctx.api, draft.text, draft.photo_file_id || undefined, draft.target_lang);
 
   await ctx.reply(
-    `✅ *Broadcast Completed!*\n\n` +
-      `• *Total Targets:* ${result.total}\n` +
-      `• *Successfully Delivered:* ${result.sent} ✅\n` +
-      `• *Failed / Blocked:* ${result.failed} ❌`,
-    { parse_mode: 'Markdown' }
+    `✅ <b>Broadcast Completed!</b>\n\n` +
+      `• <b>Total Targets:</b> ${result.total}\n` +
+      `• <b>Successfully Delivered:</b> ${result.sent} ✅\n` +
+      `• <b>Failed / Blocked:</b> ${result.failed} ❌`,
+    { parse_mode: 'HTML' }
   );
 }
+
+

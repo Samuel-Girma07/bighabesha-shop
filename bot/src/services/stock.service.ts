@@ -192,12 +192,19 @@ export function allocateStock(
       return;
     }
 
-    // Atomically mark it allocated
-    db.prepare(`
+    // Atomic claim with an explicit status guard: the UPDATE only succeeds
+    // while the row is still 'available'. Combined with BEGIN IMMEDIATE this
+    // makes double-allocation impossible even across multiple processes
+    // sharing one database file.
+    const claim = db.prepare(`
       UPDATE stock_items
       SET status = 'allocated', order_id = ?, allocated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
+      WHERE id = ? AND status = 'available'
     `).run(orderId, item.id);
+
+    if (claim.changes !== 1) {
+      return; // Lost the race (multi-writer) — nothing allocated.
+    }
 
     allocatedItem = { ...item, status: 'allocated', order_id: orderId, allocated_at: new Date().toISOString() };
 
@@ -210,7 +217,10 @@ export function allocateStock(
     remainingCount = countRow ? countRow.count : 0;
   });
 
-  tx();
+  // BEGIN IMMEDIATE grabs the write lock upfront instead of deferring to the
+  // first write — eliminating upgrade-deadlock windows between concurrent
+  // writers and serializing read-then-claim sequences across processes.
+  tx.immediate();
 
   const threshold = getNumericSetting('low_stock_threshold', 5);
   const shouldAlertLowStock = remainingCount <= threshold;

@@ -2,7 +2,7 @@ import { Context, InlineKeyboard } from 'grammy';
 import { getConfig } from '../../config/env.js';
 import { getDatabase } from '../../db/index.js';
 import { logger } from '../../logger/index.js';
-import { initiateCheckout } from './checkout.js';
+import { initiateCheckout, safeEditMessage } from './checkout.js';
 
 export function isUsernameRequired(productId: string): boolean {
   return productId === 'telegram_premium' || productId === 'telegram_stars';
@@ -21,30 +21,28 @@ export async function renderUsernameGate(
 ): Promise<void> {
   const config = getConfig();
 
-  const text = `*Telegram Username Required*\n\n` +
-    `To fulfill your **Telegram Premium** subscription or **Telegram Stars** order via Fragment, your Telegram account must have a public **@username** set.\n\n` +
-    `*Setup Steps:*\n` +
-    `1. Open Telegram **Settings**\n` +
-    `2. Tap **Edit Profile** (or **My Account**) → **Username**\n` +
-    `3. Enter a public username and save\n\n` +
-    `Once saved, tap **[Recheck Profile]** below to continue:`;
+  const text =
+    `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
+    `👤 <b>Telegram Username Required</b>\n\n` +
+    `<blockquote>To fulfill your <b>Telegram Premium</b> subscription or <b>Telegram Stars</b> order via Fragment, your Telegram account must have a public <b>@username</b> set.</blockquote>\n\n` +
+    `📋 <b>Quick Setup Steps:</b>\n` +
+    `1. Open Telegram <b>Settings</b>\n` +
+    `2. Tap <b>Edit Profile</b> (or <b>My Account</b>) → <b>Username</b>\n` +
+    `3. Enter a public username and tap save\n\n` +
+    `<i>👇 Once saved in your Telegram app, tap <b>[🔄 Recheck Profile]</b> below:</i>`;
 
   const recheckPayload = customStars && customAmountETB
     ? `gate_recheck_${productId}_custom_${customStars}_${customAmountETB}`
     : `gate_recheck_${productId}_${variantId || 'default'}`;
 
   const keyboard = new InlineKeyboard()
-    .text('Recheck Profile', recheckPayload)
+    .text('🔄 Recheck Profile', recheckPayload)
     .row()
-    .url('Contact Support', `https://t.me/${config.SUPPORT_USERNAME}`)
+    .url('💬 Contact Support', `https://t.me/${config.SUPPORT_USERNAME}`)
     .row()
-    .text('« Cancel', 'nav_shop');
+    .text('« Back to Catalog', 'nav_shop');
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function handleGateRecheck(ctx: Context, dataPayload: string): Promise<void> {
@@ -89,14 +87,26 @@ export async function handleGateRecheck(ctx: Context, dataPayload: string): Prom
   // Parse product and variant from recheck payload
   // e.g. "gate_recheck_telegram_stars_custom_500_1250" or "gate_recheck_telegram_premium_tg_prem_3m"
   const clean = dataPayload.replace('gate_recheck_', '');
-  const parts = clean.split('_');
 
   if (clean.includes('_custom_')) {
-    const [productId, , starsStr, amountStr] = parts;
+    const [productId, customPart] = clean.split('_custom_');
+    const [starsStr] = customPart.split('_');
+    // Only the star count is taken from the payload; the price is always
+    // recomputed server-side by the pricing service inside initiateCheckout.
     const stars = parseInt(starsStr, 10);
-    const amount = parseInt(amountStr, 10);
-    await initiateCheckout(ctx, productId, undefined, stars, amount);
+    if (!Number.isInteger(stars) || stars <= 0) {
+      await ctx.reply('Invalid order parameters. Please start your order again from the shop.');
+      return;
+    }
+    await initiateCheckout(ctx, productId, undefined, stars);
+  } else if (clean.startsWith('telegram_premium_')) {
+    const variantId = clean.replace('telegram_premium_', '');
+    await initiateCheckout(ctx, 'telegram_premium', variantId);
+  } else if (clean.startsWith('telegram_stars_')) {
+    const variantId = clean.replace('telegram_stars_', '');
+    await initiateCheckout(ctx, 'telegram_stars', variantId);
   } else {
+    const parts = clean.split('_');
     const productId = parts[0] === 'telegram' ? `${parts[0]}_${parts[1]}` : parts[0];
     const variantId = parts.slice(productId.split('_').length).join('_');
     await initiateCheckout(ctx, productId, variantId);

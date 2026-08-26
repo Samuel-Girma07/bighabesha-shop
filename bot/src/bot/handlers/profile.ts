@@ -1,6 +1,9 @@
 import { Context, InlineKeyboard } from 'grammy';
 import { getUserById } from '../../services/users.service.js';
 import { getOrdersByUserId } from '../../services/orders.service.js';
+import { escapeHtml } from '../../utils/html.js';
+import { getReferralSummary } from '../../services/referral.service.js';
+import { getUserStats } from '../../services/loyalty.service.js';
 
 export async function renderProfile(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
@@ -8,30 +11,41 @@ export async function renderProfile(ctx: Context): Promise<void> {
 
   const user = getUserById(userId);
   const orders = getOrdersByUserId(userId);
+  const referral = getReferralSummary(userId);
+  const stats = getUserStats(userId);
 
-  const phoneDisplay = user?.phone_number ? `\`${user.phone_number}\` (Verified)` : '_Not registered_';
-  const usernameDisplay = ctx.from?.username ? `@${ctx.from.username}` : '_No public username_';
+  const phoneDisplay = user?.phone_number ? `<code>${escapeHtml(user.phone_number)}</code> (Verified)` : '<i>Not registered</i>';
+  const usernameDisplay = ctx.from?.username ? `@${escapeHtml(ctx.from.username)}` : '<i>No public username</i>';
+  const tierBadge = stats.tier === 'gold' ? '🥇 Gold' : stats.tier === 'silver' ? '🥈 Silver' : '🥉 Bronze';
 
-  const text = '*Account Profile*\n\n' +
-    `• Name: ${ctx.from?.first_name || 'User'}\n` +
-    `• Username: ${usernameDisplay}\n` +
-    `• User ID: \`${userId}\`\n` +
-    `• Phone: ${phoneDisplay}\n` +
-    `• Total Orders: ${orders.length}\n` +
-    `• Language: ${user?.language_code === 'am' ? 'አማርኛ' : 'English'}\n\n` +
-    `_Your account details are securely linked to your orders._`;
+  const text =
+    '<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n' +
+    '👤 <b>Customer Profile & Loyalty Status</b>\n\n' +
+    `• <b>Full Name:</b> ${escapeHtml(ctx.from?.first_name || 'User')}\n` +
+    `• <b>Username:</b> ${usernameDisplay}\n` +
+    `• <b>User ID:</b> <code>${userId}</code>\n` +
+    `• <b>Verified Mobile:</b> ${phoneDisplay}\n` +
+    `• <b>Total Lifetime Orders:</b> <b>${orders.length}</b>\n` +
+    `• <b>Loyalty Level:</b> <b>${tierBadge}</b> (${(stats.lifetime_etb || 0).toLocaleString('en-US')} ETB volume)\n\n` +
+    `🎁 <b>Affiliate & Referral Hub</b>\n` +
+    `• <b>Your Referral Code:</b> <code>${escapeHtml(referral.code)}</code>\n` +
+    `• <b>Commission Rate:</b> <b>${referral.commissionRatePct}%</b> per completed order\n` +
+    `• <b>Referred Buyers:</b> <b>${referral.referredUsers}</b>\n` +
+    `• <b>Available Balance:</b> <b>${referral.balanceEtb.toLocaleString('en-US')} ETB</b>\n\n` +
+    `<blockquote>🔗 <b>Your Personal Referral Link:</b>\n<code>https://t.me/Bighabesha_shopBot?start=ref_${escapeHtml(referral.code)}</code></blockquote>`;
 
   const keyboard = new InlineKeyboard()
-    .text('Update Phone Number', 'action_update_phone')
+    .text('📱 Update Phone', 'action_update_phone')
+    .text('📦 My Orders', 'nav_orders')
     .row()
-    .text('View Orders', 'nav_orders')
-    .text('Change Language', 'nav_language');
+    .text('🌐 Change Language', 'nav_language')
+    .text('« Main Menu', 'nav_home');
 
   if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   } else {
     await ctx.reply(text, {
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: keyboard,
     });
   }

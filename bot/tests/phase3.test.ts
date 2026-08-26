@@ -24,7 +24,7 @@ describe('Phase 3: End-to-End Purchases, Gate, Delivery & Order History', () => 
 
   beforeEach(() => {
     process.env.BOT_TOKEN = '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ';
-    process.env.ADMIN_IDS = '1397163638,987654321';
+    process.env.ADMIN_IDS = '111111111,222222333';
     db = initDatabase(':memory:', migrationsDir);
   });
 
@@ -49,6 +49,45 @@ describe('Phase 3: End-to-End Purchases, Gate, Delivery & Order History', () => 
     it('unblocks users who have a valid public username', () => {
       expect(hasPublicUsername({ username: 'bighabeshabuyer' })).toBe(true);
       expect(hasPublicUsername({ username: 'Vweah' })).toBe(true);
+    });
+
+    it('correctly parses custom stars gate recheck payload without NaN', async () => {
+      const database = getDatabase();
+      database.prepare('INSERT INTO users (id, username) VALUES (?, ?)').run(999111, 'valid_buyer');
+
+      const mockCtx: any = {
+        from: { id: 999111, username: 'valid_buyer' },
+        api: {
+          getChat: async () => ({ id: 999111, username: 'valid_buyer' }),
+        },
+        answerCallbackQuery: async () => {},
+        reply: async () => {},
+        editMessageText: async () => {},
+      };
+
+      const { handleGateRecheck } = await import('../src/bot/handlers/gate.js');
+      await handleGateRecheck(mockCtx, 'gate_recheck_telegram_stars_custom_500_1250');
+
+      const orders = getOrdersByUserId(999111);
+      expect(orders.length).toBeGreaterThan(0);
+      const createdOrder = orders[0];
+      expect(createdOrder.product_id).toBe('telegram_stars');
+      expect(createdOrder.quantity).toBe(500);
+      expect(createdOrder.amount_etb).toBe(1250);
+      expect(isNaN(createdOrder.quantity)).toBe(false);
+      expect(isNaN(createdOrder.amount_etb)).toBe(false);
+    });
+  });
+
+  describe('HTML Mode & Entity Safety', () => {
+    it('properly escapes dynamic variables with underscores, asterisks, and HTML entities', async () => {
+      const { escapeHtml } = await import('../src/utils/html.js');
+      const maliciousUsername = '<script>alert("hack")</script>_user*name&more';
+      const escaped = escapeHtml(maliciousUsername);
+
+      expect(escaped).toBe('&lt;script&gt;alert(&quot;hack&quot;)&lt;/script&gt;_user*name&amp;more');
+      expect(escaped).not.toContain('<script>');
+      expect(escaped).not.toContain('</script>');
     });
   });
 
@@ -81,7 +120,7 @@ describe('Phase 3: End-to-End Purchases, Gate, Delivery & Order History', () => 
         paymentRail: 'cbe',
       });
 
-      const approval2 = approveReceipt(order2.id, 1397163638);
+      const approval2 = approveReceipt(order2.id, 111111111);
       expect(approval2.order.status).toBe('fulfilled');
       expect(approval2.order.fulfillment_payload).toBe('https://gemini.google.com/redeem/alpha_2');
       expect(getAvailableStockCount('gemini_pro_18m')).toBe(0);

@@ -20,7 +20,7 @@ describe('Phone Number Registration & Validation', () => {
 
   beforeEach(() => {
     process.env.BOT_TOKEN = '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ';
-    process.env.ADMIN_IDS = '1397163638';
+    process.env.ADMIN_IDS = '111111111';
     db = initDatabase(':memory:', migrationsDir);
   });
 

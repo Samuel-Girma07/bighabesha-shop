@@ -1,19 +1,82 @@
 const API_BASE = (import.meta as any).env?.VITE_API_URL || '';
 
-function getAdminToken(): string | null {
-  return localStorage.getItem('bighabesha_admin_token');
+const TOKEN_STORAGE_KEY = 'bighabesha_admin_token';
+/** Server issues 32-byte hex tokens; anything else is stale garbage. */
+const TOKEN_SHAPE = /^[0-9a-f]{64}$/;
+
+export function getAdminToken(): string | null {
+  const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+  // Self-healing: a malformed/corrupted token can never be valid — drop it
+  // immediately so the next request doesn't waste a round-trip on a 401.
+  if (token && !TOKEN_SHAPE.test(token)) {
+    clearAdminToken();
+    return null;
+  }
+  return token;
+}
+
+/** Legacy inline data-URL receipts render directly — no network fetch needed. */
+export function receiptIsInline(receiptFileId?: string | null): boolean {
+  return Boolean(receiptFileId && receiptFileId.startsWith('data:image/'));
+}
+
+/**
+ * Fetches a SHORT-LIVED signed download URL for a receipt image.
+ *
+ * Replaces the old getReceiptImageUrl() which embedded the 24h admin session
+ * token in the query string — leaking it into proxy logs, browser history,
+ * and Referer headers. Signed links are purpose-bound, order-bound, and
+ * expire in ~60 seconds.
+ */
+export async function fetchReceiptImageUrl(orderId: string): Promise<string> {
+  const res = await adminFetch(`${API_BASE}/api/admin/orders/${encodeURIComponent(orderId)}/receipt-link`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to create receipt link');
+  return `${API_BASE}${data.url}`;
 }
 
 export function saveAdminToken(token: string): void {
-  localStorage.setItem('bighabesha_admin_token', token);
+  if (!token || !TOKEN_SHAPE.test(token)) {
+    // Never persist a token that cannot possibly be valid.
+    clearAdminToken();
+    return;
+  }
+  localStorage.setItem(TOKEN_STORAGE_KEY, token);
 }
 
+/**
+ * Clears the local admin session unconditionally. Called by explicit logout,
+ * any 401 response, and token-shape validation failures.
+ */
 export function clearAdminToken(): void {
-  localStorage.removeItem('bighabesha_admin_token');
+  try {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  } catch {
+    // Storage unavailable (private mode) — nothing to clean.
+  }
 }
 
 export function hasAdminSession(): boolean {
   return Boolean(getAdminToken());
+}
+
+/**
+ * Terminates the session server-side AND clears local state.
+ * Local storage is cleared even if the network call fails.
+ */
+export async function adminLogoutApi(): Promise<void> {
+  const token = getAdminToken();
+  clearAdminToken();
+  if (!token) return;
+  try {
+    await fetch(`${API_BASE}/api/admin/auth/logout`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    // Network failure: local session is already gone, which is the security-
+    // relevant half. The orphaned server row expires via scheduled cleanup.
+  }
 }
 
 let sessionExpiredHandler: (() => void) | null = null;
@@ -47,11 +110,11 @@ async function adminFetch(url: string, options: RequestInit = {}): Promise<Respo
   return res;
 }
 
-export async function adminLoginApi(password: string): Promise<{ success: boolean; require2FA: boolean; adminId: number; message: string }> {
+export async function adminLoginApi(password: string, adminId?: number): Promise<{ success: boolean; require2FA: boolean; adminId: number; adminIds?: number[]; message: string }> {
   const res = await fetch(`${API_BASE}/api/admin/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ password, adminId }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Login failed');
@@ -181,13 +244,60 @@ export async function updateAdminSettingsApi(settings: Record<string, string>): 
   return data;
 }
 
-export async function broadcastMessageApi(message: string, target: string): Promise<any> {
+export async function broadcastMessageApi(message: string, target: string, photoFileId?: string): Promise<any> {
   const res = await adminFetch(`${API_BASE}/api/admin/broadcast`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, target }),
+    body: JSON.stringify(photoFileId ? { message, target, photoFileId } : { message, target }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Broadcast failed');
   return data;
+}
+
+export async function broadcastStatusApi(jobId: string): Promise<{ job: any }> {
+  const res = await adminFetch(`${API_BASE}/api/admin/broadcast/status/${encodeURIComponent(jobId)}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to fetch broadcast status');
+  }
+  return res.json();
+}
+
+// --- Payouts & financial exports (finance / superadmin) ---
+export async function fetchPayoutsApi(status: string = 'pending'): Promise<{ payouts: any[] }> {
+  const res = await adminFetch(`${API_BASE}/api/admin/payouts?status=${encodeURIComponent(status)}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to load payouts');
+  return data;
+}
+
+export async function decidePayoutApi(id: number, decision: 'paid' | 'rejected'): Promise<any> {
+  const res = await adminFetch(`${API_BASE}/api/admin/payouts/${id}/decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decision }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Decision failed');
+  return data;
+}
+
+/**
+ * Downloads an authenticated export as a file: fetches with the Bearer
+ * token and saves via object URL (plain <a download> links cannot send
+ * Authorization headers).
+ */
+export async function downloadExportApi(path: string, filename: string): Promise<void> {
+  const res = await adminFetch(`${API_BASE}${path}`);
+  if (!res.ok) throw new Error('Export failed');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }

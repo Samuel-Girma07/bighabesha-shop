@@ -11,30 +11,46 @@ export async function renderCatalog(ctx: Context): Promise<void> {
   const products = getAllProducts();
   const keyboard = new InlineKeyboard();
 
-  let text = '<b>Bighabesha Shop — Products Catalog</b>\n\n' +
-    'Select a product or service below to view plans and pricing:\n\n';
+  // All displayed "from" prices are derived from live catalog data — never
+  // hardcoded, so admin price edits are reflected instantly.
+  const minVariantPrice = (productId: string): number => {
+    const prices = getProductVariants(productId).map((v) => v.price_etb);
+    return prices.length > 0 ? Math.min(...prices) : 0;
+  };
+  const premiumFromPrice = minVariantPrice('telegram_premium');
+  const starsFromPrice = minVariantPrice('telegram_stars');
+
+  let text =
+    '<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n' +
+    '🛍 <b>Official Catalog & Subscription Services</b>\n\n' +
+    '<blockquote>⚡ <i>Select a service below to view pricing, features, and instant automated delivery options:</i></blockquote>\n\n';
 
   for (const prod of products) {
     if (prod.type === 'stock') {
       const stock = getAvailableStockCount(prod.id);
       const variants = getProductVariants(prod.id);
       const price = variants[0]?.price_etb || 0;
-      const stockBadge = stock > 0 ? `(${stock} available)` : `(Sold Out)`;
+      const stockBadge = stock > 0 ? `🟢 In Stock (<code>${stock}</code> in vault)` : `🔴 <b>Sold Out</b>`;
 
-      text += `• <b>${prod.name}</b> — ${formatPriceETB(price)} <i>${stockBadge}</i>\n`;
-      keyboard.text(`${prod.name} ${stock > 0 ? `• ${formatPriceETB(price)}` : '• Sold Out'}`, `prod_${prod.id}`).row();
+      text += `• 🤖 <b>${prod.name}</b>\n` +
+        `   └ 💰 <code>${formatPriceETB(price)}</code> · ${stockBadge}\n\n`;
+      keyboard.text(`🤖 ${prod.name} • ${stock > 0 ? formatPriceETB(price) : 'Sold Out'}`, `prod_${prod.id}`).row();
     } else if (prod.id === 'telegram_premium') {
-      text += `• <b>${prod.name}</b> — from 1,100 ETB <i>(3, 6, 12 Months)</i>\n`;
-      keyboard.text(`${prod.name} • from 1,100 ETB`, `prod_${prod.id}`).row();
+      const fromLabel = premiumFromPrice > 0 ? formatPriceETB(premiumFromPrice) : 'price on request';
+      text += `• ⭐ <b>${prod.name}</b>\n` +
+        `   └ 💰 from <code>${fromLabel}</code> · ⚡ <i>3, 6, 12M Plans · Direct Gift</i>\n\n`;
+      keyboard.text(`⭐ ${prod.name} • from ${fromLabel}`, `prod_${prod.id}`).row();
     } else if (prod.id === 'telegram_stars') {
-      text += `• <b>${prod.name}</b> — from 125 ETB <i>(Packages & Custom)</i>\n`;
-      keyboard.text(`${prod.name} • from 125 ETB`, `prod_${prod.id}`).row();
+      const fromLabel = starsFromPrice > 0 ? formatPriceETB(starsFromPrice) : 'price on request';
+      text += `• 🪙 <b>${prod.name}</b>\n` +
+        `   └ 💰 from <code>${fromLabel}</code> · ⚡ <i>Instant Fragment Top-Up</i>\n\n`;
+      keyboard.text(`🪙 ${prod.name} • from ${fromLabel}`, `prod_${prod.id}`).row();
     } else {
-      keyboard.text(prod.name, `prod_${prod.id}`).row();
+      keyboard.text(`✨ ${prod.name}`, `prod_${prod.id}`).row();
     }
   }
 
-  keyboard.row().text('« Main Menu', 'nav_home');
+  keyboard.row().text('« Main Menu', 'nav_home').text('📦 My Orders', 'nav_orders');
 
   if (ctx.callbackQuery?.message?.photo) {
     try {
@@ -81,27 +97,37 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
     const variant = variants[0];
     const price = variant?.price_etb || 0;
 
-    text = `<b>${product.name}</b>\n\n` +
-      `${product.description}\n\n` +
-      `• <b>Price:</b> ${formatPriceETB(price)}\n` +
-      `• <b>Stock Status:</b> ${stock > 0 ? `Available (${stock} links in stock)` : 'Sold Out'}\n\n` +
-      `<i>Automated instant link delivery upon payment confirmation.</i>`;
+    text = `<b>🤖 ${product.name}</b>\n\n` +
+      `<blockquote>${product.description}</blockquote>\n\n` +
+      `📊 <b>Product Specifications:</b>\n` +
+      `• 💰 <b>Price:</b> <code>${formatPriceETB(price)}</code> (~83.3 ETB/month)\n` +
+      `• 💾 <b>Storage:</b> <code>2,048 GB (2 TB)</code> Google One\n` +
+      `• 📦 <b>Availability:</b> ${stock > 0 ? `🟢 In Stock (<code>${stock}</code> links ready)` : '🔴 <b>Currently Sold Out</b>'}\n` +
+      `• ⚡ <b>Fulfillment:</b> Instant single-use activation link\n\n` +
+      `<i>🛡️ 100% genuine Google workspace link with 18-month warranty.</i>`;
 
     if (stock > 0 && variant) {
-      keyboard.text(`Purchase Plan — ${formatPriceETB(price)}`, `buy_var_${variant.id}`).row();
+      keyboard.text(`⚡ Purchase Plan — ${formatPriceETB(price)}`, `buy_var_${variant.id}`).row();
     } else {
-      keyboard.text('Currently Sold Out', 'action_sold_out').row();
+      keyboard.text('🚫 Currently Sold Out', 'action_sold_out').row();
     }
   } else if (product.id === 'telegram_premium') {
     bannerType = 'premium';
     const variants = getProductVariants(product.id);
 
-    text = `<b>${product.name}</b>\n\n` +
-      `${product.description}\n\n` +
-      `Select your subscription duration:`;
+    text = `<b>⭐ ${product.name}</b>\n\n` +
+      `<blockquote>${product.description}</blockquote>\n\n` +
+      `✨ <b>Premium Features Included:</b>\n` +
+      `• 🚀 Double Limits (Channels, Folders, Pinned Chats)\n` +
+      `• 📁 4 GB File Uploads & Ultra-Fast Download Speed\n` +
+      `• 🎙️ Voice-to-Text Audio Transcription\n` +
+      `• 💎 Premium Star Badge & Custom Animated Emoji\n` +
+      `• 🚫 100% Ad-Free Telegram Experience\n\n` +
+      `👇 <b>Select your subscription duration:</b>`;
 
     for (const v of variants) {
-      keyboard.text(`${v.name} — ${formatPriceETB(v.price_etb)}`, `buy_var_${v.id}`).row();
+      const badge = v.id.includes('12m') ? ' 🔥' : '';
+      keyboard.text(`⭐ ${v.name} — ${formatPriceETB(v.price_etb)}${badge}`, `buy_var_${v.id}`).row();
     }
   } else if (product.id === 'telegram_stars') {
     bannerType = 'stars';
@@ -110,28 +136,30 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
     const minStars = getNumericSetting('stars_min', 10);
     const maxStars = getNumericSetting('stars_max', 100000);
 
-    text = `<b>${product.name}</b>\n\n` +
-      `${product.description}\n\n` +
-      `• <b>Exchange Rate:</b> 1 Star = ${etbPerStar} ETB\n` +
-      `• <b>Custom Range:</b> ${minStars.toLocaleString()} – ${maxStars.toLocaleString()} Stars\n\n` +
-      `Choose a package or enter a custom amount:`;
+    text = `<b>🪙 ${product.name}</b>\n\n` +
+      `<blockquote>${product.description}</blockquote>\n\n` +
+      `📊 <b>Pricing & Rates:</b>\n` +
+      `• 💱 <b>Exchange Rate:</b> <code>1 Star = ${etbPerStar} ETB</code>\n` +
+      `• 📐 <b>Custom Purchase Limits:</b> <code>${minStars.toLocaleString()} – ${maxStars.toLocaleString()} Stars</code>\n` +
+      `• ⚡ <b>Delivery:</b> Instant Fragment credit to @username\n\n` +
+      `👇 <b>Choose a package or enter a custom amount:</b>`;
 
     for (let i = 0; i < variants.length; i += 2) {
       const v1 = variants[i];
       const v2 = variants[i + 1];
 
       if (v1 && v2) {
-        keyboard.text(`${v1.name} (${formatPriceETB(v1.price_etb)})`, `buy_var_${v1.id}`);
-        keyboard.text(`${v2.name} (${formatPriceETB(v2.price_etb)})`, `buy_var_${v2.id}`).row();
+        keyboard.text(`⭐️ ${v1.name} (${formatPriceETB(v1.price_etb)})`, `buy_var_${v1.id}`);
+        keyboard.text(`⭐️ ${v2.name} (${formatPriceETB(v2.price_etb)})`, `buy_var_${v2.id}`).row();
       } else if (v1) {
-        keyboard.text(`${v1.name} (${formatPriceETB(v1.price_etb)})`, `buy_var_${v1.id}`).row();
+        keyboard.text(`⭐️ ${v1.name} (${formatPriceETB(v1.price_etb)})`, `buy_var_${v1.id}`).row();
       }
     }
 
-    keyboard.row().text('Enter Custom Stars Amount', 'stars_custom').row();
+    keyboard.row().text('✏️ Enter Custom Stars Amount', 'stars_custom').row();
   }
 
-  keyboard.text('« Back to Catalog', 'nav_shop');
+  keyboard.row().text('« Back to Catalog', 'nav_shop').text('« Main Menu', 'nav_home');
 
   const bannerPath = getBannerPngPath(bannerType);
 
@@ -184,14 +212,15 @@ export async function promptCustomStars(ctx: Context): Promise<void> {
     data: { minStars, maxStars, etbPerStar },
   });
 
-  const text = `<b>Custom Telegram Stars Amount</b>\n\n` +
-    `Enter the number of Stars you wish to purchase:\n\n` +
-    `• Minimum: ${minStars.toLocaleString()} Stars (${formatPriceETB(Math.ceil(minStars * etbPerStar))})\n` +
-    `• Maximum: ${maxStars.toLocaleString()} Stars (${formatPriceETB(Math.ceil(maxStars * etbPerStar))})\n` +
-    `• Rate: 1 Star = ${etbPerStar} ETB\n\n` +
-    `Please type the amount in chat (e.g. <code>750</code>):`;
+  const text = `<b>🪙 Custom Telegram Stars Purchase</b>\n\n` +
+    `<blockquote>Enter the exact number of Stars you wish to purchase:</blockquote>\n\n` +
+    `📊 <b>Purchase Limits & Rates:</b>\n` +
+    `• 🔻 <b>Minimum:</b> <code>${minStars.toLocaleString()} Stars</code> (${formatPriceETB(Math.ceil(minStars * etbPerStar))})\n` +
+    `• 🔺 <b>Maximum:</b> <code>${maxStars.toLocaleString()} Stars</code> (${formatPriceETB(Math.ceil(maxStars * etbPerStar))})\n` +
+    `• 💱 <b>Rate:</b> <code>1 Star = ${etbPerStar} ETB</code>\n\n` +
+    `💬 <i>Please type the number of Stars in chat (e.g. <code>750</code>):</i>`;
 
-  const keyboard = new InlineKeyboard().text('Cancel', 'prod_telegram_stars');
+  const keyboard = new InlineKeyboard().text('« Cancel & Return', 'prod_telegram_stars');
 
   if (ctx.callbackQuery?.message?.photo) {
     await ctx.editMessageCaption({

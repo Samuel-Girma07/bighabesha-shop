@@ -75,13 +75,33 @@ export function seedDatabase(db: Database.Database): void {
       margin_pct: '5',
       stars_min: '10',
       stars_max: '100000',
-      cbe_account: '1000510711258',
+      // Placeholder payment accounts — REAL merchant account numbers must
+      // only ever be configured at runtime via the admin Settings panel or a
+      // provisioned database, never committed to source control.
+      cbe_account: '0000000000000',
       cbe_name: 'Bighabesha Shop',
-      telebirr_account: '0965579045',
+      telebirr_account: '0000000000',
       telebirr_name: 'Bighabesha Shop',
-      abyssinia_account: 'Abyssinia Bank Account',
+      abyssinia_account: '0000000000000',
       abyssinia_name: 'Bighabesha Shop',
       low_stock_threshold: '5',
+      // Growth & loyalty knobs (admin-editable)
+      referral_l1_pct: '5',
+      referral_l2_pct: '1',
+      tier_silver_etb: '5000',
+      tier_gold_etb: '20000',
+      tier_discount_silver_pct: '2',
+      tier_discount_gold_pct: '5',
+      // Lifecycle
+      recovery_reminder_hours: '2',
+      order_ttl_hours: '24',
+      // Restock forecasting
+      restock_lead_days: '7',
+      restock_safety_days: '3',
+      // Rail fee assumptions for net-profit analytics
+      chapa_fee_pct: '2',
+      stars_cashout_pct: '10',
+      wallet_gas_bps: '30',
       gemini_instructions:
         'After payment, you will receive a one-time activation link.\n\n1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.',
     };

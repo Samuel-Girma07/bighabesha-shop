@@ -55,3 +55,85 @@ export function getAllSettings(): Record<string, string> {
     return {};
   }
 }
+
+/**
+ * Settings that are safe to expose to unauthenticated Mini App clients.
+ * Deliberately excludes operational secrets: margin_pct, etb_per_usd,
+ * low_stock_threshold, gemini_instructions, and any future private keys.
+ */
+const PUBLIC_SETTING_KEYS = new Set([
+  'etb_per_star',
+  'stars_min',
+  'stars_max',
+  'cbe_account',
+  'cbe_name',
+  'telebirr_account',
+  'telebirr_name',
+  'abyssinia_account',
+  'abyssinia_name',
+  // Display-currency conversion + growth/loyalty transparency
+  'etb_per_usd',
+  'tier_silver_etb',
+  'tier_gold_etb',
+  'tier_discount_silver_pct',
+  'tier_discount_gold_pct',
+  'referral_l1_pct',
+]);
+
+export function getPublicSettings(): Record<string, string> {
+  const all = getAllSettings();
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(all)) {
+    if (PUBLIC_SETTING_KEYS.has(key)) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+/**
+ * Canonical registry of every setting the application reads. The admin
+ * dashboard PUT endpoint rejects writes for keys outside this set — a typo
+ * like "etb_per_USD" would otherwise silently shadow the real key and flip
+ * pricing behavior with no error anywhere.
+ *
+ * Keep in sync with seed.ts defaults and getSetting/getNumericSetting calls.
+ */
+export const KNOWN_SETTING_KEYS: ReadonlySet<string> = new Set([
+  // Pricing & FX
+  'etb_per_usd',
+  'etb_per_star',
+  'fallback_ton_usd',
+  'margin_pct',
+  'stars_min',
+  'stars_max',
+  // Manual rail payment accounts
+  'cbe_account',
+  'cbe_name',
+  'telebirr_account',
+  'telebirr_name',
+  'abyssinia_account',
+  'abyssinia_name',
+  // Operations
+  'low_stock_threshold',
+  'gemini_instructions',
+  // Growth / loyalty / lifecycle
+  'referral_l1_pct',
+  'referral_l2_pct',
+  'tier_silver_etb',
+  'tier_gold_etb',
+  'tier_discount_silver_pct',
+  'tier_discount_gold_pct',
+  'recovery_reminder_hours',
+  'order_ttl_hours',
+  // Analytics assumptions
+  'restock_lead_days',
+  'restock_safety_days',
+  'chapa_fee_pct',
+  'stars_cashout_pct',
+  'wallet_gas_bps',
+]);
+
+export function isKnownSettingKey(key: string): boolean {
+  return KNOWN_SETTING_KEYS.has(key);
+}

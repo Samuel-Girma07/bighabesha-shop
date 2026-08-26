@@ -5,6 +5,10 @@ export interface BootstrapData {
     firstName: string;
     languageCode: string;
     isAdmin: boolean;
+    tier?: string;
+    ordersCount?: number;
+    lifetimeEtb?: number;
+    balanceStars?: number;
   } | null;
   products: {
     id: string;
@@ -28,6 +32,7 @@ export interface BootstrapData {
     tonUsd: number;
     usdtUsd: number;
   };
+  tonTreasury?: string;
 }
 
 export interface OrderItem {
@@ -38,6 +43,7 @@ export interface OrderItem {
   variant_id: string | null;
   quantity: number;
   amount_etb: number;
+  discount_etb?: number;
   payment_rail: string;
   status: string;
   receipt_file_id: string | null;
@@ -88,23 +94,78 @@ export async function createOrderApi(params: {
   productId: string;
   variantId?: string;
   customStars?: number;
-  amountETB: number;
   paymentRail: string;
-}): Promise<{ order: OrderItem; invoiceLink?: string; payUrl?: string }> {
+  promoCode?: string;
+}): Promise<{ order: OrderItem; invoiceLink?: string; payUrl?: string; saleApplied?: boolean }> {
   const headers = getAuthHeader();
+  // NOTE: prices are never sent from the client — the server computes the
+  // authoritative amount from the catalog and rate engine.
+  const body: Record<string, unknown> = { ...params };
+  if (!params.promoCode) delete (body as any).promoCode;
   const res = await fetch(`${API_BASE}/api/orders`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...headers,
     },
-    body: JSON.stringify(params),
+    body: JSON.stringify(body),
   });
 
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.message || data.error || 'Failed to create order');
   }
+  return data;
+}
+
+/** Live TON on-chain verification poll for a TON Connect payment. */
+export async function verifyTonPaymentApi(orderId: string): Promise<{ verified: boolean; txHash?: string; alreadyProcessed?: boolean }> {
+  const headers = getAuthHeader();
+  const res = await fetch(`${API_BASE}/api/payments/ton/status/${encodeURIComponent(orderId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Verification failed');
+  return data;
+}
+
+export interface ReferralSummary {
+  code: string;
+  balanceEtb: number;
+  referredUsers: number;
+  commissionRatePct: number;
+  recentEntries: { direction: string; amount_etb: number; type: string; created_at: string }[];
+}
+
+export async function fetchReferralsApi(): Promise<ReferralSummary> {
+  const headers = getAuthHeader();
+  const res = await fetch(`${API_BASE}/api/me/referrals`, { headers });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to load referrals');
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// In-app support bridge
+// ---------------------------------------------------------------------------
+
+export async function sendSupportMessage(body: string): Promise<void> {
+  const headers = getAuthHeader();
+  const res = await fetch(`${API_BASE}/api/support/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify({ body }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Message failed');
+}
+
+export async function fetchSupportMessages(afterId = 0): Promise<{ messages: { id: number; sender_role: string; body: string; created_at: string }[]; status: string }> {
+  const headers = getAuthHeader();
+  const res = await fetch(`${API_BASE}/api/support/messages?after=${afterId}`, { headers });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to load messages');
   return data;
 }
 
@@ -128,4 +189,34 @@ export async function submitReceiptApi(params: {
     throw new Error(data.message || data.error || 'Failed to submit receipt');
   }
   return data;
+}
+
+export async function recheckUsernameApi(): Promise<{
+  success: boolean;
+  user: {
+    id: number;
+    username?: string | null;
+    firstName: string;
+    languageCode: string;
+    isAdmin: boolean;
+  };
+}> {
+  const headers = getAuthHeader();
+  const res = await fetch(`${API_BASE}/api/user/recheck-username`, {
+    headers,
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || data.error || 'Failed to recheck username');
+  }
+  return data;
+}
+
+/** Full order detail incl. the status-transition timeline. */
+export async function getOrderEventsApi(orderId: string): Promise<{ order: OrderItem; events: any[] }> {
+  const headers = getAuthHeader();
+  const res = await fetch(`${API_BASE}/api/orders/${encodeURIComponent(orderId)}`, { headers });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to load order');
+  return { order: data.order, events: data.events ?? [] };
 }
