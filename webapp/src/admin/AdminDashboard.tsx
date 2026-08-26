@@ -912,6 +912,23 @@ export const AdminDashboard: React.FC = () => {
   const activeBuyersSparklineData = [users.length * 0.7, users.length * 0.8, users.length * 0.9, users.length];
   const vaultSparklineData = [10, 8, 12, 15, stockData.summary?.available || 5];
 
+  // Dynamic period-over-period growth computation
+  const computeGrowth = (data: number[]): { pct: string; direction: 'positive' | 'negative' | 'neutral' } => {
+    if (data.length < 2) return { pct: '0.00', direction: 'neutral' };
+    const current = data[data.length - 1];
+    const previous = data[data.length - 2];
+    if (previous === 0 && current === 0) return { pct: '0.00', direction: 'neutral' };
+    if (previous === 0) return { pct: '100.00', direction: 'positive' };
+    const change = ((current - previous) / previous) * 100;
+    return {
+      pct: Math.abs(change).toFixed(2),
+      direction: change > 0 ? 'positive' : change < 0 ? 'negative' : 'neutral',
+    };
+  };
+  const revenueGrowth = computeGrowth(revenueSparklineData);
+  const ordersGrowth = computeGrowth(ordersSparklineData);
+  const customersGrowth = computeGrowth(activeBuyersSparklineData);
+
   // Product share distribution
   const geminiOrders = orders.filter((o) => o.product_id?.startsWith('gemini'));
   const premOrders = orders.filter((o) => o.product_id?.startsWith('telegram_prem'));
@@ -1397,8 +1414,8 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                   </div>
                   <div className="bento-kpi-footer">
-                    <span className="bento-trend-pill positive">
-                      <TrendingUpIcon size={11} /> +0.94%
+                    <span className={`bento-trend-pill ${revenueGrowth.direction}`}>
+                      <TrendingUpIcon size={11} /> {revenueGrowth.direction === 'negative' ? '−' : '+'}{revenueGrowth.pct}%
                     </span>
                     <span>net settlement growth</span>
                   </div>
@@ -1419,8 +1436,8 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                   </div>
                   <div className="bento-kpi-footer">
-                    <span className="bento-trend-pill positive">
-                      <TrendingUpIcon size={11} /> +0.12%
+                    <span className={`bento-trend-pill ${ordersGrowth.direction}`}>
+                      <TrendingUpIcon size={11} /> {ordersGrowth.direction === 'negative' ? '−' : '+'}{ordersGrowth.pct}%
                     </span>
                     <span>{deliveredOrdersCount} delivered ({orders.length > 0 ? Math.round((deliveredOrdersCount / orders.length) * 100) : 0}%)</span>
                   </div>
@@ -1441,10 +1458,10 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                   </div>
                   <div className="bento-kpi-footer">
-                    <span className="bento-trend-pill positive">
-                      <TrendingUpIcon size={11} /> +0.94%
+                    <span className={`bento-trend-pill ${customersGrowth.direction}`}>
+                      <TrendingUpIcon size={11} /> {customersGrowth.direction === 'negative' ? '−' : '+'}{customersGrowth.pct}%
                     </span>
-                    <span>100% verified Telegram</span>
+                    <span>{users.filter((u: any) => Boolean(u.username)).length === users.length ? '100%' : Math.round((users.filter((u: any) => Boolean(u.username)).length / Math.max(users.length, 1)) * 100) + '%'} verified Telegram</span>
                   </div>
                 </div>
 

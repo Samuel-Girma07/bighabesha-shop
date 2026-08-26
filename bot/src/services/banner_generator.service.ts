@@ -318,7 +318,24 @@ export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'star
 
 export type BannerType = 'welcome' | 'gemini' | 'premium' | 'stars' | 'checkout';
 
+export function getStaticBannerPath(type: BannerType): string | null {
+  const candidates = [
+    path.resolve(process.cwd(), 'bot/assets/static_banners', `${type}.jpg`),
+    path.resolve(process.cwd(), 'assets/static_banners', `${type}.jpg`),
+    path.resolve(process.cwd(), 'webapp/public/banners', `${type}.jpg`),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
+}
+
 export function getBannerPngPath(type: BannerType): string {
+  const staticPath = getStaticBannerPath(type);
+  if (staticPath) {
+    return staticPath;
+  }
+
   ensureAssetsDir();
 
   try {

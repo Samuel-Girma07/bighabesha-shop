@@ -42,7 +42,7 @@ export async function inlineQueryHandler(ctx: Context): Promise<void> {
         {
           description: 'Google AI Suite + 2,048 GB Cloud Storage. Automated instant delivery.',
           reply_markup: keyboard,
-          ...(webAppUrl ? { thumbnail_url: `${webAppUrl}/icons/gemini.svg`, thumbnail_width: 128, thumbnail_height: 128 } : {}),
+          ...(webAppUrl ? { thumbnail_url: `${webAppUrl}/banners/gemini.jpg`, thumbnail_width: 320, thumbnail_height: 180 } : {}),
         }
       ).text(text, { parse_mode: 'HTML' });
 
@@ -68,7 +68,7 @@ export async function inlineQueryHandler(ctx: Context): Promise<void> {
         {
           description: 'Official Fragment direct gift to @username without password.',
           reply_markup: keyboard,
-          ...(webAppUrl ? { thumbnail_url: `${webAppUrl}/icons/telegram_premium.svg`, thumbnail_width: 128, thumbnail_height: 128 } : {}),
+          ...(webAppUrl ? { thumbnail_url: `${webAppUrl}/banners/premium.jpg`, thumbnail_width: 320, thumbnail_height: 180 } : {}),
         }
       ).text(text, { parse_mode: 'HTML' });
 
@@ -96,7 +96,7 @@ export async function inlineQueryHandler(ctx: Context): Promise<void> {
         {
           description: 'In-app currency for digital gifts, channel boosts, and bots.',
           reply_markup: keyboard,
-          ...(webAppUrl ? { thumbnail_url: `${webAppUrl}/icons/telegram_stars.svg`, thumbnail_width: 128, thumbnail_height: 128 } : {}),
+          ...(webAppUrl ? { thumbnail_url: `${webAppUrl}/banners/stars.jpg`, thumbnail_width: 320, thumbnail_height: 180 } : {}),
         }
       ).text(text, { parse_mode: 'HTML' });
 
@@ -124,7 +124,7 @@ export async function inlineQueryHandler(ctx: Context): Promise<void> {
     {
       description: 'Browse all subscriptions, pricing, and Ethiopian payment rails.',
       reply_markup: generalKeyboard,
-      ...(webAppUrl ? { thumbnail_url: `${webAppUrl}/icons/logo.svg`, thumbnail_width: 128, thumbnail_height: 128 } : {}),
+      ...(webAppUrl ? { thumbnail_url: `${webAppUrl}/banners/welcome.jpg`, thumbnail_width: 320, thumbnail_height: 180 } : {}),
     }
   ).text(generalText, { parse_mode: 'HTML' });
 
