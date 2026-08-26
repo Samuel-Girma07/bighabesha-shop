@@ -194,6 +194,9 @@ export function createExpressApp(bot: Bot): express.Express {
   const trustProxy = resolveTrustProxySetting(config.TRUST_PROXY);
   if (trustProxy !== undefined) {
     app.set('trust proxy', trustProxy);
+  } else {
+    // Enable single-hop proxy trust on cloud hosts (Render, Cloudflare, Heroku)
+    app.set('trust proxy', 1);
   }
 
   app.use(
