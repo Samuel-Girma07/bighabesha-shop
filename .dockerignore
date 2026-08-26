@@ -1,0 +1,15 @@
+node_modules
+dist
+.env
+.env.*
+data
+*.db
+*.sqlite
+*.log
+.git
+.github
+scratch
+cloudflared*
+*.exe
+shots
+coverage
