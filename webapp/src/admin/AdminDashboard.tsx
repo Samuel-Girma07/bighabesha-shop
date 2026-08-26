@@ -125,6 +125,19 @@ const AlertTriangleIcon: React.FC<{ size?: number; color?: string }> = ({ size =
   </svg>
 );
 
+const TrendingDownIcon: React.FC<{ size?: number; color?: string }> = ({ size = 11, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="23 18 13.5 8.5 8.5 13.5 1 6" />
+    <polyline points="17 18 23 18 23 12" />
+  </svg>
+);
+
+const MinusIcon: React.FC<{ size?: number; color?: string }> = ({ size = 11, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </svg>
+);
+
 // RBAC permissions matrix
 const ROLE_PERMS: Record<string, string[]> = {
   superadmin: ['*'],
@@ -906,23 +919,52 @@ export const AdminDashboard: React.FC = () => {
   const maxRev = Math.max(...monthlyData.map((d: any) => d.revenue || 0), 1000);
   const TOTAL_BLOCKS_PER_COL = 10;
 
-  // Sparkline data feeds
+  // Sparkline data feeds from real database metrics
   const revenueSparklineData = monthlyData.map((d: any) => d.revenue || 0);
   const ordersSparklineData = monthlyData.map((d: any) => d.orders || 0);
-  const activeBuyersSparklineData = [users.length * 0.7, users.length * 0.8, users.length * 0.9, users.length];
-  const vaultSparklineData = [10, 8, 12, 15, stockData.summary?.available || 5];
+
+  // Real user registrations grouped by time bucket
+  const getRealUsersSparkline = () => {
+    const points: number[] = [];
+    const now = new Date();
+    const numBuckets = timeRange === '1Y' ? 12 : 7;
+    for (let i = numBuckets - 1; i >= 0; i--) {
+      const d = new Date(now);
+      if (timeRange === '1Y') {
+        d.setMonth(now.getMonth() - i);
+        const monthPrefix = d.toISOString().slice(0, 7);
+        const count = users.filter((u: any) => u.created_at && u.created_at.startsWith(monthPrefix)).length;
+        points.push(count);
+      } else {
+        d.setDate(now.getDate() - i);
+        const dayStr = d.toISOString().slice(0, 10);
+        const count = users.filter((u: any) => u.created_at && u.created_at.startsWith(dayStr)).length;
+        points.push(count);
+      }
+    }
+    return points;
+  };
+  const activeBuyersSparklineData = getRealUsersSparkline();
+
+  // Real stock inventory telemetry
+  const availableStock = stockData.summary?.available ?? 0;
+  const usedStock = stockData.summary?.used ?? 0;
+  const vaultSparklineData = [usedStock, availableStock];
 
   // Dynamic period-over-period growth computation
-  const computeGrowth = (data: number[]): { pct: string; direction: 'positive' | 'negative' | 'neutral' } => {
-    if (data.length < 2) return { pct: '0.00', direction: 'neutral' };
-    const current = data[data.length - 1];
-    const previous = data[data.length - 2];
-    if (previous === 0 && current === 0) return { pct: '0.00', direction: 'neutral' };
-    if (previous === 0) return { pct: '100.00', direction: 'positive' };
-    const change = ((current - previous) / previous) * 100;
+  const computeGrowth = (data: number[]): { pct: string; direction: 'positive' | 'negative' | 'neutral'; label: string } => {
+    if (data.length < 2) return { pct: '0.0', direction: 'neutral', label: 'No prior data' };
+    const current = data[data.length - 1] || 0;
+    const previous = data[data.length - 2] || 0;
+    if (previous === 0 && current === 0) return { pct: '0.0', direction: 'neutral', label: 'vs previous period' };
+    if (previous === 0) return { pct: '100', direction: 'positive', label: 'new activity' };
+    const diff = current - previous;
+    const change = (diff / previous) * 100;
+    if (Math.abs(change) < 0.1) return { pct: '0.0', direction: 'neutral', label: 'vs previous period' };
     return {
-      pct: Math.abs(change).toFixed(2),
+      pct: Math.abs(change) >= 100 ? Math.round(Math.abs(change)).toString() : Math.abs(change).toFixed(1),
       direction: change > 0 ? 'positive' : change < 0 ? 'negative' : 'neutral',
+      label: 'vs previous period',
     };
   };
   const revenueGrowth = computeGrowth(revenueSparklineData);
@@ -1415,9 +1457,12 @@ export const AdminDashboard: React.FC = () => {
                   </div>
                   <div className="bento-kpi-footer">
                     <span className={`bento-trend-pill ${revenueGrowth.direction}`}>
-                      <TrendingUpIcon size={11} /> {revenueGrowth.direction === 'negative' ? '−' : '+'}{revenueGrowth.pct}%
+                      {revenueGrowth.direction === 'positive' && <TrendingUpIcon size={11} />}
+                      {revenueGrowth.direction === 'negative' && <TrendingDownIcon size={11} />}
+                      {revenueGrowth.direction === 'neutral' && <MinusIcon size={11} />}
+                      {revenueGrowth.direction === 'negative' ? '−' : revenueGrowth.direction === 'positive' ? '+' : ''}{revenueGrowth.pct}%
                     </span>
-                    <span>net settlement growth</span>
+                    <span>{revenueGrowth.label}</span>
                   </div>
                 </div>
 
@@ -1437,7 +1482,10 @@ export const AdminDashboard: React.FC = () => {
                   </div>
                   <div className="bento-kpi-footer">
                     <span className={`bento-trend-pill ${ordersGrowth.direction}`}>
-                      <TrendingUpIcon size={11} /> {ordersGrowth.direction === 'negative' ? '−' : '+'}{ordersGrowth.pct}%
+                      {ordersGrowth.direction === 'positive' && <TrendingUpIcon size={11} />}
+                      {ordersGrowth.direction === 'negative' && <TrendingDownIcon size={11} />}
+                      {ordersGrowth.direction === 'neutral' && <MinusIcon size={11} />}
+                      {ordersGrowth.direction === 'negative' ? '−' : ordersGrowth.direction === 'positive' ? '+' : ''}{ordersGrowth.pct}%
                     </span>
                     <span>{deliveredOrdersCount} delivered ({orders.length > 0 ? Math.round((deliveredOrdersCount / orders.length) * 100) : 0}%)</span>
                   </div>
@@ -1459,7 +1507,10 @@ export const AdminDashboard: React.FC = () => {
                   </div>
                   <div className="bento-kpi-footer">
                     <span className={`bento-trend-pill ${customersGrowth.direction}`}>
-                      <TrendingUpIcon size={11} /> {customersGrowth.direction === 'negative' ? '−' : '+'}{customersGrowth.pct}%
+                      {customersGrowth.direction === 'positive' && <TrendingUpIcon size={11} />}
+                      {customersGrowth.direction === 'negative' && <TrendingDownIcon size={11} />}
+                      {customersGrowth.direction === 'neutral' && <MinusIcon size={11} />}
+                      {customersGrowth.direction === 'negative' ? '−' : customersGrowth.direction === 'positive' ? '+' : ''}{customersGrowth.pct}%
                     </span>
                     <span>{users.filter((u: any) => Boolean(u.username)).length === users.length ? '100%' : Math.round((users.filter((u: any) => Boolean(u.username)).length / Math.max(users.length, 1)) * 100) + '%'} verified Telegram</span>
                   </div>
