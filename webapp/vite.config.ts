@@ -17,6 +17,7 @@ export default defineConfig({
           'vendor-telegram': ['@telegram-apps/sdk-react'],
           'vendor-ton': ['@tonconnect/ui-react', '@ton/core'],
           'vendor-icons': ['lucide-react'],
+          'vendor-three': ['three'],
         },
       },
     },
