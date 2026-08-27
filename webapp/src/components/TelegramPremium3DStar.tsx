@@ -3,54 +3,51 @@ import * as THREE from 'three';
 import { haptic } from '../haptics';
 
 // ═════════════════════════════════════════════════════════════════════
-// 1. AUTHENTIC 3D TELEGRAM PREMIUM STAR GEOMETRY
-// Exact match to reference (stars 3d.jpg): Plump, chubby, tilted 3D star
-// with the signature paper-plane fold crease and thick bevel extrusion.
+// 1. EXACT OFFICIAL TELEGRAM STAR GEOMETRY (Matching stars design.jpg)
+// Symmetrical, chubby, smooth vector curves with paper-plane crease fold
 // ═════════════════════════════════════════════════════════════════════
 function createTelegramStarShape(): THREE.Shape {
   const shape = new THREE.Shape();
 
-  // 1. Top Apex (centered at 90°)
-  shape.moveTo(-0.22, 0.85);
-  shape.bezierCurveTo(-0.12, 1.08, 0.12, 1.08, 0.22, 0.85);
-  
+  // Top Apex (Center Top, rounded cap)
+  shape.moveTo(-0.24, 0.82);
+  shape.bezierCurveTo(-0.14, 1.05, 0.14, 1.05, 0.24, 0.82);
+
   // Top-Right Valley
-  shape.bezierCurveTo(0.28, 0.65, 0.36, 0.46, 0.44, 0.38);
-  
-  // 2. Upper-Right Arm (~18°)
-  shape.bezierCurveTo(0.68, 0.38, 0.96, 0.34, 1.10, 0.26);
-  shape.bezierCurveTo(1.22, 0.20, 1.20, 0.02, 1.08, -0.04);
-  
-  // Right-Bottom Valley
-  shape.bezierCurveTo(0.82, -0.12, 0.58, -0.22, 0.48, -0.32);
-  
-  // 3. Lower-Right Arm (-54°)
-  shape.bezierCurveTo(0.56, -0.58, 0.68, -0.88, 0.74, -1.02);
-  shape.bezierCurveTo(0.78, -1.16, 0.62, -1.24, 0.50, -1.14);
-  
-  // Bottom-Center Notch (-90°)
-  shape.bezierCurveTo(0.32, -0.88, 0.16, -0.58, 0.0, -0.42);
-  
-  // 4. Lower-Left Arm (-126°)
-  shape.bezierCurveTo(-0.16, -0.58, -0.32, -0.88, -0.50, -1.14);
-  shape.bezierCurveTo(-0.62, -1.24, -0.78, -1.16, -0.74, -1.02);
-  
-  // Left-Bottom Hip curving smoothly upwards towards crease
-  shape.bezierCurveTo(-0.66, -0.84, -0.54, -0.48, -0.44, -0.15);
-  
-  // ── Signature Horizontal Paper-Plane Crease Fold ──
-  // Reaches inward horizontally towards center
-  shape.lineTo(0.04, 0.04);
-  // Slit upper edge extending to upper-left arm
-  shape.lineTo(-0.40, 0.16);
-  
-  // 5. Upper-Left Arm (162°)
-  shape.bezierCurveTo(-0.62, 0.22, -0.92, 0.26, -1.08, 0.28);
-  shape.bezierCurveTo(-1.22, 0.30, -1.20, 0.48, -1.06, 0.52);
-  
+  shape.bezierCurveTo(0.28, 0.65, 0.38, 0.44, 0.46, 0.36);
+
+  // Top-Right Arm
+  shape.bezierCurveTo(0.70, 0.36, 0.96, 0.32, 1.08, 0.22);
+  shape.bezierCurveTo(1.18, 0.14, 1.15, -0.04, 1.02, -0.10);
+
+  // Bottom-Right Valley
+  shape.bezierCurveTo(0.78, -0.18, 0.56, -0.26, 0.46, -0.36);
+
+  // Bottom-Right Arm
+  shape.bezierCurveTo(0.55, -0.62, 0.68, -0.88, 0.72, -1.02);
+  shape.bezierCurveTo(0.75, -1.16, 0.58, -1.22, 0.46, -1.12);
+
+  // Bottom-Center Saddle Notch
+  shape.bezierCurveTo(0.30, -0.85, 0.15, -0.56, 0.0, -0.42);
+
+  // Bottom-Left Arm
+  shape.bezierCurveTo(-0.15, -0.56, -0.30, -0.85, -0.46, -1.12);
+  shape.bezierCurveTo(-0.58, -1.22, -0.75, -1.16, -0.72, -1.02);
+
+  // Bottom-Left Outer Hip
+  shape.bezierCurveTo(-0.65, -0.80, -0.52, -0.44, -0.44, -0.12);
+
+  // Signature Crease (Horizontal Paper-Plane Slit)
+  shape.lineTo(0.04, -0.02);
+  shape.lineTo(-0.44, 0.08);
+
+  // Top-Left Arm
+  shape.bezierCurveTo(-0.66, 0.14, -0.96, 0.18, -1.08, 0.22);
+  shape.bezierCurveTo(-1.18, 0.26, -1.16, 0.44, -1.02, 0.48);
+
   // Top-Left Valley
-  shape.bezierCurveTo(-0.88, 0.56, -0.58, 0.44, -0.44, 0.38);
-  shape.bezierCurveTo(-0.36, 0.46, -0.28, 0.65, -0.22, 0.85);
+  shape.bezierCurveTo(-0.82, 0.52, -0.56, 0.42, -0.46, 0.36);
+  shape.bezierCurveTo(-0.38, 0.44, -0.28, 0.65, -0.24, 0.82);
 
   return shape;
 }
@@ -58,8 +55,8 @@ function createTelegramStarShape(): THREE.Shape {
 // 4-pointed cross star geometry for background twinkling sparkles
 function createSparkleGeometry(): THREE.BufferGeometry {
   const shape = new THREE.Shape();
-  const outer = 0.18;
-  const inner = 0.032;
+  const outer = 0.16;
+  const inner = 0.028;
   
   shape.moveTo(0, outer);
   shape.bezierCurveTo(inner * 0.4, inner, inner, inner * 0.4, outer, 0);
@@ -111,11 +108,11 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
     sparklesGroup: null,
     burstParticles: [],
     pointLight: null,
-    // Resting 3D angle matching stars 3d.jpg (tilted backward ~56° to show glossy top face + thick blue front wall)
-    targetRotX: 0.98,
-    targetRotY: -0.14,
-    currentRotX: 0.98,
-    currentRotY: -0.14,
+    // Upright forward-facing resting orientation matching stars design.jpg
+    targetRotX: 0.06,
+    targetRotY: 0.0,
+    currentRotX: 0.06,
+    currentRotY: 0.0,
     targetScale: 1.0,
     currentScale: 1.0,
     isDragging: false,
@@ -136,14 +133,14 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
     if (!engine.scene) return;
 
     // Subtle scale bounce
-    engine.targetScale = 1.08;
+    engine.targetScale = 1.10;
     setTimeout(() => {
       engine.targetScale = 1.0;
     }, 150);
 
     // Stardust burst particles
     const sparkleGeom = createSparkleGeometry();
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 14; i++) {
       const mat = new THREE.MeshBasicMaterial({
         color: new THREE.Color().setHSL(0.78 + Math.random() * 0.16, 0.95, 0.8),
         transparent: true,
@@ -157,7 +154,7 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
         (Math.random() - 0.5) * 0.4,
         (Math.random() - 0.5) * 0.2 + 0.15
       );
-      const angle = (i / 12) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+      const angle = (i / 14) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
       const speed = 0.035 + Math.random() * 0.04;
       const scale = 0.4 + Math.random() * 0.45;
       pMesh.scale.set(scale, scale, scale);
@@ -181,12 +178,12 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
     if (!canvas || !container) return;
 
     const width = container.clientWidth || 320;
-    const height = 76;
+    const height = 86;
 
     // ── SCENE & CAMERA ──
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(34, width / height, 0.1, 100);
-    camera.position.set(0, 0, 4.4);
+    camera.position.set(0, 0, 4.3);
 
     // ── RENDERER ──
     let renderer: THREE.WebGLRenderer;
@@ -206,15 +203,16 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
 
-    // ── 3D STAR MESH (Thick chamfer bevel matching stars 3d.jpg) ──
+    // ── 3D STAR MESH (Ultra smooth spline with clean chamfer bevel) ──
     const starShape = createTelegramStarShape();
     const extrudeSettings: THREE.ExtrudeGeometryOptions = {
-      depth: 0.42,
+      depth: 0.18,
       bevelEnabled: true,
-      bevelSegments: 5,
+      bevelSegments: 4,
       steps: 1,
-      bevelSize: 0.045,
-      bevelThickness: 0.045,
+      bevelSize: 0.022,
+      bevelThickness: 0.022,
+      curveSegments: 32,
     };
     const starGeometry = new THREE.ExtrudeGeometry(starShape, extrudeSettings);
     starGeometry.center();
@@ -222,17 +220,17 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
 
     // ── PBR GRADIENT MATERIAL ──
     const starMaterial = new THREE.MeshPhysicalMaterial({
-      color: 0x9333EA,
-      metalness: 0.18,
-      roughness: 0.18,
+      color: 0xA855F7,
+      metalness: 0.12,
+      roughness: 0.15,
       clearcoat: 1.0,
-      clearcoatRoughness: 0.06,
-      reflectivity: 0.94,
-      iridescence: 0.22,
+      clearcoatRoughness: 0.05,
+      reflectivity: 0.95,
+      iridescence: 0.20,
       iridescenceIOR: 1.3,
     });
 
-    // Vertical Spatial Gradient Shader Modification (Vibrant Magenta to Azure Blue)
+    // Vertical Spatial Gradient Shader Modification (Matching stars design.jpg)
     starMaterial.onBeforeCompile = (shader) => {
       shader.vertexShader = `
         varying vec3 vWorldPosition;
@@ -256,61 +254,56 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
         '#include <dithering_fragment>',
         `
         #include <dithering_fragment>
-        // Smooth Telegram Violet to Azure Blue Gradient across 3D body
-        float gradT = clamp((vModelPosition.y * 0.75 + vModelPosition.z * 0.45 + 0.65) / 1.50, 0.0, 1.0);
+        // Smooth Telegram Violet to Azure Blue Gradient (stars design.jpg)
+        float gradT = clamp((vModelPosition.y + 0.90) / 1.80, 0.0, 1.0);
         
-        // Exact colors from reference:
-        // Top Face: Rich Violet / Magenta (#C04CFD -> #9333EA)
-        // Front / Lower Wall: Electric Azure / Cyan (#0284C7 -> #38BDF8)
-        vec3 colBottom = vec3(0.06, 0.56, 0.98);
-        vec3 colMid = vec3(0.55, 0.25, 0.95);
-        vec3 colTop = vec3(0.82, 0.32, 0.98);
+        // Exact colors from stars design.jpg:
+        // Top Face: Bright Lilac / Magenta (#D946EF -> #C084FC)
+        // Bottom Face: Electric Azure / Cyan Blue (#38BDF8 -> #60A5FA)
+        vec3 colBottom = vec3(0.22, 0.62, 0.98);
+        vec3 colMid = vec3(0.60, 0.32, 0.96);
+        vec3 colTop = vec3(0.85, 0.40, 0.98);
         
-        vec3 gradCol = mix(colBottom, colMid, smoothstep(0.0, 0.52, gradT));
+        vec3 gradCol = mix(colBottom, colMid, smoothstep(0.0, 0.50, gradT));
         gradCol = mix(gradCol, colTop, smoothstep(0.48, 1.0, gradT));
         
         // Crisp Fresnel rim glow
         vec3 viewDir = normalize(vViewPosition);
         float fresnel = pow(1.0 - max(dot(vNormalVec, vec3(0.0, 0.0, 1.0)), 0.0), 2.2);
-        vec3 rimGlow = mix(vec3(0.2, 0.75, 1.0), vec3(0.85, 0.4, 1.0), gradT) * fresnel * 0.45;
+        vec3 rimGlow = mix(vec3(0.2, 0.75, 1.0), vec3(0.88, 0.45, 1.0), gradT) * fresnel * 0.45;
         
-        gl_FragColor.rgb = gl_FragColor.rgb * gradCol * 1.55 + rimGlow;
+        gl_FragColor.rgb = gl_FragColor.rgb * gradCol * 1.45 + rimGlow;
         `
       );
     };
 
     const starMesh = new THREE.Mesh(starGeometry, starMaterial);
-    starMesh.scale.set(0.95, 0.95, 0.95);
+    starMesh.scale.set(0.96, 0.96, 0.96);
     scene.add(starMesh);
 
     // ── LIGHTING SETUP ──
-    const ambientLight = new THREE.AmbientLight(0xdbeafe, 0.95);
+    const ambientLight = new THREE.AmbientLight(0xdbeafe, 1.0);
     scene.add(ambientLight);
 
     // Key Light (Top-Left Magenta)
-    const keyLight = new THREE.DirectionalLight(0xe879f9, 2.6);
+    const keyLight = new THREE.DirectionalLight(0xe879f9, 2.4);
     keyLight.position.set(-3, 4, 4);
     scene.add(keyLight);
 
     // Fill Light (Bottom-Right Cyan)
-    const fillLight = new THREE.DirectionalLight(0x38bdf8, 2.4);
+    const fillLight = new THREE.DirectionalLight(0x38bdf8, 2.2);
     fillLight.position.set(3, -3, 3);
     scene.add(fillLight);
 
-    // Top Rim Light
-    const rimLight = new THREE.DirectionalLight(0xffffff, 1.8);
-    rimLight.position.set(0, 5, -2);
-    scene.add(rimLight);
+    // Front Point Light for Gloss Highlight
+    const frontLight = new THREE.PointLight(0xffffff, 2.0, 8);
+    frontLight.position.set(0, 0, 3.5);
+    scene.add(frontLight);
 
-    // Dynamic Pointer Light
-    const dynamicPointLight = new THREE.PointLight(0xffffff, 2.2, 8);
-    dynamicPointLight.position.set(0, 0, 3.2);
-    scene.add(dynamicPointLight);
-
-    // ── 3D STAR CONSTELLATION (Twinkling Cross-Stars matching stars 3d.jpg) ──
+    // ── 3D STAR CONSTELLATION (Matching stars design.jpg) ──
     const sparklesGroup = new THREE.Group();
     const sparkleGeom = createSparkleGeometry();
-    const sparkleCount = 28;
+    const sparkleCount = 32;
     const sparkleItems: { mesh: THREE.Mesh; phase: number; speed: number; baseScale: number }[] = [];
 
     for (let i = 0; i < sparkleCount; i++) {
@@ -319,7 +312,7 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
       const mat = new THREE.MeshBasicMaterial({
         color: Math.random() > 0.35 ? color : 0xffffff,
         transparent: true,
-        opacity: 0.6 + Math.random() * 0.4,
+        opacity: 0.65 + Math.random() * 0.35,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
@@ -329,7 +322,7 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
       const theta = Math.random() * Math.PI * 2;
       const x = Math.cos(theta) * radius * 1.35;
       const y = Math.sin(theta) * radius * 0.85;
-      const z = (Math.random() - 0.5) * 1.6;
+      const z = (Math.random() - 0.5) * 1.4;
 
       mesh.position.set(x, y, z);
       const baseScale = 0.28 + Math.random() * 0.50;
@@ -353,7 +346,7 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
     engine.camera = camera;
     engine.starMesh = starMesh;
     engine.sparklesGroup = sparklesGroup;
-    engine.pointLight = dynamicPointLight;
+    engine.pointLight = frontLight;
 
     // ── RENDER & PHYSICS LOOP ──
     let lastTime = performance.now();
@@ -383,7 +376,7 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
         engine.targetRotX += engine.velY;
 
         // Clamp Pitch
-        engine.targetRotX = Math.max(0.60, Math.min(1.30, engine.targetRotX));
+        engine.targetRotX = Math.max(-0.45, Math.min(0.55, engine.targetRotX));
       }
 
       // Smooth Lerp to target rotation
@@ -396,14 +389,14 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
       // Smooth Scale lerp
       engine.currentScale += (engine.targetScale - engine.currentScale) * 0.16;
       starMesh.scale.set(
-        0.95 * engine.currentScale,
-        0.95 * engine.currentScale,
-        0.95 * engine.currentScale
+        0.96 * engine.currentScale,
+        0.96 * engine.currentScale,
+        0.96 * engine.currentScale
       );
 
       // Sparkles constellation parallax and twinkle
       sparklesGroup.rotation.y = engine.currentRotY * 0.25;
-      sparklesGroup.rotation.x = (engine.currentRotX - 0.98) * 0.25;
+      sparklesGroup.rotation.x = engine.currentRotX * 0.25;
 
       sparkleItems.forEach((sp) => {
         const pulse = Math.sin(engine.time * sp.speed + sp.phase);
@@ -517,8 +510,8 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
       engine.targetRotX += engine.velY;
     } else {
       // Subtle tilt follow when hovering
-      engine.targetRotX = 0.98 - normY * 0.14;
-      engine.targetRotY = -0.14 + normX * 0.20;
+      engine.targetRotX = 0.06 - normY * 0.16;
+      engine.targetRotY = 0.0 + normX * 0.22;
     }
   };
 
@@ -549,11 +542,11 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
       <div
         style={{
           position: 'absolute',
-          top: '40%',
+          top: '45%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
-          width: '140px',
-          height: '70px',
+          width: '150px',
+          height: '80px',
           borderRadius: '50%',
           background: 'radial-gradient(circle, rgba(168, 85, 247, 0.35) 0%, rgba(56, 189, 248, 0.18) 60%, transparent 80%)',
           filter: 'blur(20px)',
@@ -572,7 +565,7 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
         style={{
           position: 'relative',
           width: '100%',
-          height: '76px',
+          height: '86px',
           cursor: 'grab',
           touchAction: 'none',
           zIndex: 2,
@@ -596,7 +589,7 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
       <div
         style={{
           textAlign: 'center',
-          marginTop: '1px',
+          marginTop: '0px',
           marginBottom: '6px',
           width: '100%',
           padding: '0 12px',
@@ -606,7 +599,7 @@ export const TelegramPremium3DStar: React.FC<TelegramPremium3DStarProps> = ({
       >
         <h2
           style={{
-            fontSize: '16px',
+            fontSize: '16.5px',
             fontWeight: 800,
             color: '#FFFFFF',
             letterSpacing: '-0.02em',
