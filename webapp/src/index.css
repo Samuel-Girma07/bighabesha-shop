@@ -1589,12 +1589,12 @@ button:active {
   max-width: 480px;
   background: #141D29;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-top-left-radius: 26px;
-  border-top-right-radius: 26px;
-  padding: 16px 18px 20px 18px;
-  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  border-top-left-radius: 22px;
+  border-top-right-radius: 22px;
+  padding: 12px 16px 16px 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   box-shadow: 0 -12px 48px rgba(0, 0, 0, 0.8);
-  max-height: 92vh;
+  max-height: 94vh;
   overflow-y: auto;
   animation: slideUpSheet 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -1608,19 +1608,19 @@ button:active {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .hulupay-sheet-title {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 800;
   color: #FFFFFF;
   letter-spacing: -0.02em;
 }
 
 .hulupay-sheet-close-btn {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.08);
   color: #94A3B8;
@@ -1636,10 +1636,10 @@ button:active {
 }
 
 .hulupay-section-label {
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
   color: #94A3B8;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1648,16 +1648,16 @@ button:active {
   background: #0E1622;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
-  padding: 8px 12px;
+  padding: 6px 12px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .hulupay-recipient-avatar {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background: #2563EB;
   color: #FFFFFF;
@@ -1672,7 +1672,7 @@ button:active {
 .hulupay-recipient-input {
   background: transparent;
   color: #FFFFFF;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
   width: 100%;
 }
@@ -1684,15 +1684,15 @@ button:active {
 .hulupay-variants-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 .hulupay-variant-card {
   background: #172230;
   border: 1.5px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
-  padding: 10px 14px;
+  border-radius: 12px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1713,11 +1713,11 @@ button:active {
 .hulupay-variant-left {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
 .hulupay-variant-name {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 800;
   color: #FFFFFF;
 }
@@ -1729,7 +1729,7 @@ button:active {
 }
 
 .hulupay-variant-price {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 800;
   color: #FFFFFF;
   font-family: var(--font-ui);
@@ -1753,13 +1753,12 @@ button:active {
 
 .hulupay-btn-action {
   width: 100%;
-  height: 48px;
-  min-height: 48px;
-  background: #2563EB;
+  height: 44px;
+  min-height: 44px;
   background: #2563EB;
   color: #FFFFFF;
-  border-radius: 14px;
-  font-size: 15px;
+  border-radius: 12px;
+  font-size: 14px;
   font-weight: 800;
   display: flex;
   align-items: center;
