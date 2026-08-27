@@ -66,10 +66,9 @@ export async function startHandler(ctx: Context): Promise<void> {
     `<blockquote>💎 <b>Ethiopia's Premier Digital Goods & AI Subscriptions</b></blockquote>\n\n` +
     `⚡ <b>Featured Products & Instant Activation:</b>\n` +
     `• 🤖 <b>Gemini Pro (18 Months)</b> — <code>2 TB Storage</code> · One-Click Link\n` +
-    `• ⭐ <b>Telegram Premium</b> — <code>3, 6, 12 Months</code> · Direct Gift\n` +
-    `• 🪙 <b>Telegram Stars</b> — <code>Packs & Custom</code> · Instant Top-up\n\n` +
+    `• ⭐ <b>Telegram Premium</b> — <code>3, 6, 12 Months</code> · Direct Gift\n\n` +
     `<blockquote>💳 <b>Accepted Payment Rails:</b>\n` +
-    `Telebirr · CBE Birr · Bank of Abyssinia · Telegram Stars · TON / USDT</blockquote>\n\n` +
+    `Telebirr · CBE Birr · Bank of Abyssinia · TON / USDT</blockquote>\n\n` +
     `<i>👇 Choose an option below or open the Web App to get started:</i>`;
 
   const keyboard = new InlineKeyboard();
