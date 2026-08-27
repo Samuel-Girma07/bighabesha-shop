@@ -897,9 +897,9 @@ const StoreFront: React.FC = () => {
               </button>
             </div>
 
-            {/* Real Animated 3D Telegram Star Canvas */}
+            {/* 3D Showcase Star */}
             {selectedProductDrawer === 'telegram_premium' && (
-              <TelegramPremium3DStar height={175} />
+              <TelegramPremium3DStar />
             )}
 
             {/* Choose Recipient Section (ONLY for Telegram Premium) */}
