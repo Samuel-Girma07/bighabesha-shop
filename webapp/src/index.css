@@ -5,50 +5,43 @@
    ========================================================================== */
 
 :root {
-  /* ── Telegram Deep Obsidian Dark Palette ────────────────────────── */
-  --tg-bg-page: #0A0D12;
-  --tg-bg-canvas: #05070A;
-  --tg-bg-card: #121721;
-  --tg-bg-card-secondary: #18202E;
-  --tg-bg-card-tertiary: #202B3D;
-  --tg-bg-card-quaternary: #2A384F;
-  --tg-bg-input: #0E131C;
-  --tg-bg-input-focus: #141B28;
+  /* ── HuluPay Midnight Slate Minimalist Palette ───────────────────── */
+  --tg-bg-page: #0C121C;
+  --tg-bg-canvas: #070B12;
+  --tg-bg-card: #151F2C;
+  --tg-bg-card-hover: #1B2737;
+  --tg-bg-card-secondary: #192433;
+  --tg-bg-card-tertiary: #202D40;
+  --tg-bg-input: #101723;
+  --tg-bg-input-focus: #162030;
   
   /* ── Surface Lines & Dividers ───────────────────────────────────── */
   --tg-line: rgba(255, 255, 255, 0.08);
-  --tg-line-strong: rgba(255, 255, 255, 0.16);
-  --tg-line-highlight: rgba(255, 255, 255, 0.24);
-  --tg-line-blue: rgba(42, 171, 238, 0.4);
+  --tg-line-strong: rgba(255, 255, 255, 0.14);
+  --tg-line-highlight: rgba(255, 255, 255, 0.22);
+  --tg-line-blue: rgba(56, 189, 248, 0.4);
 
-  /* ── Electric Blue & Brand Accents ──────────────────────────────── */
-  --tg-blue: #2481CC;
-  --tg-electric-blue: #2AABEE;
-  --tg-blue-hover: #1E70B3;
-  --tg-blue-active: #175C96;
-  --tg-blue-dim: rgba(36, 129, 204, 0.16);
-  --tg-blue-glow: rgba(42, 171, 238, 0.35);
+  /* ── Brand & Accent Colors ──────────────────────────────────────── */
+  --tg-blue: #0284C7;
+  --tg-electric-blue: #38BDF8;
+  --tg-blue-hover: #0369A1;
+  --tg-blue-dim: rgba(2, 132, 199, 0.15);
+  --tg-blue-glow: rgba(56, 189, 248, 0.35);
 
-  --tg-gold: #FFD60A;
-  --tg-gold-bright: #FFE066;
-  --tg-gold-amber: #FF9F0A;
-  --tg-gold-dim: rgba(255, 214, 10, 0.15);
-  --tg-gold-glow: rgba(255, 214, 10, 0.35);
+  --tg-gold: #F59E0B;
+  --tg-gold-bright: #FBBF24;
+  --tg-gold-amber: #D97706;
+  --tg-gold-dim: rgba(245, 158, 11, 0.15);
 
-  --tg-green: #30D158;
-  --tg-green-emerald: #10B981;
-  --tg-green-hover: #28B84D;
-  --tg-green-dim: rgba(48, 209, 88, 0.16);
-  --tg-green-glow: rgba(48, 209, 88, 0.35);
+  --tg-green: #10B981;
+  --tg-green-emerald: #059669;
+  --tg-green-dim: rgba(16, 185, 129, 0.15);
 
-  --tg-red: #FF453A;
-  --tg-red-hover: #E0382E;
-  --tg-red-dim: rgba(255, 69, 58, 0.16);
-  --tg-red-glow: rgba(255, 69, 58, 0.35);
+  --tg-red: #E11D48;
+  --tg-red-dim: rgba(225, 29, 72, 0.15);
 
-  --tg-orange: #FF9F0A;
-  --tg-purple: #BF5AF2;
-  --tg-cyan: #64D2FF;
+  --tg-purple: #8B5CF6;
+  --tg-cyan: #06B6D4;
 
   /* ── Text Hierarchy (High Contrast) ─────────────────────────────── */
   --tg-text-primary: #FFFFFF;
@@ -1415,51 +1408,431 @@ button:active {
   line-height: 1.45;
 }
 
-/* ═══════════════════════ Bottom Navigation Bar ═══════════════════════ */
+/* ═══════════════════════ HuluPay Minimalist UI System ═══════════════════════ */
 
-.bottom-nav {
+.hulupay-hero-header {
+  text-align: center;
+  padding: 16px 12px 20px 12px;
+}
+
+.hulupay-hero-illustration {
+  display: inline-flex;
+  position: relative;
+  margin-bottom: 8px;
+}
+
+.hulupay-hero-title {
+  font-size: 24px;
+  font-weight: 900;
+  color: #FFFFFF;
+  letter-spacing: -0.03em;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hulupay-shopping-pill {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #2563EB;
+  color: #FFFFFF;
+  padding: 3px 8px;
+  border-radius: 4px;
+  transform: rotate(-5deg) translateY(-4px);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
+}
+
+.hulupay-hero-subtitle {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #94A3B8;
+  margin-top: 6px;
+}
+
+.section-category-header {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748B;
+  margin: 22px 0 10px 4px;
+}
+
+.hulupay-card-deck {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hulupay-product-card {
+  background: var(--tg-bg-card);
+  border: 1px solid var(--tg-line);
+  border-radius: 20px;
+  padding: 16px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  transition: transform 0.12s var(--ease-ios), background 0.15s ease, border-color 0.15s ease;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.hulupay-product-card:hover {
+  background: var(--tg-bg-card-hover);
+  border-color: var(--tg-line-strong);
+}
+
+.hulupay-product-card:active {
+  transform: scale(0.985);
+  background: var(--tg-bg-card-secondary);
+}
+
+.hulupay-card-icon-wrap {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hulupay-card-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.hulupay-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.hulupay-card-title {
+  font-size: 15.5px;
+  font-weight: 800;
+  color: #FFFFFF;
+  letter-spacing: -0.01em;
+}
+
+.hulupay-badge {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.hulupay-badge.blue {
+  background: rgba(2, 132, 199, 0.2);
+  color: #38BDF8;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+.hulupay-badge.green {
+  background: rgba(16, 185, 129, 0.2);
+  color: #6EE7B7;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.hulupay-badge.purple {
+  background: rgba(139, 92, 246, 0.2);
+  color: #C4B5FD;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+}
+
+.hulupay-badge.discount {
+  background: rgba(225, 29, 72, 0.2);
+  color: #FB7185;
+  border: 1px solid rgba(225, 29, 72, 0.35);
+}
+
+.hulupay-card-desc {
+  font-size: 12.5px;
+  color: #94A3B8;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ═══════════════════════ Bottom Sheet Modal & Drawers ═══════════════════════ */
+
+.hulupay-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fadeInBackdrop 0.2s ease-out forwards;
+}
+
+@keyframes fadeInBackdrop {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.hulupay-sheet-container {
+  width: 100%;
+  max-width: 480px;
+  background: #141D29;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-top-left-radius: 26px;
+  border-top-right-radius: 26px;
+  padding: 20px 20px 24px 20px;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -12px 48px rgba(0, 0, 0, 0.8);
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: slideUpSheet 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideUpSheet {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.hulupay-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.hulupay-sheet-title {
+  font-size: 19px;
+  font-weight: 800;
+  color: #FFFFFF;
+  letter-spacing: -0.02em;
+}
+
+.hulupay-sheet-close-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: #94A3B8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.hulupay-sheet-close-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #FFFFFF;
+}
+
+.hulupay-section-label {
+  font-size: 13px;
+  font-weight: 800;
+  color: #FFFFFF;
+  margin-bottom: 10px;
+}
+
+.hulupay-recipient-box {
+  background: #0E1622;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.hulupay-recipient-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #2563EB;
+  color: #FFFFFF;
+  font-size: 12px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.hulupay-recipient-input {
+  background: transparent;
+  color: #FFFFFF;
+  font-size: 14px;
+  font-weight: 600;
+  width: 100%;
+}
+
+.hulupay-recipient-input::placeholder {
+  color: #64748B;
+}
+
+.hulupay-variants-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.hulupay-variant-card {
+  background: #172230;
+  border: 1.5px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hulupay-variant-card:hover {
+  background: #1C2B3E;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.hulupay-variant-card.active {
+  background: rgba(2, 132, 199, 0.12);
+  border-color: #38BDF8;
+}
+
+.hulupay-variant-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hulupay-variant-name {
+  font-size: 14.5px;
+  font-weight: 800;
+  color: #FFFFFF;
+}
+
+.hulupay-variant-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hulupay-variant-price {
+  font-size: 14.5px;
+  font-weight: 800;
+  color: #FFFFFF;
+  font-family: var(--font-ui);
+}
+
+.hulupay-radio-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.hulupay-variant-card.active .hulupay-radio-dot {
+  border-color: #38BDF8;
+  background: #0284C7;
+}
+
+.hulupay-btn-action {
+  width: 100%;
+  height: 52px;
+  background: #2563EB;
+  color: #FFFFFF;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 18px rgba(37, 99, 235, 0.4);
+  transition: all 0.15s ease;
+}
+
+.hulupay-btn-action:hover {
+  background: #1D4ED8;
+}
+
+.hulupay-btn-action:active {
+  transform: scale(0.98);
+}
+
+.hulupay-btn-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ═══════════════════════ Bottom Docked Navigation Bar ═══════════════════════ */
+
+.hulupay-bottom-nav {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
   z-index: 50;
-  background: rgba(10, 13, 18, 0.92);
+  background: rgba(12, 18, 28, 0.94);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border-top: 1px solid var(--tg-line);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-.nav-bar-container {
+.hulupay-nav-container {
   max-width: 480px;
   margin: 0 auto;
   display: flex;
   justify-content: space-around;
-  padding: 8px 12px;
+  padding: 8px 16px;
 }
 
-.nav-tab-item {
+.hulupay-nav-tab {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-height: 50px;
-  min-width: 72px;
-  padding: 4px 12px;
-  border-radius: var(--radius-md);
-  color: var(--tg-text-muted);
+  gap: 3px;
+  padding: 4px 16px;
+  border-radius: 12px;
+  color: #64748B;
   font-size: 11.5px;
   font-weight: 700;
-  transition: all 0.15s var(--ease-ios);
+  transition: all 0.15s ease;
 }
 
-.nav-tab-item.active {
-  color: var(--tg-electric-blue);
+.hulupay-nav-tab.active {
+  color: #38BDF8;
 }
 
-.nav-tab-item.active svg {
-  stroke: var(--tg-electric-blue);
+.hulupay-nav-icon-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.hulupay-nav-tab.active .hulupay-nav-icon-circle {
+  background: rgba(2, 132, 199, 0.2);
+  color: #38BDF8;
 }
 
 /* ═══════════════════════ Skeletons & Utilities ═══════════════════════ */
@@ -1488,3 +1861,4 @@ button:active {
   align-items: center;
   gap: 8px;
 }
+

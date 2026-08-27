@@ -1435,3 +1435,195 @@ export const ChevronRightIcon: React.FC<IconProps> = ({ size = 16, color = 'curr
   </svg>
 );
 
+export const VerifiedBadge3DIcon: React.FC<{ size?: number; className?: string }> = ({ size = 52, className }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 64 64"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    aria-hidden="true"
+    focusable="false"
+  >
+    <defs>
+      <linearGradient id="verifiedBg" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#38BDF8" />
+        <stop offset="0.5" stopColor="#0284C7" />
+        <stop offset="1" stopColor="#0369A1" />
+      </linearGradient>
+      <linearGradient id="checkGlow" x1="18" y1="18" x2="46" y2="46" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#FFFFFF" />
+        <stop offset="1" stopColor="#E0F2FE" />
+      </linearGradient>
+      <filter id="badgeShadow" x="0" y="2" width="64" height="64" filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+        <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="#0284C7" floodOpacity="0.4" />
+      </filter>
+    </defs>
+    <g filter="url(#badgeShadow)">
+      {/* 8-pointed smooth star badge */}
+      <path
+        d="M32 6L37.8 12.2L46.2 11.2L48.8 19.3L56.5 22.8L54.8 31.1L59.6 38L53.9 44.2L54.4 52.6L46.3 54.8L42.5 62.3L34.3 60.3L28 64L23.4 56.9L15 56.1L14.4 47.7L7.3 43.1L10.2 35.1L6 28L12.4 22.5L12.8 14.1L21 13.1L25.8 6L32 6Z"
+        fill="url(#verifiedBg)"
+      />
+      {/* Glossy overlay */}
+      <path
+        d="M32 7.5C45.5 7.5 56.5 18.5 56.5 32C56.5 34.2 56.2 36.3 55.6 38.3C52.2 24.5 42.5 14.5 30.1 11.8C25.4 10.8 20.6 11.4 16.2 13.2C20.7 9.6 26.1 7.5 32 7.5Z"
+        fill="#FFFFFF"
+        fillOpacity="0.25"
+      />
+      {/* Bold Checkmark */}
+      <path
+        d="M23 32.5L29 38.5L41.5 24.5"
+        stroke="url(#checkGlow)"
+        strokeWidth="5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Sparkles */}
+      <circle cx="16" cy="18" r="1.5" fill="#FFFFFF" />
+      <circle cx="48" cy="18" r="1.5" fill="#FFFFFF" />
+      <circle cx="50" cy="46" r="1.2" fill="#FFFFFF" />
+    </g>
+  </svg>
+);
+
+export const GeminiPro3DIcon: React.FC<{ size?: number; className?: string }> = ({ size = 52, className }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 64 64"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    aria-hidden="true"
+    focusable="false"
+  >
+    <defs>
+      <linearGradient id="geminiGrad" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#818CF8" />
+        <stop offset="0.4" stopColor="#6366F1" />
+        <stop offset="0.75" stopColor="#A855F7" />
+        <stop offset="1" stopColor="#EC4899" />
+      </linearGradient>
+      <linearGradient id="geminiSheen" x1="32" y1="8" x2="32" y2="40" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#FFFFFF" stopOpacity="0.5" />
+        <stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+      </linearGradient>
+      <filter id="geminiShadow" x="0" y="2" width="64" height="64" filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+        <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="#6366F1" floodOpacity="0.4" />
+      </filter>
+    </defs>
+    <g filter="url(#geminiShadow)">
+      {/* Squircle Rounded Container */}
+      <rect x="6" y="6" width="52" height="52" rx="16" fill="#131B2E" stroke="rgba(255,255,255,0.12)" strokeWidth="1.5" />
+      <rect x="6" y="6" width="52" height="52" rx="16" fill="url(#geminiGrad)" fillOpacity="0.2" />
+      {/* Gemini 4-Point Radiant Core */}
+      <path
+        d="M32 14C32 23.9411 23.9411 32 14 32C23.9411 32 32 40.0589 32 50C32 40.0589 40.0589 32 50 32C40.0589 32 32 23.9411 32 14Z"
+        fill="url(#geminiGrad)"
+      />
+      <path
+        d="M32 14C32 23.9411 23.9411 32 14 32C23.9411 32 32 40.0589 32 50C32 40.0589 40.0589 32 50 32C40.0589 32 32 23.9411 32 14Z"
+        fill="url(#geminiSheen)"
+      />
+      <circle cx="45" cy="17" r="2" fill="#F472B6" />
+      <circle cx="19" cy="45" r="1.5" fill="#60A5FA" />
+    </g>
+  </svg>
+);
+
+export const ReferralMoney3DIcon: React.FC<{ size?: number; className?: string }> = ({ size = 52, className }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 64 64"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    aria-hidden="true"
+    focusable="false"
+  >
+    <defs>
+      <linearGradient id="goldPlateGrad" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#F59E0B" />
+        <stop offset="0.5" stopColor="#D97706" />
+        <stop offset="1" stopColor="#B45309" />
+      </linearGradient>
+      <linearGradient id="billGrad1" x1="12" y1="18" x2="52" y2="46" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#34D399" />
+        <stop offset="1" stopColor="#059669" />
+      </linearGradient>
+      <filter id="moneyShadow" x="0" y="2" width="64" height="64" filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+        <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="#F59E0B" floodOpacity="0.4" />
+      </filter>
+    </defs>
+    <g filter="url(#moneyShadow)">
+      <rect x="6" y="6" width="52" height="52" rx="16" fill="#1C1E14" stroke="rgba(245,158,11,0.25)" strokeWidth="1.5" />
+      <rect x="6" y="6" width="52" height="52" rx="16" fill="url(#goldPlateGrad)" fillOpacity="0.12" />
+      {/* Tilted Cash Notes */}
+      <rect x="14" y="26" width="34" height="20" rx="3" transform="rotate(-12 14 26)" fill="url(#billGrad1)" stroke="#A7F3D0" strokeWidth="1" />
+      <rect x="18" y="22" width="34" height="20" rx="3" transform="rotate(4 18 22)" fill="#10B981" stroke="#D1FAE5" strokeWidth="1" />
+      <circle cx="35" cy="32" r="4.5" fill="#047857" />
+      <text x="35" y="35" textAnchor="middle" fontSize="6.5" fontWeight="900" fill="#ECFDF5" fontFamily="sans-serif">$</text>
+      {/* Gold Coins Stack */}
+      <circle cx="46" cy="42" r="7" fill="#FBBF24" stroke="#F59E0B" strokeWidth="1.5" />
+      <circle cx="46" cy="42" r="5" fill="#F59E0B" />
+      <text x="46" y="44.5" textAnchor="middle" fontSize="6.5" fontWeight="900" fill="#FEF3C7" fontFamily="sans-serif">★</text>
+    </g>
+  </svg>
+);
+
+export const SupportAgent3DIcon: React.FC<{ size?: number; className?: string }> = ({ size = 52, className }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 64 64"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    aria-hidden="true"
+    focusable="false"
+  >
+    <defs>
+      <linearGradient id="supportPlateGrad" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#06B6D4" />
+        <stop offset="1" stopColor="#0891B2" />
+      </linearGradient>
+      <filter id="supportShadow" x="0" y="2" width="64" height="64" filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+        <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="#06B6D4" floodOpacity="0.35" />
+      </filter>
+    </defs>
+    <g filter="url(#supportShadow)">
+      <rect x="6" y="6" width="52" height="52" rx="16" fill="#0E1E26" stroke="rgba(6,182,212,0.25)" strokeWidth="1.5" />
+      <rect x="6" y="6" width="52" height="52" rx="16" fill="url(#supportPlateGrad)" fillOpacity="0.15" />
+      {/* Support Headset & Chat bubble */}
+      <path
+        d="M20 32C20 25.3726 25.3726 20 32 20C38.6274 20 44 25.3726 44 32V38C44 39.6569 42.6569 41 41 41H38V31H42V32C42 26.4772 37.5228 22 32 22C26.4772 22 22 26.4772 22 32V31H26V41H23C21.3431 41 20 39.6569 20 38V32Z"
+        fill="#22D3EE"
+      />
+      <path
+        d="M38 41V43C38 44.6569 36.6569 46 35 46H30"
+        stroke="#22D3EE"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <circle cx="29" cy="46" r="2" fill="#22D3EE" />
+      {/* Active Online Indicator */}
+      <circle cx="48" cy="18" r="4.5" fill="#10B981" stroke="#0E1E26" strokeWidth="2" />
+    </g>
+  </svg>
+);
+
+export const LocalPaymentGroupBadge: React.FC<{ size?: number; className?: string }> = ({ className }) => (
+  <div className={`inline-flex items-center gap-1.5 ${className || ''}`}>
+    {/* Telebirr dot */}
+    <span className="w-5 h-5 rounded-full bg-[#0284C7] flex items-center justify-center text-[9px] font-black text-white shadow-sm ring-1 ring-white/20">T</span>
+    {/* CBE dot */}
+    <span className="w-5 h-5 rounded-full bg-[#6B21A8] flex items-center justify-center text-[9px] font-black text-[#FBBF24] shadow-sm ring-1 ring-white/20">C</span>
+    {/* Abyssinia dot */}
+    <span className="w-5 h-5 rounded-full bg-[#C2410C] flex items-center justify-center text-[9px] font-black text-white shadow-sm ring-1 ring-white/20">A</span>
+  </div>
+);
+
+
