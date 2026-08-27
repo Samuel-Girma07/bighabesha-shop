@@ -1,10 +1,12 @@
 import { Resvg } from '@resvg/resvg-js';
 import crypto from 'crypto';
 import fs from 'fs';
+import fsp from 'fs/promises';
 import path from 'path';
 import { logger } from '../logger/index.js';
 import { getProductVariants } from './catalog.service.js';
 import { getNumericSetting, getSetting } from './settings.service.js';
+import { cached } from './cache.service.js';
 
 const ASSETS_DIR = path.resolve(process.cwd(), 'assets/banners');
 
@@ -18,7 +20,6 @@ function ensureAssetsDir() {
 function storeSnapshot() {
   const geminiVariants = getProductVariants('gemini_pro_18m');
   const premVariants = getProductVariants('telegram_premium');
-  const starsVariants = getProductVariants('telegram_stars');
 
   const geminiPrice = geminiVariants[0]?.price_etb ?? 0;
   const premPrices = premVariants.map((v) => v.price_etb);
@@ -31,12 +32,9 @@ function storeSnapshot() {
     prem3: premPrices[0] ?? 0,
     prem6: premPrices[1] ?? 0,
     prem12: premPrices[2] ?? 0,
-    etbPerStar: getNumericSetting('etb_per_star', 2.5),
-    stars50: Math.ceil(50 * getNumericSetting('etb_per_star', 2.5)),
-    stars500: Math.ceil(500 * getNumericSetting('etb_per_star', 2.5)),
-    stars1000: Math.ceil(1000 * getNumericSetting('etb_per_star', 2.5)),
     cbeAccount: getSetting('cbe_account', '0000000000000'),
     telebirrAccount: getSetting('telebirr_account', '0000000000'),
+    abyssiniaAccount: getSetting('abyssinia_account', '0000000000000'),
   };
 }
 
@@ -111,9 +109,9 @@ export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'star
 
         <g transform="translate(780, 380)">
           <rect width="300" height="150" rx="16" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
-          <text x="24" y="44" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="800" fill="#10B981">Telegram Stars</text>
-          <text x="24" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">Packages &amp; Custom</text>
-          <text x="24" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="800" fill="#FFFFFF">1 Star = ${s.etbPerStar} ETB</text>
+          <text x="24" y="44" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="800" fill="#10B981">Local Payment Rails</text>
+          <text x="24" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">CBE, Telebirr &amp; Crypto</text>
+          <text x="24" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="800" fill="#FFFFFF">Instant Delivery</text>
         </g>
       </svg>`;
     }
@@ -210,55 +208,10 @@ export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'star
     }
 
     case 'stars': {
-      const s = storeSnapshot();
       return `
       <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="bgS" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#0B111A"/>
-            <stop offset="100%" stop-color="#1C2114"/>
-          </linearGradient>
-          <radialGradient id="starsGlow" cx="80%" cy="30%" r="60%">
-            <stop offset="0%" stop-color="rgba(16, 185, 129, 0.25)"/>
-            <stop offset="100%" stop-color="transparent"/>
-          </radialGradient>
-        </defs>
-
-        <rect width="1200" height="630" fill="url(#bgS)"/>
-        <rect width="1200" height="630" fill="url(#starsGlow)"/>
-        <rect x="0" y="0" width="1200" height="6" fill="#10B981"/>
-
-        <!-- Tag -->
-        <rect x="100" y="90" width="220" height="36" rx="18" fill="rgba(16, 185, 129, 0.12)" stroke="#10B981" stroke-width="1"/>
-        <text x="125" y="114" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="700" fill="#10B981">OFFICIAL TELEGRAM STARS</text>
-
-        <text x="100" y="210" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="54" font-weight="800" fill="#FFFFFF">Telegram Stars (Coins)</text>
-        <text x="100" y="260" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="24" font-weight="500" fill="#94A3B8">In-app currency for digital gifts, channel boosts, bots, and mini-apps</text>
-
-        <!-- Rate pill -->
-        <g transform="translate(100, 310)">
-          <rect width="460" height="60" rx="14" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
-          <text x="24" y="38" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="700" fill="#FFFFFF">Exchange Rate: <tspan fill="#FCDD09">1 Star = ${s.etbPerStar} ETB</tspan></text>
-        </g>
-
-        <!-- Packages sample grid -->
-        <g transform="translate(100, 400)">
-          <rect x="0" y="0" width="220" height="100" rx="14" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
-          <text x="20" y="40" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">50 Stars</text>
-          <text x="20" y="75" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#10B981">${s.stars50.toLocaleString('en-US')} ETB</text>
-
-          <rect x="250" y="0" width="220" height="100" rx="14" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
-          <text x="270" y="40" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">500 Stars</text>
-          <text x="270" y="75" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#10B981">${s.stars500.toLocaleString('en-US')} ETB</text>
-
-          <rect x="500" y="0" width="220" height="100" rx="14" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
-          <text x="520" y="40" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">1,000 Stars</text>
-          <text x="520" y="75" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#10B981">${s.stars1000.toLocaleString('en-US')} ETB</text>
-
-          <rect x="750" y="0" width="250" height="100" rx="14" fill="#16202E" stroke="rgba(252, 221, 9, 0.4)" stroke-width="2"/>
-          <text x="770" y="40" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">Custom Amount</text>
-          <text x="770" y="75" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="600" fill="#FCDD09">Interactive Slider</text>
-        </g>
+        <rect width="1200" height="630" fill="#0B111A"/>
+        <text x="600" y="315" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="32" font-weight="700" fill="#FFFFFF" text-anchor="middle">Telegram Stars Decommissioned</text>
       </svg>`;
     }
 
@@ -367,7 +320,7 @@ export function getBannerPngPath(type: BannerType): string {
 }
 
 export async function prewarmAllBanners(): Promise<void> {
-  const standardTypes: Array<BannerType> = ['welcome', 'gemini', 'premium', 'stars', 'checkout'];
+  const standardTypes: Array<BannerType> = ['welcome', 'gemini', 'premium', 'checkout'];
   for (const type of standardTypes) {
     try {
       getBannerPngPath(type);

@@ -643,9 +643,9 @@ describe('Feature: CBE SMS confirmation matching', () => {
     expect(discounted.matched).toBe(true);
 
     // Two orders with identical amounts → ambiguous, no guess
-    createOrder({ userId: 907001, productId: 'telegram_stars', customStars: 500, amountETB: 1250, paymentRail: 'telebirr' });
-    createOrder({ userId: 907001, productId: 'telegram_stars', customStars: 500, amountETB: 1250, paymentRail: 'cbe' });
-    const ambiguous = matchSmsToOrders(getDatabase(), 907001, { amountEtb: 1250, reference: 'X2' });
+    createOrder({ userId: 907001, productId: 'telegram_premium', variantId: 'tg_prem_3m', amountETB: 1100, paymentRail: 'telebirr' });
+    createOrder({ userId: 907001, productId: 'telegram_premium', variantId: 'tg_prem_3m', amountETB: 1100, paymentRail: 'cbe' });
+    const ambiguous = matchSmsToOrders(getDatabase(), 907001, { amountEtb: 1100, reference: 'X2' });
     expect(ambiguous.matched).toBe(false);
     expect(ambiguous.reason).toBe('ambiguous');
   });

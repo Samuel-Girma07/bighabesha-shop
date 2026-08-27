@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { getConfig } from '../../config/env.js';
 import { logger } from '../../logger/index.js';
+import { fetchJson, HttpError, CircuitOpenError } from '../../lib/http.js';
 
 const CHAPA_API = 'https://api.chapa.co/v1';
 
@@ -39,31 +40,43 @@ export async function chapaInitialize(params: ChapaInitializeParams): Promise<{ 
   const config = getConfig();
   if (!config.CHAPA_SECRET_KEY) throw new Error('Chapa is not configured (CHAPA_SECRET_KEY missing).');
 
-  const response = await fetch(`${CHAPA_API}/transaction/initialize`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.CHAPA_SECRET_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      amount: String(params.amountEtb),
-      currency: 'ETB',
-      tx_ref: params.txRef,
-      return_url: params.returnUrl,
-      customization: { title: 'Bighabesha Shop', description: `Order ${params.txRef}` },
-      ...(params.buyerPhone ? { phone_number: params.buyerPhone } : {}),
-    }),
-  });
+  try {
+    const data = await fetchJson<{ data?: { checkout_url?: string; reference?: string } }>(
+      `${CHAPA_API}/transaction/initialize`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.CHAPA_SECRET_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: String(params.amountEtb),
+          currency: 'ETB',
+          tx_ref: params.txRef,
+          return_url: params.returnUrl,
+          customization: { title: 'Bighabesha Shop', description: `Order ${params.txRef}` },
+          ...(params.buyerPhone ? { phone_number: params.buyerPhone } : {}),
+        }),
+        // Payment creation is not safely retryable: a single bounded attempt only.
+        timeoutMs: 8000,
+        attempts: 1,
+        breakerKey: 'chapa',
+      }
+    );
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Chapa initialize failed (${response.status}): ${text.slice(0, 200)}`);
+    if (!data.data?.checkout_url) throw new Error('Chapa response missing checkout_url');
+
+    return { payUrl: data.data.checkout_url, providerRef: data.data.reference ?? params.txRef };
+  } catch (err) {
+    if (err instanceof CircuitOpenError) {
+      logger.warn({ txRef: params.txRef }, 'Chapa circuit open — offering alternate rails');
+      throw new Error('Card and mobile-money payments are temporarily unavailable. Please try another method.');
+    }
+    if (err instanceof HttpError) {
+      throw new Error(`Chapa initialize failed (${err.status}): ${(err.body ?? '').slice(0, 200)}`);
+    }
+    throw err;
   }
-
-  const data = (await response.json()) as { data?: { checkout_url?: string; reference?: string } };
-  if (!data.data?.checkout_url) throw new Error('Chapa response missing checkout_url');
-
-  return { payUrl: data.data.checkout_url, providerRef: data.data.reference ?? params.txRef };
 }
 
 /** Server-side status verification against Chapa's API. */
@@ -71,16 +84,22 @@ export async function chapaQueryStatus(txRef: string): Promise<'pending' | 'succ
   const config = getConfig();
   if (!config.CHAPA_SECRET_KEY) return 'unknown';
   try {
-    const response = await fetch(`${CHAPA_API}/transaction/verify/${encodeURIComponent(txRef)}`, {
-      headers: { Authorization: `Bearer ${config.CHAPA_SECRET_KEY}` },
-    });
-    if (!response.ok) return 'unknown';
-    const data = (await response.json()) as { data?: { status?: string } };
+    const data = await fetchJson<{ data?: { status?: string } }>(
+      `${CHAPA_API}/transaction/verify/${encodeURIComponent(txRef)}`,
+      {
+        headers: { Authorization: `Bearer ${config.CHAPA_SECRET_KEY}` },
+        timeoutMs: 6000,
+        attempts: 2,
+        retryOn5xx: true,
+        breakerKey: 'chapa',
+      }
+    );
     const status = data.data?.status;
     if (status === 'success') return 'success';
     if (status === 'failed') return 'failed';
     return 'pending';
   } catch (err) {
+    if (err instanceof CircuitOpenError) return 'unknown';
     logger.warn({ err, txRef }, 'Chapa status query failed');
     return 'unknown';
   }

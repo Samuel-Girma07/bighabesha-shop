@@ -47,8 +47,9 @@ describe('Phase 4: Admin Fulfillment Queue, Alerts, Broadcast & Hardening', () =
       const o2 = createOrder({
         userId: 102,
         username: 'user_second',
-        productId: 'telegram_stars',
-        amountETB: 250,
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_6m',
+        amountETB: 1900,
         paymentRail: 'cbe',
         status: 'pending_fulfillment',
       });
@@ -172,8 +173,9 @@ describe('Phase 4: Admin Fulfillment Queue, Alerts, Broadcast & Hardening', () =
       const order = createOrder({
         userId: 202,
         username: 'buyer202',
-        productId: 'telegram_stars',
-        amountETB: 625,
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
         paymentRail: 'telebirr',
         status: 'pending_fulfillment',
       });

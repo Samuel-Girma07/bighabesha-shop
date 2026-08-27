@@ -3,6 +3,9 @@ import { PaymentAdapter, CreatePaymentParams, PaymentResult } from './types.js';
 import { getConfig } from '../../config/env.js';
 import { calculateCryptoQuote, fetchCoinGeckoPrices } from '../rate_engine.service.js';
 import { logger } from '../../logger/index.js';
+import { fetchJson, HttpError, CircuitOpenError } from '../../lib/http.js';
+
+const WPAY_BASE = 'https://pay.wallet.tg/wpay/v1';
 
 /** Maximum age/drift (seconds) accepted for webhook timestamps — replay guard. */
 export const WEBHOOK_TIMESTAMP_MAX_SKEW_SECONDS = 300;
@@ -90,52 +93,71 @@ export class LiveWalletPayAdapter implements PaymentAdapter {
 
     logger.info({ orderId: params.orderId, currency, cryptoAmount }, 'LiveWalletPay requesting order from Wallet Pay API');
 
-    // Real API integration endpoint structure for @wallet / Pay API
-    const response = await fetch('https://pay.wallet.tg/wpay/v1/order', {
-      method: 'POST',
-      headers: {
-        'Wpay-Store-Api-Key': this.apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        amount: {
-          currencyCode: currency,
-          amount: cryptoAmount.toString(),
+    try {
+      const data = await fetchJson<{ data: { payLink: string; id: string } }>(`${WPAY_BASE}/order`, {
+        method: 'POST',
+        headers: {
+          'Wpay-Store-Api-Key': this.apiKey,
+          'Content-Type': 'application/json',
         },
-        description: `Bighabesha Shop - ${params.productName}`,
-        externalId: params.orderId,
-        timeoutSeconds: 3600,
-        customerTelegramUserId: params.userId,
-      }),
-    });
+        body: JSON.stringify({
+          amount: {
+            currencyCode: currency,
+            amount: cryptoAmount.toString(),
+          },
+          description: `Bighabesha Shop - ${params.productName}`,
+          externalId: params.orderId,
+          timeoutSeconds: 3600,
+          customerTelegramUserId: params.userId,
+        }),
+        // Order creation is not safely retryable: a single bounded attempt only.
+        timeoutMs: 8000,
+        attempts: 1,
+        breakerKey: 'wallet-pay',
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Wallet Pay API error (${response.status}): ${errorText}`);
+      if (!data.data?.payLink || !data.data?.id) {
+        throw new Error('Wallet Pay returned no payLink/id');
+      }
+
+      return {
+        paymentRef: data.data.id,
+        status: 'awaiting_payment',
+        payUrl: data.data.payLink,
+        cryptoAmount,
+        cryptoCurrency: currency,
+      };
+    } catch (err) {
+      if (err instanceof CircuitOpenError) {
+        logger.warn({ orderId: params.orderId }, 'Wallet Pay circuit open — offering alternate rails');
+        throw new Error('Crypto payments are temporarily unavailable. Please try another method.');
+      }
+      if (err instanceof HttpError) {
+        throw new Error(`Wallet Pay API error (${err.status}): ${err.body ?? ''}`);
+      }
+      throw err;
     }
-
-    const data = (await response.json()) as { data: { payLink: string; id: string } };
-
-    return {
-      paymentRef: data.data.id,
-      status: 'awaiting_payment',
-      payUrl: data.data.payLink,
-      cryptoAmount,
-      cryptoCurrency: currency,
-    };
   }
 
   async verifyPayment(paymentRef: string): Promise<boolean> {
     if (!this.apiKey) return false;
 
-    const response = await fetch(`https://pay.wallet.tg/wpay/v1/order/preview?id=${paymentRef}`, {
-      headers: {
-        'Wpay-Store-Api-Key': this.apiKey,
-      },
-    });
-
-    if (!response.ok) return false;
-    const data = (await response.json()) as { data?: { status?: string } };
-    return data.data?.status === 'PAID';
+    try {
+      const data = await fetchJson<{ data?: { status?: string } }>(
+        `${WPAY_BASE}/order/preview?id=${encodeURIComponent(paymentRef)}`,
+        {
+          headers: { 'Wpay-Store-Api-Key': this.apiKey },
+          timeoutMs: 6000,
+          attempts: 2,
+          retryOn5xx: true,
+          breakerKey: 'wallet-pay',
+        }
+      );
+      return data.data?.status === 'PAID';
+    } catch (err) {
+      if (err instanceof CircuitOpenError) return false;
+      logger.warn({ err, paymentRef }, 'Wallet Pay preview failed; will retry next pass');
+      return false;
+    }
   }
 }

@@ -7,6 +7,8 @@ import { seedDatabase } from './seed.js';
 
 let dbInstance: Database.Database | null = null;
 
+const stmtCache = new Map<string, Database.Statement>();
+
 export function initDatabase(dbPath: string = './data/shop.db', migrationsDir?: string): Database.Database {
   if (dbPath !== ':memory:') {
     const dir = path.dirname(dbPath);
@@ -21,14 +23,18 @@ export function initDatabase(dbPath: string = './data/shop.db', migrationsDir?: 
   // Performance and safety pragmas
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  db.pragma('busy_timeout = 5000');
+  // Deliberately short: better-sqlite3 blocks the event loop while waiting on a
+  // write lock, so contention is absorbed by withWriteRetry() instead.
+  db.pragma('busy_timeout = 250');
   db.pragma('synchronous = NORMAL');
   db.pragma('cache_size = -64000');
   db.pragma('mmap_size = 268435456');
+  db.pragma('wal_autocheckpoint = 1000');
 
   runMigrations(db, migrationsDir);
   seedDatabase(db);
 
+  stmtCache.clear();
   dbInstance = db;
   return db;
 }
@@ -40,8 +46,36 @@ export function getDatabase(): Database.Database {
   return dbInstance;
 }
 
+export function prepared(sql: string): Database.Statement {
+  const hit = stmtCache.get(sql);
+  if (hit) return hit;
+  const stmt = getDatabase().prepare(sql);
+  stmtCache.set(sql, stmt);
+  return stmt;
+}
+
+export async function withWriteRetry<T>(fn: () => T, attempts = 5): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return fn();
+    } catch (err: any) {
+      const code = err?.code as string | undefined;
+      if (code !== 'SQLITE_BUSY' && code !== 'SQLITE_BUSY_SNAPSHOT') throw err;
+      lastErr = err;
+      const backoffMs = Math.random() * Math.min(500, 25 * 2 ** i);
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+  }
+  logger.error({ err: lastErr, attempts }, 'Write abandoned after SQLITE_BUSY retries');
+  throw lastErr;
+}
+
+
+
 export function closeDatabase(): void {
   if (dbInstance) {
+    stmtCache.clear();
     dbInstance.close();
     dbInstance = null;
   }

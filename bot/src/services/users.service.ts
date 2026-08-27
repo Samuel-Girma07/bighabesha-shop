@@ -1,4 +1,4 @@
-import { getDatabase } from '../db/index.js';
+import { getDatabase, prepared } from '../db/index.js';
 import { isAdmin } from '../bot/handlers/admin.js';
 import { logger } from '../logger/index.js';
 
@@ -16,8 +16,7 @@ export interface User {
 
 export function getUserById(userId: number): User | null {
   try {
-    const db = getDatabase();
-    return (db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as User) || null;
+    return (prepared('SELECT * FROM users WHERE id = ?').get(userId) as User) || null;
   } catch (err) {
     logger.error({ err, userId }, 'Failed to fetch user by id');
     return null;
@@ -26,12 +25,35 @@ export function getUserById(userId: number): User | null {
 
 export function getAllUsers(): User[] {
   try {
-    const db = getDatabase();
-    return db.prepare('SELECT * FROM users ORDER BY created_at DESC').all() as User[];
+    return prepared('SELECT * FROM users ORDER BY created_at DESC').all() as User[];
   } catch (err) {
     logger.error({ err }, 'Failed to fetch all users');
     return [];
   }
+}
+
+export function* iterateAllUsers(batchSize = 500): Generator<User[]> {
+  let afterId = 0;
+  for (;;) {
+    const batch = prepared(`
+      SELECT * FROM users
+      WHERE id > ?
+      ORDER BY id ASC
+      LIMIT ?
+    `).all(afterId, batchSize) as User[];
+
+    if (batch.length === 0) return;
+    yield batch;
+    afterId = batch[batch.length - 1].id;
+    if (batch.length < batchSize) return;
+  }
+}
+
+export function countRegisteredUsers(): number {
+  const row = prepared(`
+    SELECT COUNT(*) as count FROM users WHERE is_registered = 1
+  `).get() as { count: number };
+  return row.count;
 }
 
 export function upsertUser(user: {

@@ -185,27 +185,16 @@ export async function renderAdminRates(ctx: Context): Promise<void> {
   if (!isAdmin(ctx.from?.id)) return;
 
   const etbPerUsd = getNumericSetting('etb_per_usd', 135);
-  const etbPerStar = getNumericSetting('etb_per_star', 2.5);
   const marginPct = getNumericSetting('margin_pct', 5);
-  const starsMin = getNumericSetting('stars_min', 10);
-  const starsMax = getNumericSetting('stars_max', 100000);
 
   const text = '📈 <b>Exchange Rates & Pricing Parameters</b>\n\n' +
     `• <b>ETB per USD:</b> ${etbPerUsd} ETB\n` +
-    `• <b>ETB per Star:</b> ${etbPerStar} ETB\n` +
-    `• <b>Crypto Margin:</b> ${marginPct}%\n` +
-    `• <b>Min Custom Stars:</b> ${starsMin.toLocaleString()} ⭐\n` +
-    `• <b>Max Custom Stars:</b> ${starsMax.toLocaleString()} ⭐\n\n` +
+    `• <b>Crypto Margin:</b> ${marginPct}%\n\n` +
     'Tap a parameter to edit its value:';
 
   const keyboard = new InlineKeyboard()
     .text(`✏️ ETB/USD (${etbPerUsd})`, 'admin_edit_setting_etb_per_usd')
-    .text(`✏️ ETB/Star (${etbPerStar})`, 'admin_edit_setting_etb_per_star')
-    .row()
     .text(`✏️ Margin % (${marginPct}%)`, 'admin_edit_setting_margin_pct')
-    .row()
-    .text(`✏️ Min Stars (${starsMin})`, 'admin_edit_setting_stars_min')
-    .text(`✏️ Max Stars (${starsMax})`, 'admin_edit_setting_stars_max')
     .row()
     .text('« Back to Admin Menu', 'admin_menu');
 

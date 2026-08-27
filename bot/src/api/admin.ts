@@ -3,7 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { getConfig } from '../config/env.js';
-import { getDatabase } from '../db/index.js';
+import { getDatabase, prepared } from '../db/index.js';
+import { cachedSync } from '../services/cache.service.js';
 import { logger } from '../logger/index.js';
 import { resolveReceiptsDir, resolveStoredReceiptPath } from '../services/receipts.service.js';
 import { createReceiptDownloadToken, verifyReceiptDownloadToken } from '../services/download_tokens.service.js';
@@ -322,147 +323,150 @@ export function requirePermission(perm: Permission) {
 
 // 1. Overview & Analytics Metrics (Real Database Data)
 adminRouter.get('/overview', requireAdminAuth, requirePermission('analytics.view'), (req: Request, res: Response): void => {
-  const db = getDatabase();
   const timeRange = (req.query.range as string) || '6M';
   const rail = (req.query.rail as string) || 'all';
 
-  const railFilter = rail !== 'all' ? ' AND payment_rail = ?' : '';
+  const data = cachedSync(`admin:overview:${timeRange}:${rail}`, 30_000, () => {
+    const railFilter = rail !== 'all' ? ' AND payment_rail = ?' : '';
+    const railParams = rail !== 'all' ? [rail] : [];
 
-  // 1. Total lifetime revenue from fulfilled orders
-  const totalRevSql = `SELECT COALESCE(SUM(amount_etb), 0) as total FROM orders WHERE status = 'fulfilled'${railFilter}`;
-  const totalRevenue = (rail !== 'all' ? db.prepare(totalRevSql).get(rail) : db.prepare(totalRevSql).get()) as { total: number };
+    // 1. Total lifetime revenue from fulfilled orders
+    const totalRevSql = `SELECT COALESCE(SUM(amount_etb), 0) as total FROM orders WHERE status = 'fulfilled'${railFilter}`;
+    const totalRevenue = (rail !== 'all' ? prepared(totalRevSql).get(...railParams) : prepared(totalRevSql).get()) as { total: number };
 
-  // 2. Orders status breakdown
-  const ordersCountSql = `SELECT COUNT(*) as total, ` +
-    `SUM(CASE WHEN status = 'fulfilled' THEN 1 ELSE 0 END) as fulfilled, ` +
-    `SUM(CASE WHEN status = 'pending_approval' THEN 1 ELSE 0 END) as pendingApproval, ` +
-    `SUM(CASE WHEN status = 'pending_fulfillment' THEN 1 ELSE 0 END) as pendingFulfillment, ` +
-    `SUM(CASE WHEN status = 'awaiting_payment' THEN 1 ELSE 0 END) as awaitingPayment ` +
-    `FROM orders WHERE 1=1${railFilter}`;
-  const ordersCount = (rail !== 'all' ? db.prepare(ordersCountSql).get(rail) : db.prepare(ordersCountSql).get()) as any;
+    // 2. Orders status breakdown
+    const ordersCountSql = `SELECT COUNT(*) as total, ` +
+      `SUM(CASE WHEN status = 'fulfilled' THEN 1 ELSE 0 END) as fulfilled, ` +
+      `SUM(CASE WHEN status = 'pending_approval' THEN 1 ELSE 0 END) as pendingApproval, ` +
+      `SUM(CASE WHEN status = 'pending_fulfillment' THEN 1 ELSE 0 END) as pendingFulfillment, ` +
+      `SUM(CASE WHEN status = 'awaiting_payment' THEN 1 ELSE 0 END) as awaitingPayment ` +
+      `FROM orders WHERE 1=1${railFilter}`;
+    const ordersCount = (rail !== 'all' ? prepared(ordersCountSql).get(...railParams) : prepared(ordersCountSql).get()) as any;
 
-  // 3. User counts
-  const usersCount = db.prepare(
-    "SELECT COUNT(*) as total, SUM(CASE WHEN is_registered = 1 THEN 1 ELSE 0 END) as registered FROM users"
-  ).get() as any;
+    // 3. User counts
+    const usersCount = prepared(
+      "SELECT COUNT(*) as total, SUM(CASE WHEN is_registered = 1 THEN 1 ELSE 0 END) as registered FROM users"
+    ).get() as any;
 
-  // 4. Gemini Stock
-  const geminiStock = getAvailableStockCount('gemini_pro_18m');
+    // 4. Gemini Stock
+    const geminiStock = getAvailableStockCount('gemini_pro_18m');
 
-  // 5. Payment Rail Breakdown
-  const railBreakdown = db.prepare(
-    "SELECT payment_rail, COUNT(*) as count, SUM(amount_etb) as total_etb FROM orders WHERE status = 'fulfilled' GROUP BY payment_rail"
-  ).all();
+    // 5. Payment Rail Breakdown
+    const railBreakdown = prepared(
+      "SELECT payment_rail, COUNT(*) as count, SUM(amount_etb) as total_etb FROM orders WHERE status = 'fulfilled' GROUP BY payment_rail"
+    ).all();
 
-  // 6. Product Revenue Breakdown
-  const productStats = [
-    { id: 'gemini_pro_18m', name: 'Gemini Pro (18M)', code: 'GEMINI' },
-    { id: 'telegram_premium', name: 'Telegram Premium', code: 'PREM' },
-    { id: 'telegram_stars', name: 'Telegram Stars', code: 'STARS' },
-  ].map((p) => {
-    const pSql = `SELECT COUNT(*) as units, COALESCE(SUM(amount_etb), 0) as revenue FROM orders WHERE product_id = ? AND status = 'fulfilled'${railFilter}`;
-    const row = (rail !== 'all' ? db.prepare(pSql).get(p.id, rail) : db.prepare(pSql).get(p.id)) as { units: number; revenue: number };
-    const pct = totalRevenue.total > 0 ? ((row.revenue / totalRevenue.total) * 100).toFixed(1) : '0';
+    // 6. Product Revenue Breakdown
+    const productStats = [
+      { id: 'gemini_pro_18m', name: 'Gemini Pro (18M)', code: 'GEMINI' },
+      { id: 'telegram_premium', name: 'Telegram Premium', code: 'PREM' },
+    ].map((p) => {
+      const pSql = `SELECT COUNT(*) as units, COALESCE(SUM(amount_etb), 0) as revenue FROM orders WHERE product_id = ? AND status = 'fulfilled'${railFilter}`;
+      const row = (rail !== 'all' ? prepared(pSql).get(p.id, ...railParams) : prepared(pSql).get(p.id)) as { units: number; revenue: number };
+      const pct = totalRevenue.total > 0 ? ((row.revenue / totalRevenue.total) * 100).toFixed(1) : '0';
+      return {
+        id: p.id,
+        name: p.name,
+        code: p.code,
+        units: row.units || 0,
+        revenue: row.revenue || 0,
+        pctOfTotal: `${pct}%`,
+      };
+    });
+
+    // 7. Dynamic Timeline Chart Data based on timeRange & rail (aligned to Ethiopian Local Time UTC+3)
+    const chartPoints: { label: string; revenue: number; orders: number }[] = [];
+
+    if (timeRange === '1D') {
+      // 3-hour intervals for today in Ethiopian Local Time (UTC+3)
+      for (let h = 0; h < 24; h += 3) {
+        const hourStr = h.toString().padStart(2, '0');
+        const startH = h;
+        const endH = h + 3;
+        const hSql = `SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND date(created_at, '+3 hours') = date('now', '+3 hours') AND CAST(strftime('%H', datetime(created_at, '+3 hours')) AS INTEGER) >= ? AND CAST(strftime('%H', datetime(created_at, '+3 hours')) AS INTEGER) < ?${railFilter}`;
+        const row = (rail !== 'all' ? prepared(hSql).get(startH, endH, ...railParams) : prepared(hSql).get(startH, endH)) as any;
+        chartPoints.push({
+          label: `${hourStr}:00`,
+          revenue: row?.rev || 0,
+          orders: row?.count || 0,
+        });
+      }
+    } else if (timeRange === '1W') {
+      // Last 7 days in Ethiopian Local Time (UTC+3)
+      for (let d = 6; d >= 0; d--) {
+        const nowUtc3 = new Date(Date.now() + 3 * 60 * 60 * 1000);
+        nowUtc3.setUTCDate(nowUtc3.getUTCDate() - d);
+        const dateStr = nowUtc3.toISOString().split('T')[0];
+        const dayLabel = nowUtc3.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+        const dSql = `SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND date(created_at, '+3 hours') = date(?)${railFilter}`;
+        const row = (rail !== 'all' ? prepared(dSql).get(dateStr, ...railParams) : prepared(dSql).get(dateStr)) as any;
+        chartPoints.push({
+          label: dayLabel,
+          revenue: row?.rev || 0,
+          orders: row?.count || 0,
+        });
+      }
+    } else if (timeRange === '1M') {
+      // 4 Weeks in Ethiopian Local Time (UTC+3)
+      for (let w = 3; w >= 0; w--) {
+        const weekLabel = `W${4 - w}`;
+        const startDaysAgo = (w + 1) * 7;
+        const endDaysAgo = w * 7;
+        const wSql = `SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND datetime(created_at, '+3 hours') >= datetime('now', '+3 hours', '-' || ? || ' days') AND datetime(created_at, '+3 hours') < datetime('now', '+3 hours', '-' || ? || ' days')${railFilter}`;
+        const row = (rail !== 'all' ? prepared(wSql).get(startDaysAgo, endDaysAgo, ...railParams) : prepared(wSql).get(startDaysAgo, endDaysAgo)) as any;
+        chartPoints.push({
+          label: weekLabel,
+          revenue: row?.rev || 0,
+          orders: row?.count || 0,
+        });
+      }
+    } else {
+      // 6M or 1Y: Monthly buckets in Ethiopian Local Time (UTC+3)
+      const monthsCount = timeRange === '1Y' ? 12 : 6;
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const nowUtc3 = new Date(Date.now() + 3 * 60 * 60 * 1000);
+      for (let i = monthsCount - 1; i >= 0; i--) {
+        const d = new Date(Date.UTC(nowUtc3.getUTCFullYear(), nowUtc3.getUTCMonth() - i, 1));
+        const mIdx = d.getUTCMonth();
+        const monthLabel = months[mIdx];
+        const monthFormatted = (mIdx + 1).toString().padStart(2, '0');
+        const yearStr = d.getUTCFullYear().toString();
+
+        const mSql = `SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND strftime('%m', datetime(created_at, '+3 hours')) = ? AND strftime('%Y', datetime(created_at, '+3 hours')) = ?${railFilter}`;
+        const row = (rail !== 'all' ? prepared(mSql).get(monthFormatted, yearStr, ...railParams) : prepared(mSql).get(monthFormatted, yearStr)) as any;
+
+        chartPoints.push({
+          label: monthLabel,
+          revenue: row?.rev || 0,
+          orders: row?.count || 0,
+        });
+      }
+    }
+
+    // 8. Recent 5 orders
+    const recSql = `SELECT id, user_id, username, product_id, amount_etb, payment_rail, status, created_at FROM orders WHERE 1=1${railFilter} ORDER BY created_at DESC LIMIT 5`;
+    const recentOrders = (rail !== 'all' ? prepared(recSql).all(...railParams) : prepared(recSql).all()) as any[];
+
     return {
-      id: p.id,
-      name: p.name,
-      code: p.code,
-      units: row.units || 0,
-      revenue: row.revenue || 0,
-      pctOfTotal: `${pct}%`,
+      metrics: {
+        totalRevenueETB: totalRevenue.total,
+        totalOrders: ordersCount.total || 0,
+        fulfilledOrders: ordersCount.fulfilled || 0,
+        pendingApprovalOrders: ordersCount.pendingApproval || 0,
+        pendingFulfillmentOrders: ordersCount.pendingFulfillment || 0,
+        awaitingPaymentOrders: ordersCount.awaitingPayment || 0,
+        totalUsers: usersCount.total || 0,
+        registeredUsers: usersCount.registered || 0,
+        geminiStockAvailable: geminiStock,
+      },
+      productStats,
+      chartPoints,
+      railBreakdown,
+      recentOrders,
     };
   });
 
-  // 7. Dynamic Timeline Chart Data based on timeRange & rail (aligned to Ethiopian Local Time UTC+3)
-  const chartPoints: { label: string; revenue: number; orders: number }[] = [];
-
-  if (timeRange === '1D') {
-    // 3-hour intervals for today in Ethiopian Local Time (UTC+3)
-    for (let h = 0; h < 24; h += 3) {
-      const hourStr = h.toString().padStart(2, '0');
-      const startH = h;
-      const endH = h + 3;
-      const hSql = `SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND date(created_at, '+3 hours') = date('now', '+3 hours') AND CAST(strftime('%H', datetime(created_at, '+3 hours')) AS INTEGER) >= ? AND CAST(strftime('%H', datetime(created_at, '+3 hours')) AS INTEGER) < ?${railFilter}`;
-      const row = (rail !== 'all' ? db.prepare(hSql).get(startH, endH, rail) : db.prepare(hSql).get(startH, endH)) as any;
-      chartPoints.push({
-        label: `${hourStr}:00`,
-        revenue: row?.rev || 0,
-        orders: row?.count || 0,
-      });
-    }
-  } else if (timeRange === '1W') {
-    // Last 7 days in Ethiopian Local Time (UTC+3)
-    for (let d = 6; d >= 0; d--) {
-      const nowUtc3 = new Date(Date.now() + 3 * 60 * 60 * 1000);
-      nowUtc3.setUTCDate(nowUtc3.getUTCDate() - d);
-      const dateStr = nowUtc3.toISOString().split('T')[0];
-      const dayLabel = nowUtc3.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
-      const dSql = `SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND date(created_at, '+3 hours') = date(?)${railFilter}`;
-      const row = (rail !== 'all' ? db.prepare(dSql).get(dateStr, rail) : db.prepare(dSql).get(dateStr)) as any;
-      chartPoints.push({
-        label: dayLabel,
-        revenue: row?.rev || 0,
-        orders: row?.count || 0,
-      });
-    }
-  } else if (timeRange === '1M') {
-    // 4 Weeks in Ethiopian Local Time (UTC+3)
-    for (let w = 3; w >= 0; w--) {
-      const weekLabel = `W${4 - w}`;
-      const startDaysAgo = (w + 1) * 7;
-      const endDaysAgo = w * 7;
-      const wSql = `SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND datetime(created_at, '+3 hours') >= datetime('now', '+3 hours', '-' || ? || ' days') AND datetime(created_at, '+3 hours') < datetime('now', '+3 hours', '-' || ? || ' days')${railFilter}`;
-      const row = (rail !== 'all' ? db.prepare(wSql).get(startDaysAgo, endDaysAgo, rail) : db.prepare(wSql).get(startDaysAgo, endDaysAgo)) as any;
-      chartPoints.push({
-        label: weekLabel,
-        revenue: row?.rev || 0,
-        orders: row?.count || 0,
-      });
-    }
-  } else {
-    // 6M or 1Y: Monthly buckets in Ethiopian Local Time (UTC+3)
-    const monthsCount = timeRange === '1Y' ? 12 : 6;
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const nowUtc3 = new Date(Date.now() + 3 * 60 * 60 * 1000);
-    for (let i = monthsCount - 1; i >= 0; i--) {
-      const d = new Date(Date.UTC(nowUtc3.getUTCFullYear(), nowUtc3.getUTCMonth() - i, 1));
-      const mIdx = d.getUTCMonth();
-      const monthLabel = months[mIdx];
-      const monthFormatted = (mIdx + 1).toString().padStart(2, '0');
-      const yearStr = d.getUTCFullYear().toString();
-
-      const mSql = `SELECT COALESCE(SUM(amount_etb), 0) as rev, COUNT(*) as count FROM orders WHERE status = 'fulfilled' AND strftime('%m', datetime(created_at, '+3 hours')) = ? AND strftime('%Y', datetime(created_at, '+3 hours')) = ?${railFilter}`;
-      const row = (rail !== 'all' ? db.prepare(mSql).get(monthFormatted, yearStr, rail) : db.prepare(mSql).get(monthFormatted, yearStr)) as any;
-
-      chartPoints.push({
-        label: monthLabel,
-        revenue: row?.rev || 0,
-        orders: row?.count || 0,
-      });
-    }
-  }
-
-  // 8. Recent 5 orders
-  const recSql = `SELECT id, user_id, username, product_id, amount_etb, payment_rail, status, created_at FROM orders WHERE 1=1${railFilter} ORDER BY created_at DESC LIMIT 5`;
-  const recentOrders = (rail !== 'all' ? db.prepare(recSql).all(rail) : db.prepare(recSql).all()) as any[];
-
-  res.json({
-    metrics: {
-      totalRevenueETB: totalRevenue.total,
-      totalOrders: ordersCount.total || 0,
-      fulfilledOrders: ordersCount.fulfilled || 0,
-      pendingApprovalOrders: ordersCount.pendingApproval || 0,
-      pendingFulfillmentOrders: ordersCount.pendingFulfillment || 0,
-      awaitingPaymentOrders: ordersCount.awaitingPayment || 0,
-      totalUsers: usersCount.total || 0,
-      registeredUsers: usersCount.registered || 0,
-      geminiStockAvailable: geminiStock,
-    },
-    productStats,
-    chartPoints,
-    railBreakdown,
-    recentOrders,
-  });
+  res.json(data);
 });
 
 // 2. Orders List & Management

@@ -73,7 +73,7 @@ describe('Admin Receipt Viewing Endpoint', () => {
     });
 
     const sampleBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-    const saved = saveReceiptImage(sampleBase64, order.id);
+    const saved = await saveReceiptImage(sampleBase64, order.id);
     submitReceipt(order.id, saved.storedName, 'Paid via CBE mobile banking');
 
     // Query-string tokens are forbidden (log/history leakage) — Bearer only.

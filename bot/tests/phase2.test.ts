@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { initDatabase, closeDatabase } from '../src/db/index.js';
 import {
-  calculateStarsDue,
   calculateCryptoQuote,
   fetchCoinGeckoPrices,
   setTestPriceCache,
@@ -39,20 +38,6 @@ describe('Phase 2: Rate Engine & Payment Rails', () => {
   });
 
   describe('Rate Engine & Currency Conversions', () => {
-    it('calculates exact and ceil rounded Telegram Stars (XTR)', () => {
-      // 1,500 ETB / 2.5 ETB/Star = 600 Stars
-      expect(calculateStarsDue(1500, 2.5)).toBe(600);
-
-      // 124 ETB / 2.5 = 49.6 -> ceil = 50 Stars
-      expect(calculateStarsDue(124, 2.5)).toBe(50);
-
-      // Tiny price: 1 ETB -> ceil = 1 Star
-      expect(calculateStarsDue(1, 2.5)).toBe(1);
-
-      // 0 ETB -> 0 Stars
-      expect(calculateStarsDue(0, 2.5)).toBe(0);
-    });
-
     it('calculates crypto quote accurately with configurable margin', () => {
       // 1,350 ETB at 135 ETB/USD = $10 USD base
       // With 0% margin and TON price $3.00 -> $10.00 USD, 3.3333 TON
@@ -156,7 +141,7 @@ describe('Phase 2: Rate Engine & Payment Rails', () => {
       const order = createOrder({
         userId: 123456,
         username: 'badreceipt',
-        productId: 'telegram_stars',
+        productId: 'telegram_premium',
         amountETB: 250,
         paymentRail: 'cbe',
       });

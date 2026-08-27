@@ -5,7 +5,7 @@ import { logger } from '../../logger/index.js';
 import { initiateCheckout, safeEditMessage } from './checkout.js';
 
 export function isUsernameRequired(productId: string): boolean {
-  return productId === 'telegram_premium' || productId === 'telegram_stars';
+  return productId === 'telegram_premium';
 }
 
 export function hasPublicUsername(user?: { username?: string | null }): boolean {
@@ -15,25 +15,21 @@ export function hasPublicUsername(user?: { username?: string | null }): boolean 
 export async function renderUsernameGate(
   ctx: Context,
   productId: string,
-  variantId?: string,
-  customStars?: number,
-  customAmountETB?: number
+  variantId?: string
 ): Promise<void> {
   const config = getConfig();
 
   const text =
     `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
     `👤 <b>Telegram Username Required</b>\n\n` +
-    `<blockquote>To fulfill your <b>Telegram Premium</b> subscription or <b>Telegram Stars</b> order via Fragment, your Telegram account must have a public <b>@username</b> set.</blockquote>\n\n` +
+    `<blockquote>To fulfill your <b>Telegram Premium</b> subscription via Fragment, your Telegram account must have a public <b>@username</b> set.</blockquote>\n\n` +
     `📋 <b>Quick Setup Steps:</b>\n` +
     `1. Open Telegram <b>Settings</b>\n` +
     `2. Tap <b>Edit Profile</b> (or <b>My Account</b>) → <b>Username</b>\n` +
     `3. Enter a public username and tap save\n\n` +
     `<i>👇 Once saved in your Telegram app, tap <b>[🔄 Recheck Profile]</b> below:</i>`;
 
-  const recheckPayload = customStars && customAmountETB
-    ? `gate_recheck_${productId}_custom_${customStars}_${customAmountETB}`
-    : `gate_recheck_${productId}_${variantId || 'default'}`;
+  const recheckPayload = `gate_recheck_${productId}_${variantId || 'default'}`;
 
   const keyboard = new InlineKeyboard()
     .text('🔄 Recheck Profile', recheckPayload)
@@ -85,26 +81,12 @@ export async function handleGateRecheck(ctx: Context, dataPayload: string): Prom
   });
 
   // Parse product and variant from recheck payload
-  // e.g. "gate_recheck_telegram_stars_custom_500_1250" or "gate_recheck_telegram_premium_tg_prem_3m"
+  // e.g. "gate_recheck_telegram_premium_tg_prem_3m"
   const clean = dataPayload.replace('gate_recheck_', '');
 
-  if (clean.includes('_custom_')) {
-    const [productId, customPart] = clean.split('_custom_');
-    const [starsStr] = customPart.split('_');
-    // Only the star count is taken from the payload; the price is always
-    // recomputed server-side by the pricing service inside initiateCheckout.
-    const stars = parseInt(starsStr, 10);
-    if (!Number.isInteger(stars) || stars <= 0) {
-      await ctx.reply('Invalid order parameters. Please start your order again from the shop.');
-      return;
-    }
-    await initiateCheckout(ctx, productId, undefined, stars);
-  } else if (clean.startsWith('telegram_premium_')) {
+  if (clean.startsWith('telegram_premium_')) {
     const variantId = clean.replace('telegram_premium_', '');
     await initiateCheckout(ctx, 'telegram_premium', variantId);
-  } else if (clean.startsWith('telegram_stars_')) {
-    const variantId = clean.replace('telegram_stars_', '');
-    await initiateCheckout(ctx, 'telegram_stars', variantId);
   } else {
     const parts = clean.split('_');
     const productId = parts[0] === 'telegram' ? `${parts[0]}_${parts[1]}` : parts[0];

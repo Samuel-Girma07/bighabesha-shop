@@ -17,7 +17,7 @@ function getProductByIdSafe(productId: string) {
 }
 import { getAvailableStockCount } from '../services/stock.service.js';
 import { getPublicSettings, getNumericSetting, getSetting } from '../services/settings.service.js';
-import { fetchCoinGeckoPrices, calculateStarsDue } from '../services/rate_engine.service.js';
+import { fetchCoinGeckoPrices } from '../services/rate_engine.service.js';
 import { createOrder, getOrdersByUserId, getOrderById, getOrderEvents, submitReceipt, approveReceipt, updateOrderStatus, Order, PaymentRail } from '../services/orders.service.js';
 import { resolveOrderPrice, PricingError } from '../services/pricing.service.js';
 import { saveReceiptImage, ReceiptValidationError, resolveReceiptsDir } from '../services/receipts.service.js';
@@ -39,7 +39,9 @@ import { escapeHtml } from '../utils/html.js';
 import { notifyBuyerOfAutoApproval as notifyBuyerOfAutoApprovalService } from '../services/buyer_notify.js';
 import { isUsernameRequired, hasPublicUsername } from '../bot/handlers/gate.js';
 import { notifyAdminsNewReceipt } from '../bot/handlers/checkout.js';
-import { getDatabase } from '../db/index.js';
+import { getDatabase, prepared } from '../db/index.js';
+import { cachedSync } from '../services/cache.service.js';
+import { claimIdempotencyKey, recordIdempotentResult, isFirstDelivery } from './idempotency.js';
 import { getConfig } from '../config/env.js';
 import { logger } from '../logger/index.js';
 import { adminRouter, setAdminBotInstance } from './admin.js';
@@ -51,7 +53,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const GENERAL_BODY_LIMIT = '100kb';
-const RECEIPT_BODY_LIMIT = '3mb';
+const RECEIPT_BODY_LIMIT = '7mb';
 
 function captureRawBody(req: any, _res: Response, buf: Buffer): void {
   req.rawBody = buf.toString('utf-8');
@@ -119,7 +121,7 @@ function handleReceiptUpload(bot: Bot) {
       try {
         // Persisted reference is filename-only; resolution happens through
         // resolveStoredReceiptPath() at read time (traversal-safe).
-        const saved = saveReceiptImage(receiptImageBase64, orderId);
+        const saved = await saveReceiptImage(receiptImageBase64, orderId);
         fileId = saved.storedName;
       } catch (saveErr) {
         if (saveErr instanceof ReceiptValidationError) {
@@ -232,6 +234,72 @@ export function createExpressApp(bot: Bot): express.Express {
     })
   );
 
+function telegramUserKey(req: any): string {
+  const header = String(req.headers.authorization || '');
+  if (header.startsWith('tma ') || header.startsWith('Tma ') || header.startsWith('Bearer ') || header.startsWith('bearer ')) {
+    const raw = header.replace(/^tma\s+/i, '').replace(/^bearer\s+/i, '');
+    const validated = validateTelegramInitData(raw);
+    if (validated?.user?.id) return `tg:${validated.user.id}`;
+  }
+  return `ip:${ipKeyGenerator(req.ip ?? 'unknown')}`;
+}
+
+const TOUCH_INTERVAL_MS = 10 * 60 * 1000;
+const recentTouches = new Map<number, { username: string; at: number }>();
+const TOUCH_MAP_MAX = 20_000;
+
+function touchUser(id: number, username: string | undefined, firstName: string | undefined): void {
+  const uname = username ?? '';
+  const seen = recentTouches.get(id);
+  const now = Date.now();
+  if (seen && seen.username === uname && now - seen.at < TOUCH_INTERVAL_MS) return;
+
+  try {
+    prepared(`
+      INSERT INTO users (id, username, first_name) VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET username = excluded.username, updated_at = CURRENT_TIMESTAMP
+    `).run(id, username ?? null, firstName ?? 'User');
+  } catch (err) {
+    logger.warn({ err, id }, 'User touch failed');
+    return;
+  }
+
+  if (recentTouches.size >= TOUCH_MAP_MAX) recentTouches.clear();
+  recentTouches.set(id, { username: uname, at: now });
+}
+
+function buildCatalogPayload() {
+  return cachedSync('bootstrap:catalog', 20_000, () => {
+    const products = prepared('SELECT * FROM products WHERE is_active = 1 ORDER BY rowid ASC').all() as any[];
+
+    const variantRows = prepared(`
+      SELECT * FROM variants WHERE is_active = 1 ORDER BY product_id, sort_order ASC, price_etb ASC
+    `).all() as any[];
+    const stockRows = prepared(`
+      SELECT product_id, COUNT(*) AS available
+      FROM stock_items WHERE status = 'available' GROUP BY product_id
+    `).all() as { product_id: string; available: number }[];
+
+    const variantsByProduct = new Map<string, any[]>();
+    for (const v of variantRows) {
+      const list = variantsByProduct.get(v.product_id);
+      if (list) list.push(v);
+      else variantsByProduct.set(v.product_id, [v]);
+    }
+    const stockByProduct = new Map(stockRows.map((r) => [r.product_id, r.available]));
+    const settings = getPublicSettings();
+
+    return {
+      products: products.map((p) => ({
+        ...p,
+        variants: variantsByProduct.get(p.id) ?? [],
+        availableStock: p.type === 'stock' ? (stockByProduct.get(p.id) ?? 0) : null,
+      })),
+      settings,
+    };
+  });
+}
+
   // ---- Rate limiters (instantiated per-app so test servers get fresh buckets) --
   const jsonRateLimitHandler = (message: string) => (_req: Request, res: Response) => {
     res.status(429).json({ error: message });
@@ -253,11 +321,47 @@ export function createExpressApp(bot: Bot): express.Express {
     handler: jsonRateLimitHandler('Too many verification attempts. Please request a new code.'),
   });
 
+  const adminApiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `admin:${(req.headers.authorization || '').slice(-24)}`,
+    handler: jsonRateLimitHandler('Too many admin requests. Please slow down.'),
+  });
+
+  const recheckLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    limit: 3,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: telegramUserKey,
+    handler: jsonRateLimitHandler('Please wait a few minutes before checking your username again.'),
+  });
+
+  const tonStatusLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 6,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: telegramUserKey,
+    handler: jsonRateLimitHandler('Please wait before checking payment status again.'),
+  });
+
+  const webhookLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (_req, res) => res.status(429).json({ error: 'Webhook rate limit exceeded' }),
+  });
+
   const checkoutLimiter = rateLimit({
     windowMs: 60 * 1000,
     limit: 10,
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: telegramUserKey,
     handler: jsonRateLimitHandler('Too many requests. Please slow down.'),
   });
 
@@ -266,6 +370,7 @@ export function createExpressApp(bot: Bot): express.Express {
     limit: 10,
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: telegramUserKey,
     handler: jsonRateLimitHandler('Too many receipt uploads. Please slow down.'),
   });
 
@@ -274,9 +379,9 @@ export function createExpressApp(bot: Bot): express.Express {
     limit: 1000,
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: telegramUserKey,
     skip: (req) =>
       req.path === '/api/health' ||
-      req.path.startsWith('/api/admin') ||
       !req.path.startsWith('/api'),
     handler: jsonRateLimitHandler('Too many requests from this address. Please try again later.'),
   });
@@ -372,24 +477,16 @@ export function createExpressApp(bot: Bot): express.Express {
   app.get('/api/bootstrap', async (req: Request, res: Response) => {
     try {
       const user = authenticateTelegramUser(req);
-      const products = getAllProducts();
-      const catalogWithDetails = products.map((prod) => {
-        const variants = getProductVariants(prod.id);
-        const stock = prod.type === 'stock' ? getAvailableStockCount(prod.id) : null;
-        return {
-          ...prod,
-          variants,
-          availableStock: stock,
-        };
-      });
-
-      // Only expose the whitelisted, client-facing settings — operational
-      // parameters (margins, FX rates, stock thresholds, delivery
-      // instructions) must never leak to unauthenticated clients.
-      const settings = getPublicSettings();
+      const catalog = buildCatalogPayload();
       const cryptoRates = await fetchCoinGeckoPrices();
 
-      const userStats = user ? getUserStats(user.id) : null;
+      let userStats = null;
+      if (user) {
+        userStats = cachedSync(`userstats:${user.id}`, 5_000, () =>
+          getUserStats(user.id)
+        );
+        touchUser(user.id, user.username, user.first_name);
+      }
 
       res.json({
         user: user
@@ -402,11 +499,10 @@ export function createExpressApp(bot: Bot): express.Express {
               tier: userStats?.tier ?? 'bronze',
               ordersCount: userStats?.orders_count ?? 0,
               lifetimeEtb: userStats?.lifetime_etb ?? 0,
-              balanceStars: Math.floor((userStats?.lifetime_etb ?? 0) / 10),
             }
           : null,
-        products: catalogWithDetails,
-        settings,
+        products: catalog.products,
+        settings: catalog.settings,
         cryptoRates,
         tonTreasury: config.TON_TREASURY_ADDRESS || undefined,
       });
@@ -417,7 +513,7 @@ export function createExpressApp(bot: Bot): express.Express {
   });
 
   // 2b. User Live Username Recheck (fetches live username directly from Telegram Bot API)
-  app.get('/api/user/recheck-username', async (req: Request, res: Response): Promise<void> => {
+  app.get('/api/user/recheck-username', recheckLimiter, async (req: Request, res: Response): Promise<void> => {
     const user = authenticateTelegramUser(req);
     if (!user) {
       res.status(401).json({ error: 'Unauthorized' });
@@ -436,18 +532,7 @@ export function createExpressApp(bot: Bot): express.Express {
     }
 
     if (currentUsername) {
-      try {
-        const db = getDatabase();
-        db.prepare(`
-          INSERT INTO users (id, username, first_name)
-          VALUES (?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET
-            username = excluded.username,
-            updated_at = CURRENT_TIMESTAMP
-        `).run(user.id, currentUsername, user.first_name || 'Buyer');
-      } catch (err) {
-        logger.error({ err, userId: user.id }, 'Failed to update username in DB during recheck-username');
-      }
+      touchUser(user.id, currentUsername, user.first_name);
     }
 
     res.json({
@@ -567,7 +652,7 @@ export function createExpressApp(bot: Bot): express.Express {
   });
 
   // 5. Create Order
-  const VALID_PAYMENT_RAILS: PaymentRail[] = ['stars', 'wallet_pay', 'telebirr', 'cbe', 'abyssinia'];
+  const VALID_PAYMENT_RAILS: PaymentRail[] = ['wallet_pay', 'chapa', 'ton_connect', 'telebirr', 'cbe', 'abyssinia'];
 
   app.post('/api/orders', checkoutLimiter, async (req: Request, res: Response): Promise<void> => {
     const user = authenticateTelegramUser(req);
@@ -578,7 +663,7 @@ export function createExpressApp(bot: Bot): express.Express {
 
     // NOTE: `amountETB` from the request body is deliberately ignored — the
     // price is always resolved server-side from the catalog and rate engine.
-    const { productId, variantId, customStars, paymentRail } = req.body;
+    const { productId, variantId, paymentRail } = req.body;
 
     if (!productId || !paymentRail) {
       res.status(400).json({ error: 'Missing required parameters' });
@@ -590,22 +675,16 @@ export function createExpressApp(bot: Bot): express.Express {
       return;
     }
 
-    if (customStars !== undefined && customStars !== null && (!Number.isInteger(customStars) || customStars <= 0)) {
-      res.status(400).json({ error: 'Custom Stars amount must be a positive whole number' });
-      return;
-    }
-
     // Username Gate check
     if (isUsernameRequired(productId) && !hasPublicUsername(user)) {
       res.status(403).json({
         error: 'USERNAME_REQUIRED',
-        message: 'Telegram public @username is required to purchase Telegram Premium or Stars.',
+        message: 'Telegram public @username is required to purchase Telegram Premium.',
       });
       return;
     }
 
-    // Stock gate: never create orders or generate Stars invoices for stock
-    // products that cannot be fulfilled. (Mirrors the bot's product page.)
+    // Stock gate: never create orders for stock products that cannot be fulfilled.
     const stockProduct = getProductByIdSafe(productId);
     if (stockProduct && stockProduct.type === 'stock') {
       const available = getAvailableStockCount(productId);
@@ -621,7 +700,6 @@ export function createExpressApp(bot: Bot): express.Express {
       resolved = resolveOrderPrice({
         productId,
         variantId: variantId || null,
-        customStars: customStars || null,
         userTier: stats?.tier ?? null,
       });
     } catch (err) {
@@ -641,6 +719,23 @@ export function createExpressApp(bot: Bot): express.Express {
       ? req.body.promoCode.trim().toUpperCase()
       : null;
 
+    // Claim idempotency key before creating order
+    const rawIdempotencyKey = req.headers['x-idempotency-key'] as string | undefined;
+    const { claimed, existingId, key: idempotencyKey } = claimIdempotencyKey(
+      'create_order',
+      user.id,
+      rawIdempotencyKey,
+      { productId, variantId, paymentRail, promoCode }
+    );
+
+    if (!claimed && existingId) {
+      const existingOrder = getOrderById(existingId);
+      if (existingOrder) {
+        res.status(200).json({ order: existingOrder, idempotentReplay: true });
+        return;
+      }
+    }
+
     let created;
     try {
       created = createOrder({
@@ -659,27 +754,13 @@ export function createExpressApp(bot: Bot): express.Express {
       return;
     }
     const order = created;
+    recordIdempotentResult(idempotencyKey, order.id);
 
     const netAmountEtb = Math.max(order.amount_etb - (order.discount_etb || 0), 1);
 
-    let invoiceLink: string | undefined;
     let payUrl: string | undefined;
 
-    if (paymentRail === 'stars') {
-      const starsDue = calculateStarsDue(netAmountEtb);
-      try {
-        invoiceLink = await bot.api.createInvoiceLink(
-          `Bighabesha: ${resolved.product.name}`,
-          `Order #${order.id}`,
-          `order_${order.id}`,
-          '',
-          'XTR',
-          [{ label: resolved.product.name, amount: starsDue }]
-        );
-      } catch (err: any) {
-        logger.warn({ err: err.message, orderId: order.id }, 'Failed to generate stars invoice link');
-      }
-    } else if (paymentRail === 'wallet_pay') {
+    if (paymentRail === 'wallet_pay') {
       const adapter = getWalletPayAdapter();
       const payment = await adapter.createPayment({
         orderId: order.id,
@@ -720,11 +801,11 @@ export function createExpressApp(bot: Bot): express.Express {
       }
     }
 
-    res.status(201).json({ order, invoiceLink, payUrl, saleApplied: resolved.saleApplied === true });
+    res.status(201).json({ order, payUrl, saleApplied: resolved.saleApplied === true });
   });
 
   // 5b. Chapa webhook — HMAC-SHA256(rawBody) via 'chapa-signature' header.
-  app.post('/api/webhooks/chapa', async (req: Request, res: Response): Promise<void> => {
+  app.post('/api/webhooks/chapa', webhookLimiter, async (req: Request, res: Response): Promise<void> => {
     const config = getConfig();
     const secretKey = config.CHAPA_SECRET_KEY;
     if (!secretKey) {
@@ -746,6 +827,11 @@ export function createExpressApp(bot: Bot): express.Express {
       const order = txRef ? getOrderById(txRef) : undefined;
       if (!order) {
         res.status(200).json({ status: 'ignored', reason: 'unknown_order' });
+        return;
+      }
+
+      if (!isFirstDelivery('chapa', txRef)) {
+        res.status(200).json({ status: 'ignored', reason: 'duplicate_event' });
         return;
       }
 
@@ -778,7 +864,7 @@ export function createExpressApp(bot: Bot): express.Express {
   });
 
   // 5c. TON Connect on-chain verification (buyer's Mini App polls this).
-  app.post('/api/payments/ton/status/:orderId', authenticateTelegramUserMiddleware(), async (req: Request, res: Response): Promise<void> => {
+  app.post('/api/payments/ton/status/:orderId', authenticateTelegramUserMiddleware(), tonStatusLimiter, async (req: Request, res: Response): Promise<void> => {
     const user = (req as any).tgUser as TelegramUser;
     const orderId = req.params.orderId as string;
     const order = getOrderById(orderId);
@@ -827,7 +913,7 @@ export function createExpressApp(bot: Bot): express.Express {
   // createExpressApp) so it can use its own larger body parser.
 
   // 7. Live Wallet Pay Webhook
-  app.post('/api/wallet-pay/webhook', async (req: Request, res: Response): Promise<void> => {
+  app.post('/api/wallet-pay/webhook', webhookLimiter, async (req: Request, res: Response): Promise<void> => {
     const config = getConfig();
     const signature = (req.headers['walletpay-signature'] || req.headers['wpay-signature'] || req.headers['x-wallet-pay-signature']) as string | undefined;
     const timestamp = (req.headers['walletpay-timestamp'] || req.headers['wpay-timestamp'] || req.headers['x-wallet-pay-timestamp']) as string | undefined;
@@ -870,6 +956,12 @@ export function createExpressApp(bot: Bot): express.Express {
         const eventType = ev.event || ev.type;
         const payload = ev.payload || ev.data || ev;
         const externalId = payload.externalId || payload.orderId || payload.order_id || payload.customData || payload.id;
+        const eventId = String(ev.id || ev.event_id || payload.id || externalId || `${Date.now()}`);
+
+        if (!isFirstDelivery('wallet_pay', eventId)) {
+          continue;
+        }
+
         const status = payload.status || (eventType === 'ORDER_PAID' ? 'PAID' : null);
 
         if (eventType === 'ORDER_PAID' || status === 'PAID' || status === 'SUCCESS') {
@@ -935,7 +1027,7 @@ export function createExpressApp(bot: Bot): express.Express {
   // 8. Mount Web Admin Dashboard API Routes (with auth brute-force limits)
   app.use('/api/admin/auth/login', adminLoginLimiter);
   app.use('/api/admin/auth/verify-2fa', adminOtpLimiter);
-  app.use('/api/admin', adminRouter);
+  app.use('/api/admin', adminApiLimiter, adminRouter);
 
   // 9. SPA HTML Fallback for direct browser links (/admin, etc.)
   if (distDir) {

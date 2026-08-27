@@ -222,7 +222,7 @@ describe('Medium #7: Expired sessions, OTPs, drafts & receipts purge', () => {
     db.prepare('INSERT INTO admin_sessions (token, admin_id, expires_at) VALUES (?, ?, ?)').run(token, 111111111, expiresAt);
   }
 
-  it('removes only expired rows across all session tables', () => {
+  it('removes only expired rows across all session tables', async () => {
     const now = Date.now();
 
     insertSession('tok-expired-1', now - 1000);
@@ -235,7 +235,7 @@ describe('Medium #7: Expired sessions, OTPs, drafts & receipts purge', () => {
     db.prepare('INSERT INTO bot_sessions (user_id, type, data, expires_at) VALUES (?, ?, ?, ?)').run(7001, 'user_receipt_upload', '{}', now - 1);
     db.prepare('INSERT INTO bot_sessions (user_id, type, data, expires_at) VALUES (?, ?, ?, ?)').run(7002, 'user_receipt_upload', '{}', now + 600000);
 
-    const result = purgeExpiredData(90, now);
+    const result = await purgeExpiredData(90, now);
 
     expect(result.expiredAdminSessions).toBe(2);
     expect(result.expiredAdminOtps).toBe(1);
@@ -249,12 +249,12 @@ describe('Medium #7: Expired sessions, OTPs, drafts & receipts purge', () => {
     expect(remainingBotSessions).toBe(1);
   });
 
-  it('purges stale broadcast drafts beyond the retention window', () => {
+  it('purges stale broadcast drafts beyond the retention window', async () => {
     const old = new Date(Date.now() - 100 * 24 * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' ');
     db.prepare('INSERT INTO broadcast_drafts (admin_id, text, target_lang, updated_at) VALUES (?, ?, ?, ?)').run(1, 'old draft', 'all', old);
     db.prepare("INSERT INTO broadcast_drafts (admin_id, text, target_lang, updated_at) VALUES (?, ?, ?, datetime('now'))").run(2, 'fresh draft', 'all');
 
-    const result = purgeExpiredData(90);
+    const result = await purgeExpiredData(90);
 
     expect(result.staleBroadcastDrafts).toBe(1);
     const remaining = db.prepare('SELECT text FROM broadcast_drafts').all() as any[];
@@ -262,7 +262,7 @@ describe('Medium #7: Expired sessions, OTPs, drafts & receipts purge', () => {
     expect(remaining[0].text).toBe('fresh draft');
   });
 
-  it('purges expired receipt files but keeps recent ones', () => {
+  it('purges expired receipt files but keeps recent ones', async () => {
     process.env.RECEIPTS_DIR = path.join(__dirname, '../tmp-receipts-purge-test');
     resetConfigCache();
     fs.rmSync(process.env.RECEIPTS_DIR, { recursive: true, force: true });
@@ -275,7 +275,7 @@ describe('Medium #7: Expired sessions, OTPs, drafts & receipts purge', () => {
     const past = new Date(Date.now() - 120 * 24 * 3600 * 1000);
     fs.utimesSync(oldFile, past, past); // set mtime 120 days ago
 
-    const removed = purgeOldReceipts(90);
+    const removed = await purgeOldReceipts(90);
 
     expect(removed).toBe(1);
     expect(fs.existsSync(oldFile)).toBe(false);
@@ -319,9 +319,9 @@ describe('Medium #4: Receipt magic-byte validation & size caps', () => {
     expect(detectImageExtension(Buffer.alloc(0))).toBeNull();
   });
 
-  it('stores receipts under a truthful extension derived from content', () => {
+  it('stores receipts under a truthful extension derived from content', async () => {
     const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), crypto_ignored()]);
-    const saved = saveReceiptImage(png.toString('base64'), 'ORD-X/../../etc/passwd');
+    const saved = await saveReceiptImage(png.toString('base64'), 'ORD-X/../../etc/passwd');
 
     expect(saved.extension).toBe('png');
     expect(saved.filePath.endsWith('.png')).toBe(true);
@@ -330,17 +330,17 @@ describe('Medium #4: Receipt magic-byte validation & size caps', () => {
     expect(fs.existsSync(saved.filePath)).toBe(true);
   });
 
-  it('rejects non-image payloads with a validation error (no file written)', () => {
+  it('rejects non-image payloads with a validation error (no file written)', async () => {
     const before = countReceiptFiles();
-    expect(() => saveReceiptImage(Buffer.from('definitely not an image').toString('base64'), 'ORD-Y')).toThrow(ReceiptValidationError);
+    await expect(saveReceiptImage(Buffer.from('definitely not an image').toString('base64'), 'ORD-Y')).rejects.toThrow(ReceiptValidationError);
     expect(countReceiptFiles()).toBe(before);
   });
 
-  it('enforces the configured byte cap', () => {
+  it('enforces the configured byte cap', async () => {
     process.env.RECEIPT_MAX_BYTES = '1024';
     resetConfigCache();
     const bigPng = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(4096, 1)]);
-    expect(() => saveReceiptImage(bigPng.toString('base64'), 'ORD-Z')).toThrow(/too large/i);
+    await expect(saveReceiptImage(bigPng.toString('base64'), 'ORD-Z')).rejects.toThrow(/too large/i);
     delete process.env.RECEIPT_MAX_BYTES;
     resetConfigCache();
   });
@@ -403,18 +403,18 @@ describe('Medium #8: API refuses orders/invoices for sold-out stock products', (
     return sp.toString();
   }
 
-  async function createGeminiStarsOrder(userId: number): Promise<Response> {
+  async function createGeminiOrder(userId: number): Promise<Response> {
     return fetch(`http://localhost:${port}/api/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `tma ${signedInitData(userId)}` },
-      body: JSON.stringify({ productId: 'gemini_pro_18m', variantId: 'gemini_pro_18m_default', paymentRail: 'stars' }),
+      body: JSON.stringify({ productId: 'gemini_pro_18m', variantId: 'gemini_pro_18m_default', paymentRail: 'wallet_pay' }),
     });
   }
 
   it('returns 409 OUT_OF_STOCK and creates NO order at zero stock', async () => {
     expect(getAvailableStockCount('gemini_pro_18m')).toBe(0);
 
-    const res = await createGeminiStarsOrder(710001);
+    const res = await createGeminiOrder(710001);
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.error).toBe('OUT_OF_STOCK');
@@ -427,7 +427,7 @@ describe('Medium #8: API refuses orders/invoices for sold-out stock products', (
   it('creates the order and invoice link once stock is available', async () => {
     addStockLink('gemini_pro_18m', 'https://g.co/gate-stock-1');
 
-    const res = await createGeminiStarsOrder(710002);
+    const res = await createGeminiOrder(710002);
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.order.amount_etb).toBe(1500);
@@ -437,7 +437,7 @@ describe('Medium #8: API refuses orders/invoices for sold-out stock products', (
     const res = await fetch(`http://localhost:${port}/api/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `tma ${signedInitData(710003)}` },
-      body: JSON.stringify({ productId: 'telegram_premium', variantId: 'tg_prem_3m', paymentRail: 'stars' }),
+      body: JSON.stringify({ productId: 'telegram_premium', variantId: 'tg_prem_3m', paymentRail: 'wallet_pay' }),
     });
     expect(res.status).toBe(201);
   });

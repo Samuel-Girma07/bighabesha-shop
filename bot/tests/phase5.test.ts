@@ -223,9 +223,8 @@ describe('Phase 5: Telegram Mini App & Authenticated API', () => {
       const res = await fetch(`http://localhost:${port}/api/bootstrap`);
       expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data.products).toHaveLength(3);
+      expect(data.products).toHaveLength(2);
       // Only whitelisted public settings are exposed
-      expect(data.settings.etb_per_star).toBe('2.5');
       expect(data.settings.cbe_account).toBeDefined();
       // Operational/private settings must NOT leak
       expect(data.settings.etb_per_usd).toBe('135'); // public display-currency rate

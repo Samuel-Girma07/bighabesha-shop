@@ -144,10 +144,10 @@ describe('Feature: Role-based access control', () => {
     const settingsDenied = await fetch(`http://localhost:${port}/api/admin/settings`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${opsToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ settings: { etb_per_star: '9' } }),
+      body: JSON.stringify({ settings: { etb_per_usd: '200' } }),
     });
     expect(settingsDenied.status).toBe(403);
-    expect(getDatabase().prepare("SELECT value FROM settings WHERE key='etb_per_star'").get() as any).toEqual({ value: '2.5' });
+    expect(getDatabase().prepare("SELECT value FROM settings WHERE key='etb_per_usd'").get() as any).toEqual({ value: '135' });
   });
 
   it('support role is read-only for orders and blocked from broadcast', async () => {

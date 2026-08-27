@@ -15,7 +15,7 @@ export interface CleanupResult {
  * Previously these rows were only deleted lazily on access, so tables grew
  * unboundedly. Safe to run on any schedule; every statement is idempotent.
  */
-export function purgeExpiredData(retentionDays: number = 90, nowMs: number = Date.now()): CleanupResult {
+export async function purgeExpiredData(retentionDays: number = 90, nowMs: number = Date.now()): Promise<CleanupResult> {
   const db = getDatabase();
   const now = nowMs;
 
@@ -38,7 +38,7 @@ export function purgeExpiredData(retentionDays: number = 90, nowMs: number = Dat
 
   let receipts = 0;
   try {
-    receipts = purgeOldReceipts(retentionDays, nowMs);
+    receipts = await purgeOldReceipts(retentionDays, nowMs);
   } catch {
     // Receipt purge failures are logged inside the service; never block DB cleanup.
   }
@@ -63,11 +63,9 @@ let cleanupTimer: NodeJS.Timeout | null = null;
 export function startPeriodicCleanup(intervalMs: number = 15 * 60 * 1000): NodeJS.Timeout {
   if (cleanupTimer) clearInterval(cleanupTimer);
   cleanupTimer = setInterval(() => {
-    try {
-      purgeExpiredData();
-    } catch (err) {
+    purgeExpiredData().catch((err) => {
       logger.error({ err }, 'Scheduled data purge failed');
-    }
+    });
   }, intervalMs);
   if (cleanupTimer.unref) cleanupTimer.unref();
   return cleanupTimer;

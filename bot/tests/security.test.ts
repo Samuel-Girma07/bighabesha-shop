@@ -174,9 +174,10 @@ describe('Critical Security Hardening', () => {
     });
 
     it('ignores negative, zero, fractional, and absurdly large client amounts', async () => {
-      addStockLink('gemini_pro_18m', 'https://g.co/sec/price-guard-2');
+      let idx = 0;
       for (const amount of [-500, 0, 12.5, 999999999]) {
-        const res = await postOrder(baseUrl, { id: 300002, username: 'buyer_two' }, {
+        addStockLink('gemini_pro_18m', `https://g.co/sec/price-guard-2-${idx}`);
+        const res = await postOrder(baseUrl, { id: 300002 + idx, username: `buyer_two_${idx}` }, {
           productId: 'gemini_pro_18m',
           variantId: 'gemini_pro_18m_default',
           amountETB: amount,
@@ -185,6 +186,7 @@ describe('Critical Security Hardening', () => {
         expect(res.status).toBe(201);
         const data = await res.json();
         expect(data.order.amount_etb).toBe(1500);
+        idx++;
       }
     });
 
@@ -244,6 +246,7 @@ describe('Critical Security Hardening', () => {
     });
 
     it('rejects invalid payment rails', async () => {
+      addStockLink('gemini_pro_18m', 'https://g.co/sec/price-guard-7');
       const res = await postOrder(baseUrl, { id: 300007, username: 'buyer_seven' }, {
         productId: 'gemini_pro_18m',
         variantId: 'gemini_pro_18m_default',
@@ -253,87 +256,6 @@ describe('Critical Security Hardening', () => {
       expect(res.status).toBe(400);
       const data = await res.json();
       expect(data.error).toMatch(/payment method/i);
-    });
-
-    it('prices custom Stars orders server-side from etb_per_star and stores star count as quantity', async () => {
-      const res = await postOrder(baseUrl, { id: 300008, username: 'star_buyer' }, {
-        productId: 'telegram_stars',
-        customStars: 500,
-        amountETB: 1, // forged — must be ignored
-        paymentRail: 'stars',
-      });
-      expect(res.status).toBe(201);
-      const data = await res.json();
-      expect(data.order.amount_etb).toBe(1250); // ceil(500 * 2.5) from seeded settings
-      expect(data.order.quantity).toBe(500);
-    });
-
-    it('rejects forged callback-style custom Stars amounts that are non-integers or out of bounds', async () => {
-      const fractional = await postOrder(baseUrl, { id: 300009, username: 'star_buyer_2' }, {
-        productId: 'telegram_stars',
-        customStars: 100.5,
-        paymentRail: 'stars',
-      });
-      expect(fractional.status).toBe(400);
-
-      const overMax = await postOrder(baseUrl, { id: 300010, username: 'star_buyer_3' }, {
-        productId: 'telegram_stars',
-        customStars: 999999,
-        paymentRail: 'stars',
-      });
-      expect(overMax.status).toBe(400);
-      const err = await overMax.json();
-      expect(err.error).toMatch(/between/i);
-    });
-
-    it('custom amounts are rejected for products other than Telegram Stars', async () => {
-      addStockLink('gemini_pro_18m', 'https://g.co/sec/price-guard-6');
-      const res = await postOrder(baseUrl, { id: 300011, username: 'star_buyer_4' }, {
-        productId: 'gemini_pro_18m',
-        customStars: 50,
-        paymentRail: 'stars',
-      });
-      expect(res.status).toBe(400);
-    });
-
-    describe('forged Telegram callback payloads (buy_custom_stars_<stars>_<price>)', () => {
-      function makeCtx(userId: number, username: string) {
-        const replies: any[] = [];
-        return {
-          ctx: {
-            from: { id: userId, is_bot: false, first_name: 'Buyer', username },
-            reply: async (text: any, _opts?: any) => {
-              replies.push(String(text));
-              return Promise.resolve();
-            },
-            editMessageText: async () => {},
-            answerCallbackQuery: async () => {},
-          } as any,
-          replies,
-        };
-      }
-
-      it('recomputes the price from settings and ignores the injected 1 ETB price', async () => {
-        const { initiateCheckout } = await import('../src/bot/handlers/checkout.js');
-        const { ctx, replies } = makeCtx(310001, 'callback_buyer');
-
-        await initiateCheckout(ctx, 'telegram_stars', undefined, 500, 1);
-
-        const order = getOrdersByUserId(310001)[0];
-        expect(order).toBeDefined();
-        expect(order.amount_etb).toBe(1250); // NOT the injected 1
-        expect(replies.join('\n')).toContain('1,250 ETB');
-      });
-
-      it('blocks forged out-of-bounds star counts from crafted gate_recheck payloads', async () => {
-        const { initiateCheckout } = await import('../src/bot/handlers/checkout.js');
-        const { ctx, replies } = makeCtx(310002, 'gate_forger');
-
-        await initiateCheckout(ctx, 'telegram_stars', undefined, 5000000, 1);
-
-        expect(getOrdersByUserId(310002)).toHaveLength(0);
-        expect(replies.join('\n')).toMatch(/between/i);
-      });
     });
 
     describe('service-level defense-in-depth (createOrder guard)', () => {

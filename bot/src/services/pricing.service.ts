@@ -1,7 +1,5 @@
 import { getProductById, getVariantById, Product, Variant } from './catalog.service.js';
-import { getNumericSetting } from './settings.service.js';
 import { tierDiscountPct, type Tier } from './loyalty.service.js';
-import { logger } from '../logger/index.js';
 
 export interface ResolvedPrice {
   amountETB: number;
@@ -16,7 +14,6 @@ export interface ResolvedPrice {
 export interface ResolveOrderPriceParams {
   productId: string;
   variantId?: string | null;
-  customStars?: number | null;
   /** Buyer's loyalty tier — applies the server-side tier discount. */
   userTier?: Tier | null;
 }
@@ -106,41 +103,5 @@ export function resolveOrderPrice(params: ResolveOrderPriceParams): ResolvedPric
     };
   }
 
-  if (params.customStars !== undefined && params.customStars !== null) {
-    if (product.id !== 'telegram_stars') {
-      throw new PricingError(`Custom amounts are only supported for Telegram Stars`);
-    }
-
-    const stars = params.customStars;
-    if (typeof stars !== 'number' || !Number.isFinite(stars) || !Number.isInteger(stars) || stars <= 0) {
-      throw new PricingError('Stars amount must be a positive whole number.');
-    }
-
-    const minStars = getNumericSetting('stars_min', 10);
-    const maxStars = getNumericSetting('stars_max', 100000);
-    if (stars < minStars || stars > maxStars) {
-      throw new PricingError(
-        `Custom Stars orders must be between ${minStars.toLocaleString('en-US')} and ${maxStars.toLocaleString('en-US')} Stars.`
-      );
-    }
-
-    const etbPerStar = getNumericSetting('etb_per_star', 2.5);
-    if (!(etbPerStar > 0)) {
-      logger.error({ etbPerStar }, 'etb_per_star setting is invalid; refusing to price order');
-      throw new PricingError('Store pricing is temporarily unavailable. Please contact support.');
-    }
-
-    const amountETB = Math.ceil(stars * etbPerStar);
-    assertPositiveIntegerETB(amountETB);
-
-    return {
-      amountETB,
-      quantity: stars,
-      productName: `${stars.toLocaleString('en-US')} Telegram Stars`,
-      product,
-      variant: null,
-    };
-  }
-
-  throw new PricingError('Order requires either a valid plan variant or a custom Stars amount.');
+  throw new PricingError('Order requires a valid plan variant.');
 }

@@ -72,17 +72,17 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe('Hardening: receipt path resolution', () => {
-  it('resolves filename-only ids stored by the current upload flow', () => {
+  it('resolves filename-only ids stored by the current upload flow', async () => {
     const order = createOrder({ userId: 99, productId: 'gemini_pro_18m', amountETB: 500, paymentRail: 'cbe' });
-    const saved = saveReceiptImage(PNG_1PX, order.id);
+    const saved = await saveReceiptImage(PNG_1PX, order.id);
     expect(resolveStoredReceiptPath(saved.storedName)).toBeTruthy();
     // The stored name must be relative now — absolute paths were the bug.
     expect(path.isAbsolute(saved.storedName)).toBe(false);
   });
 
-  it('still resolves legacy absolute-path rows written by earlier builds', () => {
+  it('still resolves legacy absolute-path rows written by earlier builds', async () => {
     const order = createOrder({ userId: 99, productId: 'gemini_pro_18m', amountETB: 500, paymentRail: 'cbe' });
-    const saved = saveReceiptImage(PNG_1PX, order.id);
+    const saved = await saveReceiptImage(PNG_1PX, order.id);
     expect(resolveStoredReceiptPath(saved.filePath)).toBe(resolveStoredReceiptPath(saved.storedName));
   });
 
@@ -101,7 +101,7 @@ describe('Hardening: receipt path resolution', () => {
 
   it('serves a web-uploaded receipt through the dashboard endpoint end-to-end', async () => {
     const order = createOrder({ userId: 99999, productId: 'gemini_pro_18m', amountETB: 500, paymentRail: 'cbe' });
-    const saved = saveReceiptImage(PNG_1PX, order.id);
+    const saved = await saveReceiptImage(PNG_1PX, order.id);
     submitReceipt(order.id, saved.storedName, 'note');
 
     const res = await fetch(`http://localhost:${port}/api/admin/orders/${order.id}/receipt`, {
@@ -152,7 +152,7 @@ describe('Hardening: signed one-time receipt links (H1)', () => {
 
   it('issues links via the API and serves the image WITHOUT any Bearer header', async () => {
     const order = createOrder({ userId: 99999, productId: 'gemini_pro_18m', amountETB: 500, paymentRail: 'cbe' });
-    const saved = saveReceiptImage(PNG_1PX, order.id);
+    const saved = await saveReceiptImage(PNG_1PX, order.id);
     submitReceipt(order.id, saved.storedName);
 
     const linkRes = await fetch(`http://localhost:${port}/api/admin/orders/${order.id}/receipt-link`, {

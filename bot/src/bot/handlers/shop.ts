@@ -1,11 +1,7 @@
-import { CallbackQueryContext, Context, InlineKeyboard, InputFile } from 'grammy';
-import { getAllProducts, getProductById, getProductVariants, formatPriceETB, getVariantById } from '../../services/catalog.service.js';
+import { Context, InlineKeyboard, InputFile } from 'grammy';
+import { getAllProducts, getProductById, getProductVariants, formatPriceETB } from '../../services/catalog.service.js';
 import { getAvailableStockCount } from '../../services/stock.service.js';
-import { getNumericSetting } from '../../services/settings.service.js';
-import { setPendingAction } from '../session.js';
-import { t } from '../../i18n/index.js';
 import { getBannerPngPath } from '../../services/banner_generator.service.js';
-import { logger } from '../../logger/index.js';
 
 export async function renderCatalog(ctx: Context): Promise<void> {
   const products = getAllProducts();
@@ -18,7 +14,6 @@ export async function renderCatalog(ctx: Context): Promise<void> {
     return prices.length > 0 ? Math.min(...prices) : 0;
   };
   const premiumFromPrice = minVariantPrice('telegram_premium');
-  const starsFromPrice = minVariantPrice('telegram_stars');
 
   let text =
     '<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n' +
@@ -40,11 +35,6 @@ export async function renderCatalog(ctx: Context): Promise<void> {
       text += `• ⭐ <b>${prod.name}</b>\n` +
         `   └ 💰 from <code>${fromLabel}</code> · ⚡ <i>3, 6, 12M Plans · Direct Gift</i>\n\n`;
       keyboard.text(`⭐ ${prod.name} • from ${fromLabel}`, `prod_${prod.id}`).row();
-    } else if (prod.id === 'telegram_stars') {
-      const fromLabel = starsFromPrice > 0 ? formatPriceETB(starsFromPrice) : 'price on request';
-      text += `• 🪙 <b>${prod.name}</b>\n` +
-        `   └ 💰 from <code>${fromLabel}</code> · ⚡ <i>Instant Fragment Top-Up</i>\n\n`;
-      keyboard.text(`🪙 ${prod.name} • from ${fromLabel}`, `prod_${prod.id}`).row();
     } else {
       keyboard.text(`✨ ${prod.name}`, `prod_${prod.id}`).row();
     }
@@ -87,7 +77,7 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
   }
 
   const keyboard = new InlineKeyboard();
-  let bannerType: 'gemini' | 'premium' | 'stars' = 'gemini';
+  let bannerType: 'gemini' | 'premium' = 'gemini';
   let text = '';
 
   if (product.type === 'stock') {
@@ -129,34 +119,6 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
       const badge = v.id.includes('12m') ? ' 🔥' : '';
       keyboard.text(`⭐ ${v.name} — ${formatPriceETB(v.price_etb)}${badge}`, `buy_var_${v.id}`).row();
     }
-  } else if (product.id === 'telegram_stars') {
-    bannerType = 'stars';
-    const variants = getProductVariants(product.id);
-    const etbPerStar = getNumericSetting('etb_per_star', 2.5);
-    const minStars = getNumericSetting('stars_min', 10);
-    const maxStars = getNumericSetting('stars_max', 100000);
-
-    text = `<b>🪙 ${product.name}</b>\n\n` +
-      `<blockquote>${product.description}</blockquote>\n\n` +
-      `📊 <b>Pricing & Rates:</b>\n` +
-      `• 💱 <b>Exchange Rate:</b> <code>1 Star = ${etbPerStar} ETB</code>\n` +
-      `• 📐 <b>Custom Purchase Limits:</b> <code>${minStars.toLocaleString()} – ${maxStars.toLocaleString()} Stars</code>\n` +
-      `• ⚡ <b>Delivery:</b> Instant Fragment credit to @username\n\n` +
-      `👇 <b>Choose a package or enter a custom amount:</b>`;
-
-    for (let i = 0; i < variants.length; i += 2) {
-      const v1 = variants[i];
-      const v2 = variants[i + 1];
-
-      if (v1 && v2) {
-        keyboard.text(`⭐️ ${v1.name} (${formatPriceETB(v1.price_etb)})`, `buy_var_${v1.id}`);
-        keyboard.text(`⭐️ ${v2.name} (${formatPriceETB(v2.price_etb)})`, `buy_var_${v2.id}`).row();
-      } else if (v1) {
-        keyboard.text(`⭐️ ${v1.name} (${formatPriceETB(v1.price_etb)})`, `buy_var_${v1.id}`).row();
-      }
-    }
-
-    keyboard.row().text('✏️ Enter Custom Stars Amount', 'stars_custom').row();
   }
 
   keyboard.row().text('« Back to Catalog', 'nav_shop').text('« Main Menu', 'nav_home');
@@ -197,63 +159,4 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
       await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
     }
   }
-}
-
-export async function promptCustomStars(ctx: Context): Promise<void> {
-  const userId = ctx.from?.id;
-  if (!userId) return;
-
-  const etbPerStar = getNumericSetting('etb_per_star', 2.5);
-  const minStars = getNumericSetting('stars_min', 10);
-  const maxStars = getNumericSetting('stars_max', 100000);
-
-  setPendingAction(userId, {
-    type: 'stars_custom_amount',
-    data: { minStars, maxStars, etbPerStar },
-  });
-
-  const text = `<b>🪙 Custom Telegram Stars Purchase</b>\n\n` +
-    `<blockquote>Enter the exact number of Stars you wish to purchase:</blockquote>\n\n` +
-    `📊 <b>Purchase Limits & Rates:</b>\n` +
-    `• 🔻 <b>Minimum:</b> <code>${minStars.toLocaleString()} Stars</code> (${formatPriceETB(Math.ceil(minStars * etbPerStar))})\n` +
-    `• 🔺 <b>Maximum:</b> <code>${maxStars.toLocaleString()} Stars</code> (${formatPriceETB(Math.ceil(maxStars * etbPerStar))})\n` +
-    `• 💱 <b>Rate:</b> <code>1 Star = ${etbPerStar} ETB</code>\n\n` +
-    `💬 <i>Please type the number of Stars in chat (e.g. <code>750</code>):</i>`;
-
-  const keyboard = new InlineKeyboard().text('« Cancel & Return', 'prod_telegram_stars');
-
-  if (ctx.callbackQuery?.message?.photo) {
-    await ctx.editMessageCaption({
-      caption: text,
-      parse_mode: 'HTML',
-      reply_markup: keyboard,
-    });
-  } else if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
-}
-
-export function validateCustomStarsAmount(
-  input: string,
-  minStars: number,
-  maxStars: number
-): { valid: boolean; stars?: number; error?: string } {
-  const clean = input.trim().replace(/,/g, '');
-  const num = parseInt(clean, 10);
-
-  if (isNaN(num) || !/^\d+$/.test(clean)) {
-    return { valid: false, error: 'Please enter a valid whole number without letters or decimals.' };
-  }
-
-  if (num < minStars) {
-    return { valid: false, error: `The minimum purchase amount is ${minStars.toLocaleString()} Stars.` };
-  }
-
-  if (num > maxStars) {
-    return { valid: false, error: `The maximum purchase amount is ${maxStars.toLocaleString()} Stars.` };
-  }
-
-  return { valid: true, stars: num };
 }

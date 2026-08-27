@@ -8,7 +8,7 @@ import { getNumericSetting } from './settings.service.js';
 import { adjustUserStats } from './loyalty.service.js';
 import { redeemPromoInTx } from './promo.service.js';
 
-export type PaymentRail = 'stars' | 'wallet_pay' | 'telebirr' | 'cbe' | 'abyssinia' | 'chapa' | 'ton_connect';
+export type PaymentRail = 'wallet_pay' | 'chapa' | 'ton_connect' | 'telebirr' | 'cbe' | 'abyssinia';
 export type OrderStatus =
   | 'new'
   | 'awaiting_payment'

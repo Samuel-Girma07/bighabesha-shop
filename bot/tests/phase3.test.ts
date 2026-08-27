@@ -33,9 +33,8 @@ describe('Phase 3: End-to-End Purchases, Gate, Delivery & Order History', () => 
   });
 
   describe('Username Gate Verification', () => {
-    it('requires public @username for Telegram Premium and Telegram Stars, but not Gemini Pro', () => {
+    it('requires public @username for Telegram Premium, but not Gemini Pro', () => {
       expect(isUsernameRequired('telegram_premium')).toBe(true);
-      expect(isUsernameRequired('telegram_stars')).toBe(true);
       expect(isUsernameRequired('gemini_pro_18m')).toBe(false);
     });
 
@@ -49,33 +48,6 @@ describe('Phase 3: End-to-End Purchases, Gate, Delivery & Order History', () => 
     it('unblocks users who have a valid public username', () => {
       expect(hasPublicUsername({ username: 'bighabeshabuyer' })).toBe(true);
       expect(hasPublicUsername({ username: 'Vweah' })).toBe(true);
-    });
-
-    it('correctly parses custom stars gate recheck payload without NaN', async () => {
-      const database = getDatabase();
-      database.prepare('INSERT INTO users (id, username) VALUES (?, ?)').run(999111, 'valid_buyer');
-
-      const mockCtx: any = {
-        from: { id: 999111, username: 'valid_buyer' },
-        api: {
-          getChat: async () => ({ id: 999111, username: 'valid_buyer' }),
-        },
-        answerCallbackQuery: async () => {},
-        reply: async () => {},
-        editMessageText: async () => {},
-      };
-
-      const { handleGateRecheck } = await import('../src/bot/handlers/gate.js');
-      await handleGateRecheck(mockCtx, 'gate_recheck_telegram_stars_custom_500_1250');
-
-      const orders = getOrdersByUserId(999111);
-      expect(orders.length).toBeGreaterThan(0);
-      const createdOrder = orders[0];
-      expect(createdOrder.product_id).toBe('telegram_stars');
-      expect(createdOrder.quantity).toBe(500);
-      expect(createdOrder.amount_etb).toBe(1250);
-      expect(isNaN(createdOrder.quantity)).toBe(false);
-      expect(isNaN(createdOrder.amount_etb)).toBe(false);
     });
   });
 
@@ -103,7 +75,7 @@ describe('Phase 3: End-to-End Purchases, Gate, Delivery & Order History', () => 
         productId: 'gemini_pro_18m',
         variantId: 'gemini_pro_18m_default',
         amountETB: 1500,
-        paymentRail: 'stars',
+        paymentRail: 'wallet_pay',
       });
 
       const approval1 = approveReceipt(order1.id, 0);
@@ -151,9 +123,9 @@ describe('Phase 3: End-to-End Purchases, Gate, Delivery & Order History', () => 
       createOrder({
         userId: uId,
         username: 'historyuser',
-        productId: 'telegram_stars',
-        amountETB: 125,
-        paymentRail: 'stars',
+        productId: 'gemini_pro_18m',
+        amountETB: 1500,
+        paymentRail: 'cbe',
       });
       createOrder({
         userId: uId,
@@ -166,7 +138,7 @@ describe('Phase 3: End-to-End Purchases, Gate, Delivery & Order History', () => 
       const orders = getOrdersByUserId(uId);
       expect(orders).toHaveLength(2);
       expect(orders[0].product_id).toBe('telegram_premium');
-      expect(orders[1].product_id).toBe('telegram_stars');
+      expect(orders[1].product_id).toBe('gemini_pro_18m');
     });
 
     it('formats human readable status badges correctly', () => {

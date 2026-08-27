@@ -18,7 +18,6 @@ import {
   getTotalStockCount,
   allocateStock,
 } from '../src/services/stock.service.js';
-import { validateCustomStarsAmount } from '../src/bot/handlers/shop.js';
 import { isAdmin } from '../src/bot/handlers/admin.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -41,21 +40,17 @@ describe('Phase 1: Catalog, Stock, Rates, and Validation', () => {
   });
 
   describe('Database Seeding & Idempotency', () => {
-    it('seeds the 3 required v1 products with default variants and settings', () => {
+    it('seeds the 2 required v1 products with default variants and settings', () => {
       const products = getAllProducts();
-      expect(products).toHaveLength(3);
+      expect(products).toHaveLength(2);
 
       const productIds = products.map((p) => p.id);
       expect(productIds).toContain('gemini_pro_18m');
       expect(productIds).toContain('telegram_premium');
-      expect(productIds).toContain('telegram_stars');
 
       const premVariants = getProductVariants('telegram_premium');
       expect(premVariants).toHaveLength(3);
       expect(premVariants.map((v) => v.price_etb)).toEqual([1100, 1900, 3400]);
-
-      const starsVariants = getProductVariants('telegram_stars');
-      expect(starsVariants).toHaveLength(6);
     });
 
     it('is completely idempotent when run multiple times', () => {
@@ -64,39 +59,10 @@ describe('Phase 1: Catalog, Stock, Rates, and Validation', () => {
       seedDatabase(db);
 
       const products = getAllProducts();
-      expect(products).toHaveLength(3);
+      expect(products).toHaveLength(2);
 
       const premVariants = getProductVariants('telegram_premium');
       expect(premVariants).toHaveLength(3);
-    });
-  });
-
-  describe('Custom Stars Validation', () => {
-    const min = 10;
-    const max = 100000;
-
-    it('accepts valid integer quantities within bounds', () => {
-      expect(validateCustomStarsAmount('50', min, max)).toEqual({ valid: true, stars: 50 });
-      expect(validateCustomStarsAmount('1,000', min, max)).toEqual({ valid: true, stars: 1000 });
-      expect(validateCustomStarsAmount('10', min, max)).toEqual({ valid: true, stars: 10 });
-      expect(validateCustomStarsAmount('100000', min, max)).toEqual({ valid: true, stars: 100000 });
-    });
-
-    it('rejects numbers below minimum or above maximum', () => {
-      const below = validateCustomStarsAmount('5', min, max);
-      expect(below.valid).toBe(false);
-      expect(below.error).toContain('minimum purchase amount is 10');
-
-      const above = validateCustomStarsAmount('150000', min, max);
-      expect(above.valid).toBe(false);
-      expect(above.error).toContain('maximum purchase amount is 100,000');
-    });
-
-    it('rejects invalid, negative, or decimal inputs', () => {
-      expect(validateCustomStarsAmount('abc', min, max).valid).toBe(false);
-      expect(validateCustomStarsAmount('50.5', min, max).valid).toBe(false);
-      expect(validateCustomStarsAmount('-10', min, max).valid).toBe(false);
-      expect(validateCustomStarsAmount('', min, max).valid).toBe(false);
     });
   });
 

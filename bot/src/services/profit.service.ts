@@ -18,8 +18,6 @@ export function railFeeEtb(order: Pick<Order, 'payment_rail' | 'amount_etb' | 'd
   switch (order.payment_rail) {
     case 'chapa':
       return Math.round((net * getNumericSetting('chapa_fee_pct', 2)) / 100);
-    case 'stars':
-      return Math.round((net * getNumericSetting('stars_cashout_pct', 10)) / 100);
     case 'wallet_pay':
     case 'ton_connect': {
       const gasBps = getNumericSetting('wallet_gas_bps', 30);

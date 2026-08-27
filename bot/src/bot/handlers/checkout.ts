@@ -1,10 +1,10 @@
 import { Context, InlineKeyboard, InputFile } from 'grammy';
 import { getProductById, formatPriceETB } from '../../services/catalog.service.js';
 import { resolveStoredReceiptPath } from '../../services/receipts.service.js';
-import { createOrder, getOrderById, updateOrderMeta, updateOrderStatus, submitReceipt, approveReceipt, rejectReceipt, PaymentRail, Order } from '../../services/orders.service.js';
+import { createOrder, getOrderById, updateOrderMeta, updateOrderStatus, approveReceipt, PaymentRail, Order } from '../../services/orders.service.js';
 import { resolveOrderPrice, PricingError } from '../../services/pricing.service.js';
-import { calculateStarsDue, calculateCryptoQuote, fetchCoinGeckoPrices } from '../../services/rate_engine.service.js';
-import { getSetting, getNumericSetting } from '../../services/settings.service.js';
+import { calculateCryptoQuote, fetchCoinGeckoPrices } from '../../services/rate_engine.service.js';
+import { getSetting } from '../../services/settings.service.js';
 import { getWalletPayAdapter } from '../../services/payments/index.js';
 import { isChapaEnabled, chapaInitialize } from '../../services/payments/chapa.js';
 import { isTonConnectEnabled } from '../../services/payments/ton.service.js';
@@ -14,9 +14,12 @@ import { getConfig } from '../../config/env.js';
 import { getDatabase } from '../../db/index.js';
 import { escapeHtml } from '../../utils/html.js';
 import { logger } from '../../logger/index.js';
-import { t } from '../../i18n/index.js';
 
-const VALID_PAYMENT_RAILS: PaymentRail[] = ['stars', 'wallet_pay', 'telebirr', 'cbe', 'abyssinia'];
+const VALID_PAYMENT_RAILS: PaymentRail[] = ['wallet_pay', 'chapa', 'ton_connect', 'telebirr', 'cbe', 'abyssinia'];
+
+export function isValidPaymentRail(rail: string): rail is PaymentRail {
+  return (VALID_PAYMENT_RAILS as string[]).includes(rail);
+}
 
 /**
  * Universal safe message editor: handles both photo caption edits and text edits,
@@ -55,11 +58,7 @@ export async function safeEditMessage(
 export async function initiateCheckout(
   ctx: Context,
   productId: string,
-  variantId?: string,
-  customStars?: number,
-  // Deprecated: retained for call-site compatibility. The price is ALWAYS
-  // recomputed server-side; this argument is never trusted.
-  _customAmountETB?: number
+  variantId?: string
 ): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || null;
@@ -73,13 +72,12 @@ export async function initiateCheckout(
     const resolved = resolveOrderPrice({
       productId,
       variantId: variantId || null,
-      customStars: customStars || null,
     });
     amountETB = resolved.amountETB;
     productName = resolved.productName;
   } catch (err) {
     if (err instanceof PricingError) {
-      logger.warn({ err, userId, productId, variantId, customStars }, 'Checkout blocked by pricing validation');
+      logger.warn({ err, userId, productId, variantId }, 'Checkout blocked by pricing validation');
       await ctx.reply(`❌ ${escapeHtml(err.message)}`);
     } else {
       logger.error({ err, productId }, 'Unexpected error while resolving order price');
@@ -112,8 +110,8 @@ export async function initiateCheckout(
       productId,
       variantId: variantId || null,
       amountETB,
-      paymentRail: 'stars',
-      quantity: customStars || 1,
+      paymentRail: 'wallet_pay',
+      quantity: 1,
       status: 'awaiting_payment',
     });
   }
@@ -124,7 +122,6 @@ export async function initiateCheckout(
 export async function renderPaymentRailSelection(ctx: Context, order: Order, productName: string): Promise<void> {
   const discount = order.discount_etb || 0;
   const netAmount = Math.max(order.amount_etb - discount, 1);
-  const starsDue = calculateStarsDue(netAmount);
   const { tonUsd } = await fetchCoinGeckoPrices();
   const { cryptoAmount: tonAmount, usdAmountWithMargin } = calculateCryptoQuote(netAmount, tonUsd);
 
@@ -135,14 +132,11 @@ export async function renderPaymentRailSelection(ctx: Context, order: Order, pro
     `• 🧾 <b>Order Ref:</b> <code>${order.id}</code>\n` +
     (discount > 0 ? `• 🏷️ <b>Original Price:</b> <s>${formatPriceETB(order.amount_etb)}</s>\n• 🎁 <b>Promo (${escapeHtml(order.promo_code || '')}):</b> <b>−${formatPriceETB(discount)}</b>\n` : '') +
     `• 💰 <b>Total Payable:</b> <code>${formatPriceETB(netAmount)}</code>\n\n` +
-    `<blockquote>⚡ <b>Automated Digital & Crypto Quotes:</b>\n` +
-    `• ⭐️ Telegram Stars: <code>${starsDue} XTR</code>\n` +
+    `<blockquote>⚡ <b>Automated Crypto Quote:</b>\n` +
     `• 💎 TON / USDT: <code>$${usdAmountWithMargin.toFixed(2)} USD</code> (~${tonAmount} TON)</blockquote>\n\n` +
     `<i>👇 Select your preferred payment rail below:</i>`;
 
   const keyboard = new InlineKeyboard()
-    .text(`⭐️ Pay with Stars (${starsDue} XTR)`, `pay_stars_${order.id}`)
-    .row()
     .text(`🪙 Pay with Crypto (TON / USDT)`, `pay_wp_${order.id}`)
     .row();
 
@@ -233,35 +227,6 @@ export async function handleTonConnect(ctx: Context, orderId: string): Promise<v
     .text('« Change Payment Method', `checkout_back_${order.id}`);
 
   await safeEditMessage(ctx, text, keyboard);
-}
-
-export async function handleStarsPayment(ctx: Context, orderId: string): Promise<void> {
-  const order = getOrderById(orderId);
-  if (!order) {
-    await ctx.reply('Order not found.');
-    return;
-  }
-
-  const product = getProductById(order.product_id);
-  const productName = product ? product.name : 'Subscription';
-  const starsDue = calculateStarsDue(order.amount_etb);
-
-  // Rail switch: NEVER regress the order status — a pending_approval order
-  // keeps its receipt; only the payment rail metadata changes.
-  updateOrderMeta(orderId, { payment_rail: 'stars' });
-
-  try {
-    await ctx.replyWithInvoice(
-      `Bighabesha Shop: ${productName}`,
-      `Order #${order.id} — Instant automated fulfillment upon payment verification.`,
-      `order_${order.id}`,
-      'XTR',
-      [{ label: productName, amount: starsDue }]
-    );
-  } catch (err) {
-    logger.error({ err, orderId }, 'Failed to send Telegram Stars invoice');
-    await ctx.reply('Failed to generate Telegram Stars invoice. Please select another payment method.');
-  }
 }
 
 export async function handleWalletPay(ctx: Context, orderId: string): Promise<void> {

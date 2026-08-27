@@ -2,7 +2,7 @@ import { Bot, BotError, GrammyError } from 'grammy';
 import { logger } from '../logger/index.js';
 import { startHandler } from './handlers/start.js';
 import { healthHandler, pingHandler } from './handlers/health.js';
-import { renderCatalog, renderProductDetails, promptCustomStars } from './handlers/shop.js';
+import { renderCatalog, renderProductDetails } from './handlers/shop.js';
 import { promptPhoneRegistration, handleContactMessage } from './handlers/registration.js';
 import { renderProfile } from './handlers/profile.js';
 import { renderSupport, renderHelp } from './handlers/support.js';
@@ -32,7 +32,6 @@ import {
 } from './handlers/broadcast.js';
 import {
   initiateCheckout,
-  handleStarsPayment,
   handleWalletPay,
   handleManualRail,
   promptReceiptUpload,
@@ -328,139 +327,6 @@ export function createBot(token: string): Bot {
     }
   });
 
-  // Telegram Stars Handlers
-  bot.on('pre_checkout_query', async (ctx) => {
-    const payload = ctx.preCheckoutQuery.invoice_payload;
-    logger.info({ payload }, 'Received pre_checkout_query for Stars invoice');
-
-    if (payload.startsWith('order_')) {
-      const orderId = payload.replace('order_', '');
-      const order = getOrderById(orderId);
-      if (order && (order.status === 'awaiting_payment' || order.status === 'new')) {
-        // Stock availability gate: reject the invoice BEFORE payment capture
-        // if the product is a stock item that has sold out. Without this,
-        // funds are captured and delivery later fails with nothing sent.
-        const product = getProductById(order.product_id);
-        if (product && product.type === 'stock') {
-          const available = getAvailableStockCount(order.product_id);
-          if (available <= 0) {
-            logger.warn({ orderId: order.id, productId: order.product_id }, 'Rejected Stars checkout: product sold out');
-            await ctx.answerPreCheckoutQuery(false, { error_message: 'Sold out — your payment was NOT taken. Please choose another product or contact support.' });
-            return;
-          }
-        }
-        await ctx.answerPreCheckoutQuery(true);
-        return;
-      }
-    }
-
-    await ctx.answerPreCheckoutQuery(false, { error_message: 'Order expired or invalid.' });
-  });
-
-  bot.on('message:successful_payment', async (ctx) => {
-    const payment = ctx.message.successful_payment;
-    logger.info({ payment }, 'Received successful_payment event');
-
-    const payload = payment.invoice_payload;
-    if (payload.startsWith('order_')) {
-      const orderId = payload.replace('order_', '');
-      const order = getOrderById(orderId);
-      if (order) {
-        // Recovery state for the paid-but-not-delivered edge case: funds are
-        // already captured here, so EVERY failure path must (a) keep the
-        // order actionable, (b) alert admins instantly, and (c) reassure the
-        // buyer. Never leave a paid order silently dropped.
-        let updated = order;
-        let autoDeliveredItem: any = null;
-        let deliveryFailureNote: string | null = null;
-
-        try {
-          const approval = approveReceipt(order.id, 0);
-          updated = approval.order;
-          autoDeliveredItem = approval.autoDeliveredItem;
-          updateOrderStatus(order.id, updated.status, { payment_ref: payment.telegram_payment_charge_id });
-
-          // Paid stock product that could NOT be auto-delivered (e.g. stock
-          // raced to zero between checkout approval and allocation).
-          const productForDelivery = getProductById(order.product_id);
-          if (!autoDeliveredItem && productForDelivery && productForDelivery.type === 'stock') {
-            deliveryFailureNote = 'Stock item could not be allocated after Stars payment was captured.';
-            updated = updateOrderStatus(order.id, 'pending_fulfillment', {
-              admin_notes: `⚠️ AUTOMATIC DELIVERY FAILED after Stars payment (${payment.total_amount} XTR, charge ${payment.telegram_payment_charge_id}). Restock and fulfil manually — buyer has PAID.`,
-            });
-          }
-        } catch (err: any) {
-          deliveryFailureNote = err?.message || 'Unknown error during post-payment fulfillment';
-          logger.error({ err, orderId: order.id }, 'Error during Stars payment fulfillment — recovering');
-          try {
-            updated = updateOrderStatus(order.id, 'pending_fulfillment', {
-              admin_notes: `⚠️ FULFILLMENT ERROR after Stars payment (${payment.total_amount} XTR, charge ${payment.telegram_payment_charge_id}): ${deliveryFailureNote}. Buyer has PAID — resolve manually.`,
-            });
-          } catch (statusErr) {
-            logger.error({ err: statusErr, orderId: order.id }, 'CRITICAL: could not even mark paid order as pending_fulfillment');
-          }
-        }
-
-        try {
-          if (autoDeliveredItem) {
-            const rawTemplate = getSetting(
-              'gemini_instructions',
-              'After payment, you will receive a one-time activation link.\n\n1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.'
-            );
-            const deliveryText = `🎉 <b>Stars Payment Confirmed! Order #${order.id}</b>\n\n` +
-              `Here is your activation link:\n🔗 <code>${autoDeliveredItem.payload}</code>\n\n` +
-              `<b>Instructions:</b>\n${rawTemplate}\n\n` +
-              `<i>Thank you for choosing Bighabesha Shop!</i>`;
-
-            await ctx.reply(deliveryText, { parse_mode: 'HTML' });
-          } else if (deliveryFailureNote) {
-            await ctx.reply(
-              `⭐️ <b>Payment Received (${payment.total_amount} Stars)!</b>\n\n` +
-                `Order #${escapeHtml(order.id)} is confirmed. Our team is finalizing delivery to <b>@${escapeHtml(order.username || 'your account')}</b> — ` +
-                `you will receive it shortly. Thank you for your patience!`,
-              { parse_mode: 'HTML' }
-            );
-          } else {
-            await ctx.reply(
-              `⭐️ <b>Payment Received (${payment.total_amount} Stars)!</b>\n\n` +
-                `Order #${order.id} is now queued for delivery to <b>@${escapeHtml(order.username || 'your account')}</b>.\n` +
-                `You will receive an update shortly!`,
-              { parse_mode: 'HTML' }
-            );
-          }
-
-          // Instant Admin Notification for Stars purchase
-          const product = getProductById(order.product_id);
-          const prodName = product ? product.name : order.product_id;
-          const adminAlertText = deliveryFailureNote
-            ? `🚨 <b>Paid Order Needs Manual Fulfillment!</b>\n\n` +
-              `• <b>Order ID:</b> <code>${order.id}</code>\n` +
-              `• <b>Buyer:</b> @${escapeHtml(order.username || 'unknown')} (ID: <code>${order.user_id}</code>)\n` +
-              `• <b>Product:</b> ${escapeHtml(prodName)}\n` +
-              `• <b>Stars Paid:</b> ${payment.total_amount} XTR (FUNDS CAPTURED)\n` +
-              `• <b>Charge ID:</b> <code>${escapeHtml(payment.telegram_payment_charge_id)}</code>\n` +
-              `• <b>Issue:</b> ${escapeHtml(deliveryFailureNote)}\n\n` +
-              `<b>Action required:</b> restock / deliver manually NOW.`
-            : `⭐️ <b>New Telegram Stars (XTR) Purchase!</b>\n\n` +
-              `• <b>Order ID:</b> <code>${order.id}</code>\n` +
-              `• <b>Buyer:</b> @${escapeHtml(order.username || 'unknown')} (ID: <code>${order.user_id}</code>)\n` +
-              `• <b>Product:</b> ${escapeHtml(prodName)}\n` +
-              `• <b>Stars Paid:</b> ${payment.total_amount} XTR\n` +
-              `• <b>Status:</b> <code>${updated.status.toUpperCase()}</code>\n` +
-              `• <b>Charge ID:</b> <code>${escapeHtml(payment.telegram_payment_charge_id)}</code>`;
-
-          for (const adminId of config.ADMIN_IDS) {
-            bot.api.sendMessage(adminId, adminAlertText, { parse_mode: 'HTML' }).catch((err) => {
-              logger.error({ err, adminId, orderId: order.id }, 'Failed to send admin alert for Stars purchase');
-            });
-          }
-        } catch (notifyErr) {
-          logger.error({ err: notifyErr, orderId: order.id }, 'Failed buyer/admin notifications after successful Stars payment');
-        }
-      }
-    }
-  });
-
   // Photo & Document Handlers for Stateful Input
   bot.on('message:photo', async (ctx, next) => {
     const handled = await handlePhotoInput(ctx);
@@ -493,8 +359,6 @@ export function createBot(token: string): Bot {
     const isPurchaseAction =
       data.startsWith('prod_') ||
       data.startsWith('buy_var_') ||
-      data.startsWith('buy_custom_stars_') ||
-      data === 'stars_custom' ||
       data.startsWith('pay_');
 
     if (isPurchaseAction && userId && !isUserRegistered(userId)) {
@@ -554,29 +418,13 @@ export function createBot(token: string): Bot {
 
       if (variantId.startsWith('tg_prem_')) {
         productId = 'telegram_premium';
-      } else if (variantId.startsWith('tg_stars_')) {
-        productId = 'telegram_stars';
       }
 
-      // Check username gate for Premium and Stars
+      // Check username gate for Premium
       if (isUsernameRequired(productId) && !hasPublicUsername(ctx.from)) {
         await renderUsernameGate(ctx, productId, variantId);
       } else {
         await initiateCheckout(ctx, productId, variantId);
-      }
-    } else if (data.startsWith('buy_custom_stars_')) {
-      // Callback data may be forged by a modified client: only the star count
-      // is honored (after validation), and the price is always recomputed
-      // server-side by the pricing service inside initiateCheckout.
-      const parts = data.replace('buy_custom_stars_', '').split('_');
-      const stars = parseInt(parts[0], 10);
-
-      if (!Number.isInteger(stars) || stars <= 0) {
-        await ctx.reply('Invalid order parameters. Please start your order again from the shop.');
-      } else if (!hasPublicUsername(ctx.from)) {
-        await renderUsernameGate(ctx, 'telegram_stars', undefined, stars);
-      } else {
-        await initiateCheckout(ctx, 'telegram_stars', undefined, stars);
       }
     } else if (data.startsWith('checkout_back_')) {
       const orderId = data.replace('checkout_back_', '');
@@ -612,9 +460,6 @@ export function createBot(token: string): Bot {
           { parse_mode: 'HTML' }
         );
       }
-    } else if (data.startsWith('pay_stars_')) {
-      const orderId = data.replace('pay_stars_', '');
-      await handleStarsPayment(ctx, orderId);
     } else if (data.startsWith('pay_wp_')) {
       const orderId = data.replace('pay_wp_', '');
       await handleWalletPay(ctx, orderId);
@@ -636,8 +481,6 @@ export function createBot(token: string): Bot {
     } else if (data.startsWith('admin_reject_')) {
       const orderId = data.replace('admin_reject_', '');
       await promptAdminReject(ctx, orderId);
-    } else if (data === 'stars_custom') {
-      await promptCustomStars(ctx);
     } else if (data === 'action_sold_out') {
       await ctx.reply('🚨 <b>Sold Out</b>: This product is currently unavailable. Please check back soon or contact support.', { parse_mode: 'HTML' });
     } else if (data === 'admin_menu') {

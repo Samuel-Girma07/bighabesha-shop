@@ -29,6 +29,14 @@ export function resetWalletPayAdapter(): void {
   adapterInstance = null;
 }
 
+import { prepared } from '../../db/index.js';
+import { tryAcquireLease } from '../../db/lease.js';
+
+const SWEEP_BATCH = 25;
+const SWEEP_BUDGET_MS = 45_000;
+let sweepInFlight = false;
+let stopRequested = false;
+
 /**
  * Unified stuck-payment reconciliation sweep (runs every 60s).
  *
@@ -42,14 +50,29 @@ export function resetWalletPayAdapter(): void {
  * the poll succeeded" edge case. Mock adapters are hard-refused in production.
  */
 export async function reconcileStuckPayments(botInstance?: any): Promise<number> {
+  if (sweepInFlight) {
+    logger.debug('Reconciliation sweep already in progress; skipping');
+    return 0;
+  }
+
+  const leaseAcquired = tryAcquireLease('payments:reconcile', 55_000);
+  if (!leaseAcquired) {
+    logger.debug('Another node holds the reconciliation lease');
+    return 0;
+  }
+
+  sweepInFlight = true;
+  const started = Date.now();
+
   try {
-    const db = getDatabase();
-    const stuckOrders = db.prepare(`
+    const stuckOrders = prepared(`
       SELECT * FROM orders
       WHERE status = 'awaiting_payment'
         AND payment_rail IN ('wallet_pay', 'chapa', 'ton_connect')
         AND created_at <= datetime('now', '-5 minutes')
-    `).all() as Order[];
+      ORDER BY created_at ASC
+      LIMIT ?
+    `).all(SWEEP_BATCH) as Order[];
 
     if (stuckOrders.length === 0) return 0;
 
@@ -69,6 +92,11 @@ export async function reconcileStuckPayments(botInstance?: any): Promise<number>
     let reconciledCount = 0;
 
     for (const order of stuckOrders) {
+      if (stopRequested || Date.now() - started > SWEEP_BUDGET_MS) {
+        logger.warn({ reconciledCount, budgetMs: SWEEP_BUDGET_MS }, 'Reconciliation sweep reached time/stop budget');
+        break;
+      }
+
       try {
         let isPaid = false;
 
@@ -111,11 +139,21 @@ export async function reconcileStuckPayments(botInstance?: any): Promise<number>
   } catch (err) {
     logger.error({ err }, 'Failed to reconcile stuck payment orders');
     return 0;
+  } finally {
+    sweepInFlight = false;
   }
 }
 
 /** Back-compat alias for earlier call sites and tests. */
 export const reconcileStuckWalletPayOrders = reconcileStuckPayments;
+
+export async function drainReconciliation(maxWaitMs = 10_000): Promise<void> {
+  stopRequested = true;
+  const start = Date.now();
+  while (sweepInFlight && Date.now() - start < maxWaitMs) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
 
 let reconciliationTimer: NodeJS.Timeout | null = null;
 

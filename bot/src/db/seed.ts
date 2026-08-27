@@ -30,15 +30,6 @@ export function seedDatabase(db: Database.Database): void {
       JSON.stringify({})
     );
 
-    insertProduct.run(
-      'telegram_stars',
-      'order',
-      'Telegram Stars (Coins)',
-      'Official Telegram Stars for gifts, mini-apps, bots, and digital media delivered to your @username.',
-      1,
-      JSON.stringify({ min_custom: 10, max_custom: 100000 })
-    );
-
     // 2. Variants
     const insertVariant = db.prepare(`
       INSERT INTO variants (id, product_id, name, price_etb, is_active, sort_order, meta)
@@ -54,14 +45,6 @@ export function seedDatabase(db: Database.Database): void {
     insertVariant.run('tg_prem_6m', 'telegram_premium', '6 Months Subscription', 1900, 1, 2, JSON.stringify({ months: 6 }));
     insertVariant.run('tg_prem_12m', 'telegram_premium', '12 Months Subscription', 3400, 1, 3, JSON.stringify({ months: 12 }));
 
-    // Telegram Stars preset packages
-    insertVariant.run('tg_stars_50', 'telegram_stars', '50 Stars', 125, 1, 1, JSON.stringify({ stars_count: 50 }));
-    insertVariant.run('tg_stars_100', 'telegram_stars', '100 Stars', 250, 1, 2, JSON.stringify({ stars_count: 100 }));
-    insertVariant.run('tg_stars_250', 'telegram_stars', '250 Stars', 625, 1, 3, JSON.stringify({ stars_count: 250 }));
-    insertVariant.run('tg_stars_500', 'telegram_stars', '500 Stars', 1250, 1, 4, JSON.stringify({ stars_count: 500 }));
-    insertVariant.run('tg_stars_1000', 'telegram_stars', '1,000 Stars', 2500, 1, 5, JSON.stringify({ stars_count: 1000 }));
-    insertVariant.run('tg_stars_2500', 'telegram_stars', '2,500 Stars', 6250, 1, 6, JSON.stringify({ stars_count: 2500 }));
-
     // 3. Settings
     const insertSetting = db.prepare(`
       INSERT INTO settings (key, value)
@@ -71,10 +54,7 @@ export function seedDatabase(db: Database.Database): void {
 
     const defaultSettings: Record<string, string> = {
       etb_per_usd: '135',
-      etb_per_star: '2.5',
       margin_pct: '5',
-      stars_min: '10',
-      stars_max: '100000',
       // Placeholder payment accounts — REAL merchant account numbers must
       // only ever be configured at runtime via the admin Settings panel or a
       // provisioned database, never committed to source control.
@@ -100,7 +80,6 @@ export function seedDatabase(db: Database.Database): void {
       restock_safety_days: '3',
       // Rail fee assumptions for net-profit analytics
       chapa_fee_pct: '2',
-      stars_cashout_pct: '10',
       wallet_gas_bps: '30',
       gemini_instructions:
         'After payment, you will receive a one-time activation link.\n\n1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.',

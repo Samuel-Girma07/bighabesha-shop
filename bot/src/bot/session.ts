@@ -2,7 +2,6 @@ import { getDatabase } from '../db/index.js';
 
 export interface PendingAction {
   type:
-    | 'stars_custom_amount'
     | 'user_receipt_upload'
     | 'admin_reject_reason'
     | 'admin_edit_variant_price'
@@ -62,4 +61,3 @@ export function clearPendingAction(userId: number): void {
   const db = getDatabase();
   db.prepare('DELETE FROM bot_sessions WHERE user_id = ?').run(userId);
 }
-

@@ -62,9 +62,6 @@ export function getAllSettings(): Record<string, string> {
  * low_stock_threshold, gemini_instructions, and any future private keys.
  */
 const PUBLIC_SETTING_KEYS = new Set([
-  'etb_per_star',
-  'stars_min',
-  'stars_max',
   'cbe_account',
   'cbe_name',
   'telebirr_account',
@@ -102,11 +99,8 @@ export function getPublicSettings(): Record<string, string> {
 export const KNOWN_SETTING_KEYS: ReadonlySet<string> = new Set([
   // Pricing & FX
   'etb_per_usd',
-  'etb_per_star',
   'fallback_ton_usd',
   'margin_pct',
-  'stars_min',
-  'stars_max',
   // Manual rail payment accounts
   'cbe_account',
   'cbe_name',
@@ -130,7 +124,6 @@ export const KNOWN_SETTING_KEYS: ReadonlySet<string> = new Set([
   'restock_lead_days',
   'restock_safety_days',
   'chapa_fee_pct',
-  'stars_cashout_pct',
   'wallet_gas_bps',
 ]);
 

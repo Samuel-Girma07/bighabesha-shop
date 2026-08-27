@@ -114,10 +114,50 @@ export class BroadcastBusyError extends Error {
 }
 
 export function getBroadcastJob(jobId: string): BroadcastJob | undefined {
-  return broadcastJobs.get(jobId);
+  const inMemory = broadcastJobs.get(jobId);
+  if (inMemory) return inMemory;
+
+  try {
+    const db = getDatabase();
+    const row = db.prepare('SELECT * FROM broadcast_jobs WHERE id = ?').get(jobId) as any;
+    if (!row) return undefined;
+
+    return {
+      id: row.id,
+      total: row.sent + row.failed,
+      sent: row.sent,
+      failed: row.failed,
+      done: row.status === 'completed' || row.status === 'failed',
+      startedAt: new Date(row.created_at).getTime(),
+      finishedAt: row.status !== 'running' ? new Date(row.updated_at).getTime() : undefined,
+      targetLanguage: row.target_lang || 'all',
+      hasPhoto: false,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export function listBroadcastJobs(): BroadcastJob[] {
+  try {
+    const db = getDatabase();
+    const rows = db.prepare('SELECT * FROM broadcast_jobs ORDER BY created_at DESC LIMIT 20').all() as any[];
+    if (rows.length > 0) {
+      return rows.map((row) => ({
+        id: row.id,
+        total: row.sent + row.failed,
+        sent: row.sent,
+        failed: row.failed,
+        done: row.status === 'completed' || row.status === 'failed',
+        startedAt: new Date(row.created_at).getTime(),
+        finishedAt: row.status !== 'running' ? new Date(row.updated_at).getTime() : undefined,
+        targetLanguage: row.target_lang || 'all',
+        hasPhoto: false,
+      }));
+    }
+  } catch {
+    // Fall back to in-memory list
+  }
   return [...broadcastJobs.values()].sort((a, b) => b.startedAt - a.startedAt);
 }
 
@@ -191,14 +231,30 @@ export function startBroadcastJob(
   };
   broadcastJobs.set(job.id, job);
 
+  try {
+    const db = getDatabase();
+    db.prepare(
+      "INSERT INTO broadcast_jobs (id, admin_id, status, target_lang, sent, failed, cursor_id) VALUES (?, 0, 'running', ?, 0, 0, 0)"
+    ).run(job.id, job.targetLanguage);
+  } catch (err) {
+    logger.warn({ err, jobId: job.id }, 'Failed to insert broadcast job row');
+  }
+
   logger.info({ jobId: job.id, total: job.total, targetLanguage: job.targetLanguage, hasPhoto: job.hasPhoto }, 'Background broadcast started');
 
   // Fire-and-forget worker — errors inside deliverBroadcast are already
   // isolated per user; this catch guards unexpected runner-level failures.
   void (async () => {
     try {
-      const result = await deliverBroadcast(targets, (targetId) =>
-        sendBroadcastMessage(api, targetId, params.messageText, params.photoFileId),
+      const result = await deliverBroadcast(targets, async (targetId) => {
+        await sendBroadcastMessage(api, targetId, params.messageText, params.photoFileId);
+        try {
+          const db = getDatabase();
+          db.prepare(
+            "UPDATE broadcast_jobs SET cursor_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+          ).run(targetId, job.id);
+        } catch {}
+      },
         params.pacing
       );
       job.sent = result.sent;
@@ -208,6 +264,14 @@ export function startBroadcastJob(
     } finally {
       job.done = true;
       job.finishedAt = Date.now();
+      try {
+        const db = getDatabase();
+        db.prepare(
+          "UPDATE broadcast_jobs SET sent = ?, failed = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+        ).run(job.sent, job.failed, job.failed === job.total && job.total > 0 ? 'failed' : 'completed', job.id);
+      } catch (err) {
+        logger.warn({ err, jobId: job.id }, 'Failed to update final broadcast job status');
+      }
       logger.info({ jobId: job.id, sent: job.sent, failed: job.failed }, 'Background broadcast finished');
     }
   })();

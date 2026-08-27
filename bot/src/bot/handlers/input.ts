@@ -1,6 +1,5 @@
-import { Context, InlineKeyboard } from 'grammy';
+import { Context } from 'grammy';
 import { getPendingAction, clearPendingAction } from '../session.js';
-import { validateCustomStarsAmount } from './shop.js';
 import { formatPriceETB, updateVariantPrice, getVariantById, getProductById } from '../../services/catalog.service.js';
 import { addStockLink, importStockCSV, getTotalStockCount } from '../../services/stock.service.js';
 import { setSetting, getSetting } from '../../services/settings.service.js';
@@ -192,34 +191,6 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
   }
 
   switch (session.type) {
-    case 'stars_custom_amount': {
-      const { minStars, maxStars, etbPerStar } = session.data as { minStars: number; maxStars: number; etbPerStar: number };
-      const validation = validateCustomStarsAmount(text, minStars, maxStars);
-
-      if (!validation.valid || !validation.stars) {
-        await ctx.reply(`❌ ${escapeHtml(validation.error || 'Invalid amount.')}\n\nPlease enter a whole number between ${minStars.toLocaleString()} and ${maxStars.toLocaleString()}:`);
-        return true;
-      }
-
-      clearPendingAction(userId);
-      const starsCount = validation.stars;
-      const priceETB = Math.ceil(starsCount * etbPerStar);
-
-      const confirmText = `🪙 <b>Custom Telegram Stars Order</b>\n\n` +
-        `• <b>Quantity:</b> ${starsCount.toLocaleString()} Stars ⭐\n` +
-        `• <b>Rate:</b> 1 ⭐ = ${etbPerStar} ETB\n` +
-        `• <b>Total Price:</b> <b>${formatPriceETB(priceETB)}</b>\n\n` +
-        `<i>Proceed to select your payment rail:</i>`;
-
-      const keyboard = new InlineKeyboard()
-        .text(`💳 Proceed to Payment (${formatPriceETB(priceETB)})`, `buy_custom_stars_${starsCount}_${priceETB}`)
-        .row()
-        .text('« Cancel', 'prod_telegram_stars');
-
-      await ctx.reply(confirmText, { parse_mode: 'HTML', reply_markup: keyboard });
-      return true;
-    }
-
     case 'admin_reject_reason': {
       if (!isAdmin(userId)) return false;
       const { orderId } = session.data as { orderId: string };

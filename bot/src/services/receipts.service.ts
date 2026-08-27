@@ -1,4 +1,5 @@
 import fs from 'fs';
+import fsp from 'fs/promises';
 import path from 'path';
 import { getConfig } from '../config/env.js';
 import { logger } from '../logger/index.js';
@@ -62,12 +63,6 @@ export interface SavedReceipt {
  * Resolves a persisted receipt_file_id to an absolute path INSIDE the
  * receipts directory, or null when the reference escapes the directory,
  * is empty, or no longer exists on disk.
- *
- * Handles BOTH storage generations:
- *  - current: filename-only ("receipt_ORD-..._123.png")
- *  - legacy:  absolute paths written by earlier builds (path.resolve
- *             normalizes them; containment is still enforced via
- *             path.relative so traversal can never escape).
  */
 export function resolveStoredReceiptPath(fileId: unknown): string | null {
   if (typeof fileId !== 'string' || fileId.length === 0) return null;
@@ -88,11 +83,11 @@ export function resolveStoredReceiptPath(fileId: unknown): string | null {
  * the configured size cap, and writes it to the receipts directory with a
  * truthful extension derived from the detected content type.
  */
-export function saveReceiptImage(
+export async function saveReceiptImage(
   base64Data: string,
   orderId: string,
   options: { nowMs?: number } = {}
-): SavedReceipt {
+): Promise<SavedReceipt> {
   const config = getConfig();
   const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
   const buffer = Buffer.from(cleanBase64, 'base64');
@@ -116,12 +111,12 @@ export function saveReceiptImage(
   }
 
   const dir = resolveReceiptsDir();
-  fs.mkdirSync(dir, { recursive: true });
+  await fsp.mkdir(dir, { recursive: true });
 
   const safeOrderId = orderId.replace(/[^a-zA-Z0-9_-]/g, '_');
   const filename = `receipt_${safeOrderId}_${options.nowMs ?? Date.now()}.${ext}`;
   const filePath = path.join(dir, filename);
-  fs.writeFileSync(filePath, buffer);
+  await fsp.writeFile(filePath, buffer);
 
   logger.info(
     { orderId, bytes: buffer.length, ext, dir },
@@ -135,33 +130,40 @@ export function saveReceiptImage(
  * Deletes receipt files older than the retention window. Returns the number
  * of files removed. Missing directories are treated as "nothing to purge".
  */
-export function purgeOldReceipts(retentionDays?: number, nowMs: number = Date.now()): number {
+export async function purgeOldReceipts(retentionDays?: number, nowMs: number = Date.now()): Promise<number> {
   const config = getConfig();
   const days = retentionDays ?? config.RECEIPT_RETENTION_DAYS;
+  if (days === 0) return 0;
   const dir = resolveReceiptsDir();
 
-  if (!fs.existsSync(dir)) return 0;
+  try {
+    await fsp.access(dir);
+  } catch {
+    return 0;
+  }
 
   const cutoff = nowMs - days * 24 * 60 * 60 * 1000;
   let removed = 0;
 
   try {
-    for (const entry of fs.readdirSync(dir)) {
+    const entries = await fsp.readdir(dir);
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
       if (!entry.startsWith('receipt_')) continue;
       const full = path.join(dir, entry);
       try {
-        const stat = fs.statSync(full);
-        if (stat.mtimeMs < cutoff) {
-          fs.unlinkSync(full);
+        const stat = await fsp.stat(full);
+        if (stat.isFile() && stat.mtimeMs < cutoff) {
+          await fsp.unlink(full);
           removed++;
         }
-      } catch {
-        // File vanished mid-scan or unreadable — skip individually.
+      } catch (err) {
+        logger.warn({ err, full }, 'Failed to purge receipt file');
       }
+      if (i % 50 === 49) await new Promise((resolve) => setImmediate(resolve));
     }
   } catch (err) {
-    logger.error({ err, dir }, 'Failed to scan receipts directory during purge');
-    return removed;
+    logger.warn({ err, dir }, 'Receipt purge could not read directory');
   }
 
   if (removed > 0) {

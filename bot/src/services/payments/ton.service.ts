@@ -1,5 +1,6 @@
 import { getConfig } from '../../config/env.js';
 import { logger } from '../../logger/index.js';
+import { fetchJson } from '../../lib/http.js';
 
 const TONCENTER_BASE = 'https://toncenter.com/api/v2';
 
@@ -44,13 +45,16 @@ export async function fetchTreasuryTransactions(limit: number = 100): Promise<To
   const address = config.TON_TREASURY_ADDRESS;
   if (!address) throw new Error('TON_TREASURY_ADDRESS is not configured');
 
-  const response = await fetch(
+  const data = await fetchJson<any>(
     `${TONCENTER_BASE}/getTransactions?address=${encodeURIComponent(address)}&limit=${limit}`,
-    { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000) }
+    {
+      headers: { accept: 'application/json' },
+      timeoutMs: 8000,
+      attempts: 2,
+      retryOn5xx: true,
+      breakerKey: 'toncenter',
+    }
   );
-  if (!response.ok) throw new Error(`TonCenter responded ${response.status}`);
-
-  const data = (await response.json()) as any;
   const result = data?.result ?? [];
 
   return result.map((r: any) => ({
