@@ -1015,7 +1015,7 @@ const StoreFront: React.FC = () => {
             </div>
 
             {/* Promo Code Input */}
-            <div style={{ marginBottom: '16px' }}>
+            <div style={{ marginBottom: '12px' }}>
               <input
                 type="text"
                 placeholder={t.promoPlaceholder}
@@ -1025,10 +1025,10 @@ const StoreFront: React.FC = () => {
                   width: '100%',
                   background: '#0E1622',
                   border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '14px',
-                  padding: '12px 14px',
+                  borderRadius: '12px',
+                  padding: '10px 14px',
                   color: '#FFFFFF',
-                  fontSize: '13.5px',
+                  fontSize: '13px',
                   boxSizing: 'border-box',
                 }}
               />
