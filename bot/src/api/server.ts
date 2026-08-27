@@ -399,7 +399,16 @@ function buildCatalogPayload() {
 
   app.use(cors(buildCorsOptions(config)));
   app.use(express.json({ limit: GENERAL_BODY_LIMIT, verify: captureRawBody }));
-  app.use(globalApiLimiter);
+  // Dynamic TonConnect Manifest Handler
+  app.get('/tonconnect-manifest.json', (req: Request, res: Response) => {
+    const origin = config.WEBAPP_URL?.replace(/\/+$/, '') || `${req.protocol}://${req.get('host')}`;
+    res.setHeader('Content-Type', 'application/json');
+    res.json({
+      url: origin,
+      name: 'Bighabesha Shop',
+      iconUrl: `${origin}/icons/logo.svg`,
+    });
+  });
 
   // Static Assets Serving from compiled webapp dist
   const distPaths = [
