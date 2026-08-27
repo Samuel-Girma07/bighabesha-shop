@@ -3,7 +3,7 @@ import * as THREE from 'three';
 
 export const TelegramPremium3DStar: React.FC<{ className?: string; height?: number }> = ({
   className,
-  height = 195,
+  height = 200,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -16,204 +16,225 @@ export const TelegramPremium3DStar: React.FC<{ className?: string; height?: numb
 
     // Scene & Camera
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(42, width / sceneHeight, 0.1, 100);
-    camera.position.set(0, 0, 5.5);
+    const camera = new THREE.PerspectiveCamera(40, width / sceneHeight, 0.1, 100);
+    camera.position.set(0, 0, 5.8);
 
-    // Renderer
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
+    // High performance WebGL Renderer
+    const renderer = new THREE.WebGLRenderer({
+      alpha: true,
+      antialias: true,
+      powerPreference: 'high-performance',
+    });
     renderer.setSize(width, sceneHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.25;
+    renderer.toneMappingExposure = 1.2;
     container.appendChild(renderer.domElement);
 
-    // 1. Exact Telegram Premium Star 2D Shape with Folded Crease & Puffy Rounded Curves
-    const shape = new THREE.Shape();
+    // 1. High-Fidelity Chubby Telegram Premium Star Geometry
+    const starShape = new THREE.Shape();
 
-    // Trace Telegram Star perimeter
-    // Top point
-    shape.moveTo(-0.12, 1.48);
-    shape.quadraticCurveTo(0, 1.68, 0.16, 1.48);
+    // Top Peak (Plump rounded bulb)
+    starShape.moveTo(-0.16, 1.28);
+    starShape.bezierCurveTo(-0.12, 1.48, 0.12, 1.48, 0.16, 1.28);
 
-    // Top-right slope to valley
-    shape.quadraticCurveTo(0.38, 0.95, 0.52, 0.58);
-    shape.quadraticCurveTo(0.56, 0.46, 0.68, 0.44);
+    // Top-Right Valley
+    starShape.bezierCurveTo(0.28, 0.82, 0.44, 0.52, 0.62, 0.48);
 
-    // Right arm
-    shape.quadraticCurveTo(1.25, 0.40, 1.58, 0.35);
-    shape.quadraticCurveTo(1.78, 0.22, 1.56, 0.05);
+    // Right Arm (Plump bulbous horizontal point)
+    starShape.bezierCurveTo(0.95, 0.42, 1.35, 0.36, 1.42, 0.18);
+    starShape.bezierCurveTo(1.48, 0.02, 1.32, -0.16, 1.08, -0.28);
 
-    // Right arm to bottom-right valley
-    shape.quadraticCurveTo(1.08, -0.22, 0.72, -0.45);
-    shape.quadraticCurveTo(0.64, -0.52, 0.68, -0.66);
+    // Bottom-Right Valley
+    starShape.bezierCurveTo(0.82, -0.42, 0.64, -0.58, 0.66, -0.76);
 
-    // Bottom-right leg
-    shape.quadraticCurveTo(0.82, -1.15, 0.94, -1.48);
-    shape.quadraticCurveTo(0.85, -1.72, 0.62, -1.55);
+    // Bottom-Right Leg (Plump rounded foot)
+    starShape.bezierCurveTo(0.72, -1.05, 0.82, -1.34, 0.68, -1.48);
+    starShape.bezierCurveTo(0.52, -1.62, 0.32, -1.48, 0.16, -1.26);
 
-    // Bottom-right leg to bottom valley
-    shape.quadraticCurveTo(0.32, -1.22, 0.0, -0.88);
-    shape.quadraticCurveTo(-0.12, -0.92, -0.25, -1.12);
+    // Bottom Valley
+    starShape.bezierCurveTo(0.04, -1.08, -0.06, -1.02, -0.18, -1.18);
 
-    // Bottom-left leg (distinctive rounded swooping Telegram curve)
-    shape.quadraticCurveTo(-0.55, -1.45, -0.82, -1.58);
-    shape.quadraticCurveTo(-1.08, -1.48, -0.95, -1.18);
-    shape.quadraticCurveTo(-0.78, -0.72, -0.72, -0.42);
+    // Bottom-Left Leg (Signature rounded swooping Telegram curve)
+    starShape.bezierCurveTo(-0.38, -1.42, -0.62, -1.58, -0.82, -1.48);
+    starShape.bezierCurveTo(-1.02, -1.36, -0.96, -1.08, -0.84, -0.82);
+    starShape.bezierCurveTo(-0.74, -0.58, -0.68, -0.38, -0.52, -0.24);
 
-    // The iconic Telegram crease folding inwards into center
-    shape.quadraticCurveTo(-0.45, -0.20, -0.05, -0.05);
-    shape.quadraticCurveTo(-0.02, 0.02, -0.15, 0.06);
+    // The iconic Telegram Crease (folds horizontally into center at 0, 0)
+    starShape.bezierCurveTo(-0.32, -0.12, -0.12, -0.04, 0.02, 0.0);
+    starShape.bezierCurveTo(-0.06, 0.04, -0.24, 0.08, -0.45, 0.14);
 
-    // Extending out to left arm
-    shape.quadraticCurveTo(-0.85, 0.18, -1.45, 0.32);
-    shape.quadraticCurveTo(-1.72, 0.48, -1.42, 0.65);
+    // Left Arm (Plump rounded wing)
+    starShape.bezierCurveTo(-0.85, 0.24, -1.28, 0.32, -1.38, 0.48);
+    starShape.bezierCurveTo(-1.46, 0.64, -1.28, 0.78, -0.98, 0.76);
 
-    // Left arm back to top valley
-    shape.quadraticCurveTo(-0.95, 0.82, -0.58, 0.62);
-    shape.quadraticCurveTo(-0.46, 0.58, -0.38, 0.78);
-    shape.quadraticCurveTo(-0.25, 1.15, -0.12, 1.48);
+    // Top-Left Valley connecting back to top peak
+    starShape.bezierCurveTo(-0.68, 0.72, -0.48, 0.68, -0.34, 0.88);
+    starShape.bezierCurveTo(-0.24, 1.05, -0.18, 1.18, -0.16, 1.28);
 
-    // Extrude with soft pillowed bevels
+    // Soft pillowed 3D Extrusion
     const extrudeSettings: THREE.ExtrudeGeometryOptions = {
-      depth: 0.32,
+      depth: 0.36,
       bevelEnabled: true,
-      bevelSegments: 10,
+      bevelSegments: 14,
       steps: 3,
-      bevelSize: 0.14,
-      bevelThickness: 0.14,
+      bevelSize: 0.16,
+      bevelThickness: 0.16,
     };
 
-    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+    const geometry = new THREE.ExtrudeGeometry(starShape, extrudeSettings);
     geometry.center();
 
-    // 2. Exact Pink-to-SkyBlue Telegram Gradient Canvas Texture
-    const gradientCanvas = document.createElement('canvas');
-    gradientCanvas.width = 512;
-    gradientCanvas.height = 512;
-    const ctx2d = gradientCanvas.getContext('2d')!;
+    // 2. Exact Telegram Pastel Violet-Pink to Sky-Blue Gradient Canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 1024;
+    const ctx2d = canvas.getContext('2d')!;
 
-    // Soft angled vertical gradient matching start design.jpg
-    const grad = ctx2d.createLinearGradient(120, 0, 380, 512);
-    grad.addColorStop(0.0, '#F472B6'); // Top vibrant orchid pink
-    grad.addColorStop(0.25, '#E879F9'); // Upper purple/magenta
-    grad.addColorStop(0.55, '#A855F7'); // Core telegram purple
-    grad.addColorStop(0.82, '#60A5FA'); // Azure blue
-    grad.addColorStop(1.0, '#38BDF8'); // Cyan sky blue at bottom
+    // Ultra smooth diagonal gradient matching start design.jpg
+    const gradient = ctx2d.createLinearGradient(300, 50, 700, 980);
+    gradient.addColorStop(0.0, '#E879F9'); // Top pastel orchid pink
+    gradient.addColorStop(0.2, '#D946EF'); // Magenta rose
+    gradient.addColorStop(0.48, '#A855F7'); // Core telegram purple
+    gradient.addColorStop(0.75, '#60A5FA'); // Azure blue
+    gradient.addColorStop(1.0, '#38BDF8'); // Electric cyan sky blue
 
-    ctx2d.fillStyle = grad;
-    ctx2d.fillRect(0, 0, 512, 512);
+    ctx2d.fillStyle = gradient;
+    ctx2d.fillRect(0, 0, 1024, 1024);
 
-    const gradientTexture = new THREE.CanvasTexture(gradientCanvas);
+    // Add subtle ambient rim glow in canvas
+    const radialGlow = ctx2d.createRadialGradient(512, 512, 100, 512, 512, 500);
+    radialGlow.addColorStop(0.0, 'rgba(255, 255, 255, 0.12)');
+    radialGlow.addColorStop(1.0, 'rgba(0, 0, 0, 0.0)');
+    ctx2d.fillStyle = radialGlow;
+    ctx2d.fillRect(0, 0, 1024, 1024);
+
+    const gradientTexture = new THREE.CanvasTexture(canvas);
     gradientTexture.wrapS = THREE.ClampToEdgeWrapping;
     gradientTexture.wrapT = THREE.ClampToEdgeWrapping;
 
+    // Physical Material with velvet sheen & clearcoat
     const starMaterial = new THREE.MeshPhysicalMaterial({
       map: gradientTexture,
-      roughness: 0.18,
-      metalness: 0.08,
-      clearcoat: 0.85,
-      clearcoatRoughness: 0.12,
-      reflectivity: 0.8,
+      roughness: 0.2,
+      metalness: 0.05,
+      clearcoat: 0.95,
+      clearcoatRoughness: 0.08,
+      reflectivity: 0.85,
       emissive: new THREE.Color('#3B0764'),
-      emissiveIntensity: 0.22,
+      emissiveIntensity: 0.28,
     });
 
     const starMesh = new THREE.Mesh(geometry, starMaterial);
+    // Natural Telegram tilt angle
+    starMesh.rotation.z = -0.06;
     scene.add(starMesh);
 
-    // 3. Mini-Star 3D Background Constellation (matching exact clusters in start design.jpg)
-    const miniStarShape = new THREE.Shape();
-    const miniPoints = 5;
-    const miniOuter = 0.12;
-    const miniInner = 0.055;
-    for (let i = 0; i < miniPoints * 2; i++) {
-      const r = i % 2 === 0 ? miniOuter : miniInner;
-      const a = (i * Math.PI) / miniPoints - Math.PI / 2;
-      const px = Math.cos(a) * r;
-      const py = Math.sin(a) * r;
-      if (i === 0) miniStarShape.moveTo(px, py);
-      else miniStarShape.lineTo(px, py);
-    }
-    miniStarShape.closePath();
+    // 3. Mini-Star 3D Constellation (Exact 4-point & 5-point mini-stars from start design.jpg)
+    const createMiniStarShape = (points = 5, outer = 0.11, inner = 0.05) => {
+      const s = new THREE.Shape();
+      for (let i = 0; i < points * 2; i++) {
+        const r = i % 2 === 0 ? outer : inner;
+        const a = (i * Math.PI) / points - Math.PI / 2;
+        const x = Math.cos(a) * r;
+        const y = Math.sin(a) * r;
+        if (i === 0) s.moveTo(x, y);
+        else s.lineTo(x, y);
+      }
+      s.closePath();
+      return s;
+    };
 
-    const miniGeometry = new THREE.ExtrudeGeometry(miniStarShape, {
-      depth: 0.04,
+    const miniGeo5 = new THREE.ExtrudeGeometry(createMiniStarShape(5, 0.11, 0.048), {
+      depth: 0.03,
       bevelEnabled: true,
       bevelSegments: 2,
-      bevelSize: 0.02,
-      bevelThickness: 0.02,
+      bevelSize: 0.015,
+      bevelThickness: 0.015,
     });
-    miniGeometry.center();
+    miniGeo5.center();
+
+    const miniGeo4 = new THREE.ExtrudeGeometry(createMiniStarShape(4, 0.09, 0.035), {
+      depth: 0.02,
+      bevelEnabled: true,
+      bevelSegments: 2,
+      bevelSize: 0.01,
+      bevelThickness: 0.01,
+    });
+    miniGeo4.center();
 
     const miniStarMaterial = new THREE.MeshBasicMaterial({
-      color: 0x93c5fd,
+      color: 0xc4b5fd,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.9,
     });
 
-    // Exact Constellation Offsets from start design.jpg
-    const constellationData = [
+    // Exact clusters from start design.jpg
+    const constellationPoints = [
       // Top Left Cluster
-      { x: -1.95, y: 1.35, z: -0.6, scale: 0.9, rot: 0.2, color: 0xc4b5fd },
-      { x: -1.75, y: 1.15, z: -0.3, scale: 0.7, rot: -0.4, color: 0x93c5fd },
-      { x: -2.15, y: 0.95, z: -0.8, scale: 0.6, rot: 0.6, color: 0x60a5fa },
-      { x: -1.60, y: 0.70, z: -0.4, scale: 0.45, rot: 0.1, color: 0xe879f9 },
-      { x: -2.40, y: 0.50, z: -1.0, scale: 0.5, rot: -0.3, color: 0xa78bfa },
+      { x: -1.75, y: 1.25, z: -0.4, scale: 0.85, color: 0x93c5fd, geo: miniGeo5 },
+      { x: -1.55, y: 1.05, z: -0.2, scale: 0.7, color: 0xc4b5fd, geo: miniGeo4 },
+      { x: -1.95, y: 0.85, z: -0.6, scale: 0.6, color: 0xa78bfa, geo: miniGeo5 },
+      { x: -1.45, y: 0.65, z: -0.3, scale: 0.45, color: 0x60a5fa, geo: miniGeo4 },
+      { x: -2.15, y: 0.45, z: -0.8, scale: 0.5, color: 0xe879f9, geo: miniGeo5 },
 
       // Top Right Cluster
-      { x: 1.55, y: 1.45, z: -0.5, scale: 0.85, rot: -0.2, color: 0x93c5fd },
-      { x: 1.85, y: 1.25, z: -0.7, scale: 0.65, rot: 0.5, color: 0xc4b5fd },
-      { x: 1.35, y: 0.85, z: -0.3, scale: 0.5, rot: -0.6, color: 0x38bdf8 },
-      { x: 2.10, y: 0.90, z: -0.9, scale: 0.7, rot: 0.3, color: 0xa855f7 },
+      { x: 1.45, y: 1.35, z: -0.4, scale: 0.8, color: 0x93c5fd, geo: miniGeo5 },
+      { x: 1.75, y: 1.15, z: -0.5, scale: 0.65, color: 0xc4b5fd, geo: miniGeo4 },
+      { x: 1.25, y: 0.75, z: -0.2, scale: 0.5, color: 0x38bdf8, geo: miniGeo5 },
+      { x: 1.95, y: 0.80, z: -0.7, scale: 0.7, color: 0xa855f7, geo: miniGeo4 },
 
       // Bottom Right Cluster
-      { x: 1.80, y: -0.35, z: -0.5, scale: 0.6, rot: 0.4, color: 0x93c5fd },
-      { x: 1.95, y: -0.45, z: -0.7, scale: 0.55, rot: -0.2, color: 0xc084fc },
-      { x: 2.30, y: -0.15, z: -1.1, scale: 0.75, rot: 0.1, color: 0xe879f9 },
-      { x: 2.15, y: -0.85, z: -0.6, scale: 0.65, rot: -0.5, color: 0x60a5fa },
-      { x: 2.35, y: -1.10, z: -0.8, scale: 0.5, rot: 0.2, color: 0x93c5fd },
+      { x: 1.65, y: -0.30, z: -0.4, scale: 0.6, color: 0x93c5fd, geo: miniGeo5 },
+      { x: 1.85, y: -0.40, z: -0.6, scale: 0.55, color: 0xc084fc, geo: miniGeo4 },
+      { x: 2.10, y: -0.15, z: -0.9, scale: 0.7, color: 0xe879f9, geo: miniGeo5 },
+      { x: 1.95, y: -0.75, z: -0.5, scale: 0.6, color: 0x60a5fa, geo: miniGeo4 },
+      { x: 2.15, y: -0.95, z: -0.7, scale: 0.45, color: 0x93c5fd, geo: miniGeo5 },
 
       // Bottom Left Cluster
-      { x: -1.90, y: -0.40, z: -0.5, scale: 0.65, rot: -0.3, color: 0x93c5fd },
-      { x: -1.75, y: -0.55, z: -0.3, scale: 0.5, rot: 0.5, color: 0x38bdf8 },
-      { x: -2.15, y: -0.65, z: -0.8, scale: 0.7, rot: -0.1, color: 0xa78bfa },
-      { x: -2.45, y: -0.95, z: -1.2, scale: 0.4, rot: 0.7, color: 0x93c5fd },
+      { x: -1.75, y: -0.35, z: -0.4, scale: 0.6, color: 0x93c5fd, geo: miniGeo5 },
+      { x: -1.60, y: -0.50, z: -0.2, scale: 0.5, color: 0x38bdf8, geo: miniGeo4 },
+      { x: -1.95, y: -0.60, z: -0.6, scale: 0.65, color: 0xa78bfa, geo: miniGeo5 },
+      { x: -2.25, y: -0.85, z: -0.9, scale: 0.4, color: 0x93c5fd, geo: miniGeo4 },
     ];
 
     const constellationGroup = new THREE.Group();
-    const miniStarMeshes: { mesh: THREE.Mesh; baseScale: number; speed: number; phase: number }[] = [];
+    const miniItems: { mesh: THREE.Mesh; baseScale: number; speed: number; phase: number }[] = [];
 
-    constellationData.forEach((c, idx) => {
+    constellationPoints.forEach((pt, idx) => {
       const mat = miniStarMaterial.clone();
-      mat.color = new THREE.Color(c.color);
-      const m = new THREE.Mesh(miniGeometry, mat);
-      m.position.set(c.x, c.y, c.z);
-      m.rotation.z = c.rot;
-      m.scale.setScalar(c.scale);
+      mat.color = new THREE.Color(pt.color);
+      const m = new THREE.Mesh(pt.geo, mat);
+      m.position.set(pt.x, pt.y, pt.z);
+      m.scale.setScalar(pt.scale);
       constellationGroup.add(m);
-      miniStarMeshes.push({
+      miniItems.push({
         mesh: m,
-        baseScale: c.scale,
-        speed: 1.5 + (idx % 4) * 0.5,
-        phase: idx * 0.8,
+        baseScale: pt.scale,
+        speed: 1.6 + (idx % 3) * 0.4,
+        phase: idx * 0.7,
       });
     });
 
     scene.add(constellationGroup);
 
-    // 4. Lighting: Soft ambient + crisp top keylight
+    // 4. Balanced Studio Lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 1.4);
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    dirLight.position.set(2, 4, 5);
-    scene.add(dirLight);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    keyLight.position.set(1.5, 3.5, 4.5);
+    scene.add(keyLight);
 
-    const backLight = new THREE.PointLight(0xa855f7, 2.5, 10);
-    backLight.position.set(0, 0, -2);
-    scene.add(backLight);
+    const pinkFill = new THREE.PointLight(0xf472b6, 2.0, 8);
+    pinkFill.position.set(-2, 2, 3);
+    scene.add(pinkFill);
 
-    // 5. Interactive Touch / Mouse Tilt
+    const blueFill = new THREE.PointLight(0x38bdf8, 2.2, 8);
+    blueFill.position.set(2, -2, 3);
+    scene.add(blueFill);
+
+    // 5. Interactive Touch / Mouse Physics
     let targetRotX = 0;
     let targetRotY = 0;
 
@@ -221,8 +242,8 @@ export const TelegramPremium3DStar: React.FC<{ className?: string; height?: numb
       const rect = container.getBoundingClientRect();
       const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       const y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
-      targetRotY = x * 0.45;
-      targetRotX = -y * 0.35;
+      targetRotY = x * 0.4;
+      targetRotX = -y * 0.3;
     };
 
     const handlePointerLeave = () => {
@@ -233,7 +254,7 @@ export const TelegramPremium3DStar: React.FC<{ className?: string; height?: numb
     container.addEventListener('pointermove', handlePointerMove);
     container.addEventListener('pointerleave', handlePointerLeave);
 
-    // 6. Animation Loop
+    // 6. Animation Loop (60 FPS)
     let animId: number;
     const clock = new THREE.Clock();
 
@@ -241,23 +262,23 @@ export const TelegramPremium3DStar: React.FC<{ className?: string; height?: numb
       animId = requestAnimationFrame(animate);
       const t = clock.getElapsedTime();
 
-      // Floating gentle bobbing
-      starMesh.position.y = Math.sin(t * 1.6) * 0.08;
+      // Gentle floating bobbing
+      starMesh.position.y = Math.sin(t * 1.5) * 0.08;
 
-      // Smooth subtle 3D tilt
-      starMesh.rotation.y += (Math.sin(t * 0.9) * 0.25 + targetRotY - starMesh.rotation.y) * 0.07;
-      starMesh.rotation.x += (Math.cos(t * 1.2) * 0.15 + targetRotX - starMesh.rotation.x) * 0.07;
-      starMesh.rotation.z = Math.sin(t * 1.4) * 0.04;
+      // Soft natural 3D rotational breathing + touch follow
+      starMesh.rotation.y += (Math.sin(t * 0.8) * 0.22 + targetRotY - starMesh.rotation.y) * 0.06;
+      starMesh.rotation.x += (Math.cos(t * 1.1) * 0.14 + targetRotX - starMesh.rotation.x) * 0.06;
+      starMesh.rotation.z = -0.06 + Math.sin(t * 1.3) * 0.04;
 
       // Mini-star twinkling & drifting
-      miniStarMeshes.forEach((item) => {
+      miniItems.forEach((item) => {
         const pulse = Math.sin(t * item.speed + item.phase);
-        const s = item.baseScale * (1 + pulse * 0.22);
+        const s = item.baseScale * (1 + pulse * 0.2);
         item.mesh.scale.setScalar(s);
-        (item.mesh.material as THREE.MeshBasicMaterial).opacity = 0.6 + pulse * 0.35;
+        (item.mesh.material as THREE.MeshBasicMaterial).opacity = 0.55 + pulse * 0.4;
       });
 
-      constellationGroup.rotation.z = Math.sin(t * 0.4) * 0.03;
+      constellationGroup.rotation.z = Math.sin(t * 0.3) * 0.02;
 
       renderer.render(scene, camera);
     };
@@ -283,7 +304,8 @@ export const TelegramPremium3DStar: React.FC<{ className?: string; height?: numb
       geometry.dispose();
       starMaterial.dispose();
       gradientTexture.dispose();
-      miniGeometry.dispose();
+      miniGeo5.dispose();
+      miniGeo4.dispose();
       miniStarMaterial.dispose();
       renderer.dispose();
 
@@ -296,7 +318,7 @@ export const TelegramPremium3DStar: React.FC<{ className?: string; height?: numb
   return (
     <div
       ref={containerRef}
-      className={`relative w-full rounded-2xl overflow-hidden mb-3 bg-[#0A0F1A] border border-white/10 shadow-2xl flex items-center justify-center cursor-grab active:cursor-grabbing ${className || ''}`}
+      className={`relative w-full rounded-2xl overflow-hidden mb-3 bg-[#0B101B] border border-white/10 shadow-2xl flex items-center justify-center cursor-grab active:cursor-grabbing ${className || ''}`}
       style={{
         position: 'relative',
         width: '100%',
@@ -305,7 +327,7 @@ export const TelegramPremium3DStar: React.FC<{ className?: string; height?: numb
         overflow: 'hidden',
         marginBottom: '14px',
         border: '1px solid rgba(255, 255, 255, 0.08)',
-        background: 'radial-gradient(circle at 50% 45%, #131B2E 0%, #080D17 100%)',
+        background: 'radial-gradient(circle at 50% 48%, #141B2D 0%, #090E17 100%)',
         touchAction: 'none',
       }}
     >
