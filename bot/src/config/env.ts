@@ -116,6 +116,12 @@ export const EnvSchema = z
       .transform((v) => (v && /^-?\d+$/.test(v.trim()) ? parseInt(v.trim(), 10) : undefined)),
     CHAPA_SECRET_KEY: z.string().optional().default(''),
     TON_TREASURY_ADDRESS: z.string().optional().default(''),
+    REQUIRED_CHANNEL_USERNAME: z.string().default('@bighabesha_softwares'),
+    REQUIRED_CHANNEL_LINK: z.string().default('https://t.me/bighabesha_softwares'),
+    FORCE_SUBSCRIBE: z
+      .string()
+      .default('true')
+      .transform((v) => v !== 'false' && v !== '0'),
   })
   .superRefine((cfg, ctx) => {
     if (cfg.NODE_ENV === 'production') {

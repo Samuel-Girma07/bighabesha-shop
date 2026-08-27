@@ -4,6 +4,24 @@ import { promptPhoneRegistration } from './registration.js';
 import { startHandler } from './start.js';
 import { logger } from '../../logger/index.js';
 
+import { getConfig } from '../../config/env.js';
+
+export function getRequiredChannelUsername(): string {
+  try {
+    return getConfig().REQUIRED_CHANNEL_USERNAME || '@bighabesha_softwares';
+  } catch {
+    return '@bighabesha_softwares';
+  }
+}
+
+export function getRequiredChannelLink(): string {
+  try {
+    return getConfig().REQUIRED_CHANNEL_LINK || 'https://t.me/bighabesha_softwares';
+  } catch {
+    return 'https://t.me/bighabesha_softwares';
+  }
+}
+
 export const REQUIRED_CHANNEL_USERNAME = '@bighabesha_softwares';
 export const REQUIRED_CHANNEL_LINK = 'https://t.me/bighabesha_softwares';
 
@@ -12,11 +30,42 @@ export const REQUIRED_CHANNEL_LINK = 'https://t.me/bighabesha_softwares';
  */
 export async function checkChannelMembership(ctx: Context, userId: number): Promise<boolean> {
   try {
-    const member = await ctx.api.getChatMember(REQUIRED_CHANNEL_USERNAME, userId);
+    const config = getConfig();
+    if (config.FORCE_SUBSCRIBE === false) {
+      return true;
+    }
+  } catch {}
+
+  const channel = getRequiredChannelUsername();
+
+  try {
+    const member = await ctx.api.getChatMember(channel, userId);
     const validStatuses = ['creator', 'administrator', 'member', 'restricted'];
+
+    if (member.status === 'left' || member.status === 'kicked') {
+      return false;
+    }
+
     return validStatuses.includes(member.status);
   } catch (err: any) {
-    logger.warn({ err: err?.message || err, userId }, 'Channel membership query returned non-member or error');
+    const errMsg = err?.description || err?.message || String(err);
+
+    // If Telegram blocks the query because the bot is not an administrator in the channel:
+    // e.g. "Bad Request: member list is inaccessible" or "Bad Request: chat not found"
+    if (
+      errMsg.includes('member list is inaccessible') ||
+      errMsg.includes('chat not found') ||
+      errMsg.includes('bot is not a member') ||
+      errMsg.includes('CHAT_ADMIN_REQUIRED')
+    ) {
+      logger.warn(
+        { err: errMsg, userId, channel },
+        '⚠️ [Channel Gate] Bot is not an administrator in the channel. Telegram blocks getChatMember unless the bot is an admin. Auto-allowing user to prevent lockout. Please add the bot as an administrator to the channel!'
+      );
+      return true;
+    }
+
+    logger.warn({ err: errMsg, userId, channel }, 'Channel membership query returned error');
     return false;
   }
 }
@@ -54,14 +103,17 @@ export async function promptLanguageSelection(ctx: Context): Promise<void> {
  * Step 3: Channel subscription gate prompt.
  */
 export async function promptChannelSubscription(ctx: Context, alertUser = false): Promise<void> {
+  const channel = getRequiredChannelUsername();
+  const channelLink = getRequiredChannelLink();
+
   const text =
     `<b>📢 Join Our Official Channel</b>\n\n` +
     `To access BigHabesha Shop, exclusive drops, and order tracking, please join our official Telegram channel:\n\n` +
-    `👉 <b>${REQUIRED_CHANNEL_USERNAME}</b>\n\n` +
+    `👉 <b>${channel}</b>\n\n` +
     `<i>After joining, tap the button below to verify and enter the shop:</i>`;
 
   const keyboard = new InlineKeyboard()
-    .url('📢 Join Channel', REQUIRED_CHANNEL_LINK)
+    .url('📢 Join Channel', channelLink)
     .row()
     .text('🔄 I Have Joined / አረጋግጥ', 'onboard_check_channel');
 
@@ -69,7 +121,7 @@ export async function promptChannelSubscription(ctx: Context, alertUser = false)
     try {
       if (alertUser) {
         await ctx.answerCallbackQuery({
-          text: '⚠️ You have not joined @bighabesha_softwares yet. Please join the channel first!',
+          text: `⚠️ You have not joined ${channel} yet. Please join the channel first!`,
           show_alert: true,
         }).catch(() => {});
       }
