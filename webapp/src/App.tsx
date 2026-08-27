@@ -901,20 +901,24 @@ const StoreFront: React.FC = () => {
               </button>
             </div>
 
-            {/* Choose Recipient Section */}
-            <div className="hulupay-section-label">Choose recipient</div>
-            <div className="hulupay-recipient-box">
-              <div className="hulupay-recipient-avatar">
-                {recipientUsername?.[0]?.toUpperCase() || '@'}
-              </div>
-              <input
-                type="text"
-                className="hulupay-recipient-input"
-                placeholder="@username"
-                value={recipientUsername}
-                onChange={(e) => setRecipientUsername(e.target.value.replace(/^@/, ''))}
-              />
-            </div>
+            {/* Choose Recipient Section (ONLY for Telegram Premium) */}
+            {selectedProductDrawer === 'telegram_premium' && (
+              <>
+                <div className="hulupay-section-label">Choose recipient</div>
+                <div className="hulupay-recipient-box">
+                  <div className="hulupay-recipient-avatar">
+                    {recipientUsername?.[0]?.toUpperCase() || '@'}
+                  </div>
+                  <input
+                    type="text"
+                    className="hulupay-recipient-input"
+                    placeholder="@username"
+                    value={recipientUsername}
+                    onChange={(e) => setRecipientUsername(e.target.value.replace(/^@/, ''))}
+                  />
+                </div>
+              </>
+            )}
 
             {/* Variant Cards List */}
             <div className="hulupay-variants-list">
