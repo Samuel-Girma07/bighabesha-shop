@@ -41,8 +41,8 @@ import {
   GeminiPro3DIcon,
   ReferralMoney3DIcon,
   SupportAgent3DIcon,
-  TelegramPremium3DStarBanner,
 } from './components/Icons.tsx';
+import { TelegramPremium3DStar } from './components/TelegramPremium3DStar.tsx';
 import { formatMoney, type DisplayCurrency } from './utils.ts';
 import { haptic } from './haptics.ts';
 import { loadPrefsSync, savePrefs } from './prefs.service.ts';
@@ -897,9 +897,9 @@ const StoreFront: React.FC = () => {
               </button>
             </div>
 
-            {/* 3D Telegram Star Banner (ONLY for Telegram Premium) */}
+            {/* Real Animated 3D Telegram Star Canvas */}
             {selectedProductDrawer === 'telegram_premium' && (
-              <TelegramPremium3DStarBanner />
+              <TelegramPremium3DStar height={175} />
             )}
 
             {/* Choose Recipient Section (ONLY for Telegram Premium) */}

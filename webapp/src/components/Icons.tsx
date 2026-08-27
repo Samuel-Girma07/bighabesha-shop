@@ -1606,17 +1606,4 @@ export const LocalPaymentGroupBadge: React.FC<{ className?: string }> = ({ class
   </div>
 );
 
-export const TelegramPremium3DStarBanner: React.FC<{ className?: string }> = ({ className }) => (
-  <div
-    className={`w-full rounded-2xl overflow-hidden mb-3 bg-[#0B101B] border border-white/10 shadow-lg ${className || ''}`}
-    style={{ position: 'relative', width: '100%', height: '140px', borderRadius: '16px', overflow: 'hidden', marginBottom: '14px', border: '1px solid rgba(255,255,255,0.1)' }}
-  >
-    <img
-      src="/icons/stars_3d.jpg"
-      alt="Telegram Premium 3D Star"
-      style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }}
-    />
-  </div>
-);
-
 
