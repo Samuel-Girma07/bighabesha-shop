@@ -112,6 +112,19 @@ export function saveUserPhone(userId: number, phoneNumber: string): User {
   return user;
 }
 
+export function saveUserLanguage(userId: number, languageCode: string): User {
+  const db = getDatabase();
+  db.prepare(`
+    INSERT INTO users (id, username, first_name, language_code)
+    VALUES (?, NULL, 'User', ?)
+    ON CONFLICT(id) DO UPDATE SET
+      language_code = excluded.language_code,
+      updated_at = CURRENT_TIMESTAMP
+  `).run(userId, languageCode);
+
+  return getUserById(userId)!;
+}
+
 export function isUserRegistered(userId: number): boolean {
   const user = getUserById(userId);
   return Boolean(user && user.is_registered === 1 && user.phone_number);

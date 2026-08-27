@@ -4,6 +4,7 @@ import { startHandler } from './handlers/start.js';
 import { healthHandler, pingHandler } from './handlers/health.js';
 import { renderCatalog, renderProductDetails } from './handlers/shop.js';
 import { promptPhoneRegistration, handleContactMessage } from './handlers/registration.js';
+import { handleOnboardingLanguage, handleOnboardingChannelCheck } from './handlers/onboarding.js';
 import { renderProfile } from './handlers/profile.js';
 import { renderSupport, renderHelp } from './handlers/support.js';
 import {
@@ -402,6 +403,12 @@ export function createBot(token: string): Bot {
         await ctx.reply(`🚫 Order <code>${escapeHtml(orderId)}</code> has been cancelled.`, { parse_mode: 'HTML' });
         await renderMyOrders(ctx);
       }
+    } else if (data === 'onboard_lang_en') {
+      await handleOnboardingLanguage(ctx, 'en');
+    } else if (data === 'onboard_lang_am') {
+      await handleOnboardingLanguage(ctx, 'am');
+    } else if (data === 'onboard_check_channel') {
+      await handleOnboardingChannelCheck(ctx);
     } else if (data === 'nav_language') {
       await renderLanguageMenu(ctx);
     } else if (data.startsWith('set_lang_')) {

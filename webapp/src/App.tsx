@@ -30,6 +30,8 @@ import {
   TONDiamondIcon,
   USDCoinIcon,
   PaymentCbeIcon,
+  PaymentTelebirrIcon,
+  PaymentAbyssiniaIcon,
   TelegramBrandIcon,
   AlertCircleIcon,
   RefreshIcon,
@@ -39,14 +41,12 @@ import {
   GeminiPro3DIcon,
   ReferralMoney3DIcon,
   SupportAgent3DIcon,
-  LocalPaymentGroupBadge,
+  TelegramPremium3DStarBanner,
 } from './components/Icons.tsx';
 import { formatMoney, type DisplayCurrency } from './utils.ts';
 import { haptic } from './haptics.ts';
 import { loadPrefsSync, savePrefs } from './prefs.service.ts';
-import { TonConnectUIProvider } from '@tonconnect/ui-react';
 import { OrderTimeline } from './components/OrderTimeline.tsx';
-import { TonPayButton } from './components/TonPayButton.tsx';
 import './index.css';
 
 const AdminDashboard = React.lazy(() => import('./admin/AdminDashboard.tsx'));
@@ -179,11 +179,7 @@ export const App: React.FC = () => {
     );
   }
 
-  return (
-    <TonConnectUIProvider manifestUrl={`${window.location.origin}/tonconnect-manifest.json`}>
-      <StoreFront />
-    </TonConnectUIProvider>
-  );
+  return <StoreFront />;
 };
 
 const StoreFront: React.FC = () => {
@@ -901,6 +897,11 @@ const StoreFront: React.FC = () => {
               </button>
             </div>
 
+            {/* 3D Telegram Star Banner (ONLY for Telegram Premium) */}
+            {selectedProductDrawer === 'telegram_premium' && (
+              <TelegramPremium3DStarBanner />
+            )}
+
             {/* Choose Recipient Section (ONLY for Telegram Premium) */}
             {selectedProductDrawer === 'telegram_premium' && (
               <>
@@ -1053,7 +1054,7 @@ const StoreFront: React.FC = () => {
               <div>
                 <span className="hulupay-sheet-title">{paymentStep === 1 ? 'Pay with' : 'Payment Details'}</span>
                 {paymentStep === 1 && (
-                  <div style={{ fontSize: '13px', color: '#94A3B8', marginTop: '2px' }}>How would you like to pay?</div>
+                  <div style={{ fontSize: '13px', color: '#94A3B8', marginTop: '2px' }}>Choose your bank transfer method</div>
                 )}
               </div>
               <button className="hulupay-sheet-close-btn" onClick={() => setPaymentModalOpen(false)} aria-label="Close">
@@ -1061,116 +1062,71 @@ const StoreFront: React.FC = () => {
               </button>
             </div>
 
-            {/* Step 1: Choose Payment Method */}
+            {/* Step 1: Choose Bank Method */}
             {paymentStep === 1 && (
               <div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '22px' }}>
-                  {/* Local Payment Card */}
+                  {/* Telebirr */}
                   <div
-                    className={`hulupay-variant-card ${paymentTypeGroup === 'local' ? 'active' : ''}`}
+                    className={`hulupay-variant-card ${selectedPaymentRail === 'telebirr' ? 'active' : ''}`}
                     onClick={() => {
-                      setPaymentTypeGroup('local');
+                      setSelectedPaymentRail('telebirr');
                       haptic.tap();
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <div className="hulupay-radio-dot">
-                        {paymentTypeGroup === 'local' && <CheckIcon size={11} color="#FFFFFF" />}
+                        {selectedPaymentRail === 'telebirr' && <CheckIcon size={11} color="#FFFFFF" />}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <PaymentCbeIcon size={22} />
-                        <span className="hulupay-variant-name">Local payment</span>
+                      <PaymentTelebirrIcon size={32} />
+                      <div>
+                        <div className="hulupay-variant-name" style={{ fontSize: '14.5px' }}>Telebirr</div>
+                        <div style={{ fontSize: '11.5px', color: '#94A3B8' }}>Instant Mobile Money Transfer</div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span className="hulupay-badge blue">NEW</span>
-                      <LocalPaymentGroupBadge />
-                    </div>
+                    <span className="hulupay-badge blue">FAST</span>
                   </div>
 
-                  {/* Sub-Selection for Local Rails */}
-                  {paymentTypeGroup === 'local' && (
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(3, 1fr)',
-                        gap: '8px',
-                        padding: '10px',
-                        background: '#0E1622',
-                        borderRadius: '14px',
-                      }}
-                    >
-                      <button
-                        className={`lang-switch-btn ${selectedPaymentRail === 'telebirr' ? 'active' : ''}`}
-                        style={{
-                          height: '38px',
-                          justifyContent: 'center',
-                          border: selectedPaymentRail === 'telebirr' ? '1.5px solid #38BDF8' : '1px solid rgba(255,255,255,0.08)',
-                          background: selectedPaymentRail === 'telebirr' ? 'rgba(2, 132, 199, 0.2)' : 'transparent',
-                          color: '#FFFFFF',
-                        }}
-                        onClick={() => {
-                          setSelectedPaymentRail('telebirr');
-                          haptic.tap();
-                        }}
-                      >
-                        Telebirr
-                      </button>
-                      <button
-                        className={`lang-switch-btn ${selectedPaymentRail === 'cbe' ? 'active' : ''}`}
-                        style={{
-                          height: '38px',
-                          justifyContent: 'center',
-                          border: selectedPaymentRail === 'cbe' ? '1.5px solid #38BDF8' : '1px solid rgba(255,255,255,0.08)',
-                          background: selectedPaymentRail === 'cbe' ? 'rgba(2, 132, 199, 0.2)' : 'transparent',
-                          color: '#FFFFFF',
-                        }}
-                        onClick={() => {
-                          setSelectedPaymentRail('cbe');
-                          haptic.tap();
-                        }}
-                      >
-                        CBE Birr
-                      </button>
-                      <button
-                        className={`lang-switch-btn ${selectedPaymentRail === 'abyssinia' ? 'active' : ''}`}
-                        style={{
-                          height: '38px',
-                          justifyContent: 'center',
-                          border: selectedPaymentRail === 'abyssinia' ? '1.5px solid #38BDF8' : '1px solid rgba(255,255,255,0.08)',
-                          background: selectedPaymentRail === 'abyssinia' ? 'rgba(2, 132, 199, 0.2)' : 'transparent',
-                          color: '#FFFFFF',
-                        }}
-                        onClick={() => {
-                          setSelectedPaymentRail('abyssinia');
-                          haptic.tap();
-                        }}
-                      >
-                        Abyssinia
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Crypto Payment Card (TON Connect) */}
+                  {/* CBE Birr */}
                   <div
-                    className={`hulupay-variant-card ${paymentTypeGroup === 'crypto' ? 'active' : ''}`}
+                    className={`hulupay-variant-card ${selectedPaymentRail === 'cbe' ? 'active' : ''}`}
                     onClick={() => {
-                      setPaymentTypeGroup('crypto');
+                      setSelectedPaymentRail('cbe');
                       haptic.tap();
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <div className="hulupay-radio-dot">
-                        {paymentTypeGroup === 'crypto' && <CheckIcon size={11} color="#FFFFFF" />}
+                        {selectedPaymentRail === 'cbe' && <CheckIcon size={11} color="#FFFFFF" />}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <TONDiamondIcon size={22} />
-                        <span className="hulupay-variant-name">Crypto payment (TON / USDT)</span>
+                      <PaymentCbeIcon size={32} />
+                      <div>
+                        <div className="hulupay-variant-name" style={{ fontSize: '14.5px' }}>Commercial Bank of Ethiopia</div>
+                        <div style={{ fontSize: '11.5px', color: '#94A3B8' }}>CBE Birr & Mobile Banking</div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <USDCoinIcon size={18} />
+                    <span className="hulupay-badge purple">CBE</span>
+                  </div>
+
+                  {/* Bank of Abyssinia */}
+                  <div
+                    className={`hulupay-variant-card ${selectedPaymentRail === 'abyssinia' ? 'active' : ''}`}
+                    onClick={() => {
+                      setSelectedPaymentRail('abyssinia');
+                      haptic.tap();
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div className="hulupay-radio-dot">
+                        {selectedPaymentRail === 'abyssinia' && <CheckIcon size={11} color="#FFFFFF" />}
+                      </div>
+                      <PaymentAbyssiniaIcon size={32} />
+                      <div>
+                        <div className="hulupay-variant-name" style={{ fontSize: '14.5px' }}>Bank of Abyssinia</div>
+                        <div style={{ fontSize: '11.5px', color: '#94A3B8' }}>BOA Mobile Banking</div>
+                      </div>
                     </div>
+                    <span className="hulupay-badge green">DIRECT</span>
                   </div>
                 </div>
 
@@ -1183,108 +1139,98 @@ const StoreFront: React.FC = () => {
             {/* Step 2: Transfer Details & Slip Upload */}
             {paymentStep === 2 && checkoutOrder && (
               <div>
-                <div style={{ background: '#0E1622', padding: '16px', borderRadius: '16px', marginBottom: '16px' }}>
-                  {paymentTypeGroup === 'local' ? (
-                    <>
-                      <div style={{ fontSize: '13px', color: '#94A3B8', marginBottom: '6px' }}>
-                        Bank / Account Name: <strong>{data?.settings?.[`${selectedPaymentRail}_name` as keyof typeof data.settings] || 'Bighabesha Shop'}</strong>
-                      </div>
-                      <div style={{ fontSize: '20px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '1px', marginBottom: '10px' }}>
-                        {data?.settings?.[`${selectedPaymentRail}_account` as keyof typeof data.settings] || '1000123456789'}
-                      </div>
-                      <button
-                        className="hulupay-btn-action"
-                        style={{ height: '40px', minHeight: '40px', fontSize: '13px', marginBottom: '12px' }}
-                        onClick={() =>
-                          copyToClipboard(
-                            data?.settings?.[`${selectedPaymentRail}_account` as keyof typeof data.settings] || '1000123456789',
-                            'acc'
-                          )
-                        }
-                      >
-                        {copiedKey === 'acc' ? <><CheckIcon size={14} /> Copied</> : <><CopyIcon size={14} /> Copy Account Number</>}
-                      </button>
-                      <div style={{ fontSize: '13px', color: '#38BDF8', fontWeight: 800 }}>
-                        Exact Amount: {checkoutOrder.amount_etb?.toLocaleString()} ETB
-                      </div>
-                    </>
-                  ) : (
+                <div style={{ background: '#0E1622', padding: '18px', borderRadius: '18px', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+                    {selectedPaymentRail === 'telebirr' && <PaymentTelebirrIcon size={40} />}
+                    {selectedPaymentRail === 'cbe' && <PaymentCbeIcon size={40} />}
+                    {selectedPaymentRail === 'abyssinia' && <PaymentAbyssiniaIcon size={40} />}
                     <div>
-                      {data.tonTreasury ? (
-                        <TonPayButton
-                          orderId={checkoutOrder.id}
-                          amountEtb={checkoutOrder.amount_etb}
-                          rates={{
-                            etbPerUsd: parseFloat(data.settings.etb_per_usd || '135') || 135,
-                            tonUsd: data.cryptoRates?.tonUsd || 3.5,
-                          }}
-                          treasuryAddress={data.tonTreasury}
-                          onVerified={() => {
-                            setPaymentStep(3);
-                            haptic.success();
-                          }}
-                        />
-                      ) : (
-                        <div style={{ fontSize: '13px', color: '#94A3B8' }}>Please contact support for TON settlement.</div>
-                      )}
+                      <div style={{ fontSize: '15px', fontWeight: 800, color: '#FFFFFF' }}>
+                        {selectedPaymentRail === 'telebirr' && 'Telebirr Mobile Money'}
+                        {selectedPaymentRail === 'cbe' && 'Commercial Bank of Ethiopia'}
+                        {selectedPaymentRail === 'abyssinia' && 'Bank of Abyssinia'}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#94A3B8' }}>
+                        Account Name: <strong style={{ color: '#E2E8F0' }}>{data?.settings?.[`${selectedPaymentRail}_name` as keyof typeof data.settings] || 'Bighabesha Shop'}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#080D14', padding: '14px', borderRadius: '12px', marginBottom: '12px', textAlign: 'center' }}>
+                    <span style={{ fontSize: '11px', color: '#64748B', display: 'block', marginBottom: '2px' }}>ACCOUNT NUMBER</span>
+                    <div style={{ fontSize: '20px', fontWeight: 900, color: '#38BDF8', letterSpacing: '1px' }}>
+                      {data?.settings?.[`${selectedPaymentRail}_account` as keyof typeof data.settings] || '1000123456789'}
+                    </div>
+                  </div>
+
+                  <button
+                    className="hulupay-btn-action"
+                    style={{ height: '40px', minHeight: '40px', fontSize: '13px', marginBottom: '12px' }}
+                    onClick={() =>
+                      copyToClipboard(
+                        data?.settings?.[`${selectedPaymentRail}_account` as keyof typeof data.settings] || '1000123456789',
+                        'acc'
+                      )
+                    }
+                  >
+                    {copiedKey === 'acc' ? <><CheckIcon size={14} /> Copied</> : <><CopyIcon size={14} /> Copy Account Number</>}
+                  </button>
+
+                  <div style={{ fontSize: '13px', color: '#10B981', fontWeight: 800, textAlign: 'center' }}>
+                    Exact Amount to Send: {checkoutOrder.amount_etb?.toLocaleString()} ETB
+                  </div>
+                </div>
+
+                {/* Slip Upload Box */}
+                <div className="receipt-dropzone-card" style={{ marginBottom: '16px' }}>
+                  <label style={{ cursor: 'pointer', display: 'block' }}>
+                    <CameraIcon size={34} color="#38BDF8" style={{ margin: '0 auto 8px auto' }} />
+                    <div style={{ fontSize: '14.5px', fontWeight: 800, color: '#FFFFFF' }}>Attach Transfer Receipt</div>
+                    <div style={{ fontSize: '12px', color: '#94A3B8', marginTop: '2px' }}>
+                      Upload mobile banking screenshot or SMS confirmation
+                    </div>
+                    <input type="file" accept="image/*" onChange={handleReceiptFileChange} className="sr-only-input" />
+                  </label>
+                  {receiptBase64 && (
+                    <div className="receipt-preview-box">
+                      <img src={receiptBase64} alt="Receipt preview" className="receipt-preview-img" />
+                      <button
+                        type="button"
+                        className="receipt-remove-btn"
+                        onClick={() => setReceiptBase64('')}
+                      >
+                        Remove
+                      </button>
                     </div>
                   )}
                 </div>
 
-                {/* Slip Upload Box */}
-                {paymentTypeGroup === 'local' && (
-                  <>
-                    <div className="receipt-dropzone-card" style={{ marginBottom: '16px' }}>
-                      <label style={{ cursor: 'pointer', display: 'block' }}>
-                        <CameraIcon size={34} color="#38BDF8" style={{ margin: '0 auto 8px auto' }} />
-                        <div style={{ fontSize: '14.5px', fontWeight: 800, color: '#FFFFFF' }}>Attach Transfer Receipt</div>
-                        <div style={{ fontSize: '12px', color: '#94A3B8', marginTop: '2px' }}>
-                          Upload mobile banking screenshot or SMS confirmation
-                        </div>
-                        <input type="file" accept="image/*" onChange={handleReceiptFileChange} className="sr-only-input" />
-                      </label>
-                      {receiptBase64 && (
-                        <div className="receipt-preview-box">
-                          <img src={receiptBase64} alt="Receipt preview" className="receipt-preview-img" />
-                          <button
-                            type="button"
-                            className="receipt-remove-btn"
-                            onClick={() => setReceiptBase64('')}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                <div style={{ marginBottom: '16px' }}>
+                  <input
+                    type="text"
+                    placeholder={t.paymentNotePlaceholder}
+                    value={receiptNote}
+                    onChange={(e) => setReceiptNote(e.target.value)}
+                    style={{
+                      width: '100%',
+                      background: '#0E1622',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '14px',
+                      padding: '12px 14px',
+                      color: '#FFFFFF',
+                      fontSize: '13px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
 
-                    <div style={{ marginBottom: '16px' }}>
-                      <input
-                        type="text"
-                        placeholder={t.paymentNotePlaceholder}
-                        value={receiptNote}
-                        onChange={(e) => setReceiptNote(e.target.value)}
-                        style={{
-                          width: '100%',
-                          background: '#0E1622',
-                          border: '1px solid rgba(255, 255, 255, 0.1)',
-                          borderRadius: '14px',
-                          padding: '12px 14px',
-                          color: '#FFFFFF',
-                          fontSize: '13px',
-                          boxSizing: 'border-box',
-                        }}
-                      />
-                    </div>
-
-                    <button
-                      className="hulupay-btn-action"
-                      disabled={uploadingReceipt || !receiptBase64}
-                      onClick={handleSubmitReceipt}
-                    >
-                      <span>{uploadingReceipt ? 'Submitting...' : 'Submit & Track Order'}</span>
-                    </button>
-                  </>
-                )}
+                <button
+                  className="hulupay-btn-action"
+                  disabled={uploadingReceipt || !receiptBase64}
+                  onClick={handleSubmitReceipt}
+                >
+                  <span>{uploadingReceipt ? 'Submitting...' : 'Submit & Track Order'}</span>
+                </button>
               </div>
             )}
 

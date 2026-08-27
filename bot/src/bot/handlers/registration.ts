@@ -1,8 +1,9 @@
 import { Context } from 'grammy';
-import { getPhoneRegistrationKeyboard, getMainMenuKeyboard } from '../keyboards/menu.js';
+import { getPhoneRegistrationKeyboard } from '../keyboards/menu.js';
 import { setPendingAction, clearPendingAction } from '../session.js';
 import { saveUserPhone, validatePhoneNumber } from '../../services/users.service.js';
-import { renderCatalog } from './shop.js';
+import { checkChannelMembership, promptChannelSubscription } from './onboarding.js';
+import { startHandler } from './start.js';
 import { logger } from '../../logger/index.js';
 
 export async function promptPhoneRegistration(ctx: Context): Promise<void> {
@@ -14,8 +15,9 @@ export async function promptPhoneRegistration(ctx: Context): Promise<void> {
     data: {},
   });
 
-  const text = '<b>Welcome to Bighabesha Shop</b>\n\n' +
-    'To secure your orders and enable instant delivery, please verify your account with your mobile number.\n\n' +
+  const text =
+    '<b>📱 Phone Number Verification</b>\n\n' +
+    'To secure your account, track your orders, and enable instant product delivery, please verify your phone number.\n\n' +
     'Tap <b>[Share Phone Number]</b> below or enter your number (e.g. <code>0911223344</code>):';
 
   await ctx.reply(text, {
@@ -41,17 +43,14 @@ export async function handleContactMessage(ctx: Context): Promise<boolean> {
     saveUserPhone(userId, formattedPhone);
     clearPendingAction(userId);
 
-    const confirmMsg = `<b>Account Verified Successfully</b>\n\n` +
-      `• Phone Number: <code>${formattedPhone}</code>\n` +
-      `• Name: ${ctx.from?.first_name || 'User'}\n\n` +
-      `You have full access to Bighabesha Shop. Select an option from the menu below:`;
+    // Step 3: Check channel membership
+    const isMember = await checkChannelMembership(ctx, userId);
+    if (!isMember) {
+      await promptChannelSubscription(ctx);
+      return true;
+    }
 
-    await ctx.reply(confirmMsg, {
-      parse_mode: 'HTML',
-      reply_markup: getMainMenuKeyboard(),
-    });
-
-    await renderCatalog(ctx);
+    await startHandler(ctx);
     return true;
   } catch (err) {
     logger.error({ err, userId }, 'Failed to save contact phone');
@@ -76,17 +75,14 @@ export async function handleManualPhoneText(ctx: Context, text: string): Promise
     saveUserPhone(userId, validation.formatted);
     clearPendingAction(userId);
 
-    const confirmMsg = `<b>Account Verified Successfully</b>\n\n` +
-      `• Phone Number: <code>${validation.formatted}</code>\n` +
-      `• Name: ${ctx.from?.first_name || 'User'}\n\n` +
-      `You have full access to Bighabesha Shop. Select an option from the menu below:`;
+    // Step 3: Check channel membership
+    const isMember = await checkChannelMembership(ctx, userId);
+    if (!isMember) {
+      await promptChannelSubscription(ctx);
+      return true;
+    }
 
-    await ctx.reply(confirmMsg, {
-      parse_mode: 'HTML',
-      reply_markup: getMainMenuKeyboard(),
-    });
-
-    await renderCatalog(ctx);
+    await startHandler(ctx);
     return true;
   } catch (err) {
     logger.error({ err, userId }, 'Failed to save manual phone');
@@ -94,3 +90,4 @@ export async function handleManualPhoneText(ctx: Context, text: string): Promise
     return true;
   }
 }
+

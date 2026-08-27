@@ -2,8 +2,9 @@ import { Context, InlineKeyboard, InputFile } from 'grammy';
 import { t } from '../../i18n/index.js';
 import { getConfig } from '../../config/env.js';
 import { isAdmin } from './admin.js';
-import { upsertUser as dbUpsertUser, isUserRegistered } from '../../services/users.service.js';
+import { getUserById, upsertUser as dbUpsertUser, isUserRegistered } from '../../services/users.service.js';
 import { promptPhoneRegistration } from './registration.js';
+import { promptLanguageSelection, checkChannelMembership, promptChannelSubscription } from './onboarding.js';
 import { getMainMenuKeyboard } from '../keyboards/menu.js';
 import { getBannerPngPath } from '../../services/banner_generator.service.js';
 import { logger } from '../../logger/index.js';
@@ -30,16 +31,31 @@ export async function startHandler(ctx: Context): Promise<void> {
   if (!from) return;
 
   const payload = String(ctx.match || '').trim();
+  const existing = getUserById(from.id);
 
   const user = upsertUser({
     id: from.id,
     username: from.username || null,
     first_name: from.first_name || 'User',
-    language_code: from.language_code?.startsWith('am') ? 'am' : 'en',
+    language_code: existing?.language_code || (from.language_code?.startsWith('am') ? 'am' : 'en'),
   });
 
+  // Step 1: First-time language selection (if brand new user)
+  if (!existing && !isUserRegistered(from.id)) {
+    await promptLanguageSelection(ctx);
+    return;
+  }
+
+  // Step 2: Phone registration check (only if not already registered)
   if (!isUserRegistered(from.id)) {
     await promptPhoneRegistration(ctx);
+    return;
+  }
+
+  // Step 3: Mandatory channel membership check
+  const isMember = await checkChannelMembership(ctx, from.id);
+  if (!isMember) {
+    await promptChannelSubscription(ctx);
     return;
   }
 

@@ -1270,56 +1270,6 @@ export const USDCoinIcon: React.FC<{ size?: number; className?: string }> = ({ s
   </svg>
 );
 
-export const PaymentCbeIcon: React.FC<{ size?: number; className?: string }> = ({ size = 22, className }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    className={className}
-    aria-hidden="true"
-    focusable="false"
-  >
-    <rect width="24" height="24" rx="6" fill="#6B21A8" />
-    <path d="M12 4L4 8V10H20V8L12 4Z" fill="#FBBF24" />
-    <rect x="5" y="11" width="3" height="6" fill="#FFFFFF" />
-    <rect x="10.5" y="11" width="3" height="6" fill="#FFFFFF" />
-    <rect x="16" y="11" width="3" height="6" fill="#FFFFFF" />
-    <rect x="4" y="18" width="16" height="2" fill="#FBBF24" />
-  </svg>
-);
-
-export const PaymentTelebirrIcon: React.FC<{ size?: number; className?: string }> = ({ size = 22, className }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    className={className}
-    aria-hidden="true"
-    focusable="false"
-  >
-    <rect width="24" height="24" rx="6" fill="#0284C7" />
-    <path d="M7 6H17V9H13.5V18H10.5V9H7V6Z" fill="#FFFFFF" />
-    <circle cx="16" cy="16" r="2.5" fill="#38BDF8" />
-  </svg>
-);
-
-export const PaymentAbyssiniaIcon: React.FC<{ size?: number; className?: string }> = ({ size = 22, className }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    className={className}
-    aria-hidden="true"
-    focusable="false"
-  >
-    <rect width="24" height="24" rx="6" fill="#C2410C" />
-    <circle cx="12" cy="12" r="7" stroke="#FDE047" strokeWidth="2.5" />
-    <path d="M12 7V17M7 12H17" stroke="#FFFFFF" strokeWidth="2" />
-  </svg>
-);
 
 export const SparklesCanopyIcon: React.FC<{ size?: number; className?: string }> = ({ size = 24, className }) => (
   <svg
@@ -1615,14 +1565,57 @@ export const SupportAgent3DIcon: React.FC<{ size?: number; className?: string }>
   </svg>
 );
 
-export const LocalPaymentGroupBadge: React.FC<{ size?: number; className?: string }> = ({ className }) => (
-  <div className={`inline-flex items-center gap-1.5 ${className || ''}`}>
-    {/* Telebirr dot */}
-    <span className="w-5 h-5 rounded-full bg-[#0284C7] flex items-center justify-center text-[9px] font-black text-white shadow-sm ring-1 ring-white/20">T</span>
-    {/* CBE dot */}
-    <span className="w-5 h-5 rounded-full bg-[#6B21A8] flex items-center justify-center text-[9px] font-black text-[#FBBF24] shadow-sm ring-1 ring-white/20">C</span>
-    {/* Abyssinia dot */}
-    <span className="w-5 h-5 rounded-full bg-[#C2410C] flex items-center justify-center text-[9px] font-black text-white shadow-sm ring-1 ring-white/20">A</span>
+export const PaymentTelebirrIcon: React.FC<{ size?: number; className?: string }> = ({ size = 26, className }) => (
+  <img
+    src="/icons/telebirr.jpg"
+    alt="Telebirr"
+    width={size}
+    height={size}
+    className={`rounded-full object-cover shadow-sm ring-1 ring-white/10 ${className || ''}`}
+    style={{ width: `${size}px`, height: `${size}px`, borderRadius: '50%', objectFit: 'cover' }}
+  />
+);
+
+export const PaymentCbeIcon: React.FC<{ size?: number; className?: string }> = ({ size = 26, className }) => (
+  <img
+    src="/icons/cbe.jpg"
+    alt="Commercial Bank of Ethiopia"
+    width={size}
+    height={size}
+    className={`rounded-full object-cover shadow-sm ring-1 ring-white/10 ${className || ''}`}
+    style={{ width: `${size}px`, height: `${size}px`, borderRadius: '50%', objectFit: 'cover' }}
+  />
+);
+
+export const PaymentAbyssiniaIcon: React.FC<{ size?: number; className?: string }> = ({ size = 26, className }) => (
+  <img
+    src="/icons/abyssinia.jpg"
+    alt="Bank of Abyssinia"
+    width={size}
+    height={size}
+    className={`rounded-full object-cover shadow-sm ring-1 ring-white/10 ${className || ''}`}
+    style={{ width: `${size}px`, height: `${size}px`, borderRadius: '50%', objectFit: 'cover' }}
+  />
+);
+
+export const LocalPaymentGroupBadge: React.FC<{ className?: string }> = ({ className }) => (
+  <div className={`inline-flex items-center gap-1 ${className || ''}`}>
+    <img src="/icons/telebirr.jpg" alt="Telebirr" style={{ width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }} />
+    <img src="/icons/cbe.jpg" alt="CBE" style={{ width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }} />
+    <img src="/icons/abyssinia.jpg" alt="Abyssinia" style={{ width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }} />
+  </div>
+);
+
+export const TelegramPremium3DStarBanner: React.FC<{ className?: string }> = ({ className }) => (
+  <div
+    className={`w-full rounded-2xl overflow-hidden mb-3 bg-[#0B101B] border border-white/10 shadow-lg ${className || ''}`}
+    style={{ position: 'relative', width: '100%', height: '140px', borderRadius: '16px', overflow: 'hidden', marginBottom: '14px', border: '1px solid rgba(255,255,255,0.1)' }}
+  >
+    <img
+      src="/icons/stars_3d.jpg"
+      alt="Telegram Premium 3D Star"
+      style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }}
+    />
   </div>
 );
 
