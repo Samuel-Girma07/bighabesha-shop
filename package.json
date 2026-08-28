@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",
+    "start": "pnpm --filter bot start",
     "test": "pnpm -r test",
     "bot:dev": "pnpm --filter bot dev",
     "bot:start": "pnpm --filter bot start",
@@ -13,3 +14,4 @@
     "webapp:build": "pnpm --filter webapp build"
   }
 }
+
