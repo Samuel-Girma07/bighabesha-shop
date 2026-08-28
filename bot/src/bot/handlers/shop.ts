@@ -2,6 +2,7 @@ import { Context, InlineKeyboard, InputFile } from 'grammy';
 import { getAllProducts, getProductById, getProductVariants, formatPriceETB } from '../../services/catalog.service.js';
 import { getAvailableStockCount } from '../../services/stock.service.js';
 import { getBannerPngPath } from '../../services/banner_generator.service.js';
+import { addStyledInlineButton } from '../keyboards/menu.js';
 
 export async function renderCatalog(ctx: Context): Promise<void> {
   const products = getAllProducts();
@@ -29,18 +30,39 @@ export async function renderCatalog(ctx: Context): Promise<void> {
 
       text += `• 🤖 <b>${prod.name}</b>\n` +
         `   └ 💰 <code>${formatPriceETB(price)}</code> · ${stockBadge}\n\n`;
-      keyboard.text(`🤖 ${prod.name} • ${stock > 0 ? formatPriceETB(price) : 'Sold Out'}`, `prod_${prod.id}`).row();
+      addStyledInlineButton(keyboard, {
+        text: `✦ ${prod.name} • ${stock > 0 ? formatPriceETB(price) : 'Sold Out'}`,
+        callback_data: `prod_${prod.id}`,
+        style: 'success',
+      }).row();
     } else if (prod.id === 'telegram_premium') {
       const fromLabel = premiumFromPrice > 0 ? formatPriceETB(premiumFromPrice) : 'price on request';
       text += `• ⭐ <b>${prod.name}</b>\n` +
         `   └ 💰 from <code>${fromLabel}</code> · ⚡ <i>3, 6, 12M Plans · Direct Gift</i>\n\n`;
-      keyboard.text(`⭐ ${prod.name} • from ${fromLabel}`, `prod_${prod.id}`).row();
+      addStyledInlineButton(keyboard, {
+        text: `⭐ ${prod.name} • from ${fromLabel}`,
+        callback_data: `prod_${prod.id}`,
+        style: 'primary',
+      }).row();
     } else {
-      keyboard.text(`✨ ${prod.name}`, `prod_${prod.id}`).row();
+      addStyledInlineButton(keyboard, {
+        text: `✨ ${prod.name}`,
+        callback_data: `prod_${prod.id}`,
+        style: 'primary',
+      }).row();
     }
   }
 
-  keyboard.row().text('« Main Menu', 'nav_home').text('📦 My Orders', 'nav_orders');
+  addStyledInlineButton(keyboard, {
+    text: '🏠 Main Menu',
+    callback_data: 'nav_home',
+    style: 'primary',
+  });
+  addStyledInlineButton(keyboard, {
+    text: '📦 My Orders',
+    callback_data: 'nav_orders',
+    style: 'primary',
+  }).row();
 
   if (ctx.callbackQuery?.message?.photo) {
     try {
@@ -97,9 +119,17 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
       `<i>🛡️ 100% genuine Google workspace link with 18-month warranty.</i>`;
 
     if (stock > 0 && variant) {
-      keyboard.text(`⚡ Purchase Plan — ${formatPriceETB(price)}`, `buy_var_${variant.id}`).row();
+      addStyledInlineButton(keyboard, {
+        text: `⚡ Purchase Plan — ${formatPriceETB(price)}`,
+        callback_data: `buy_var_${variant.id}`,
+        style: 'success',
+      }).row();
     } else {
-      keyboard.text('🚫 Currently Sold Out', 'action_sold_out').row();
+      addStyledInlineButton(keyboard, {
+        text: '🚫 Currently Sold Out',
+        callback_data: 'action_sold_out',
+        style: 'danger',
+      }).row();
     }
   } else if (product.id === 'telegram_premium') {
     bannerType = 'premium';
@@ -116,12 +146,26 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
       `👇 <b>Select your subscription duration:</b>`;
 
     for (const v of variants) {
-      const badge = v.id.includes('12m') ? ' 🔥' : '';
-      keyboard.text(`⭐ ${v.name} — ${formatPriceETB(v.price_etb)}${badge}`, `buy_var_${v.id}`).row();
+      const isBestValue = v.id.includes('12m');
+      const badge = isBestValue ? ' 🔥' : '';
+      addStyledInlineButton(keyboard, {
+        text: `⭐ ${v.name} — ${formatPriceETB(v.price_etb)}${badge}`,
+        callback_data: `buy_var_${v.id}`,
+        style: isBestValue ? 'success' : 'primary',
+      }).row();
     }
   }
 
-  keyboard.row().text('« Back to Catalog', 'nav_shop').text('« Main Menu', 'nav_home');
+  addStyledInlineButton(keyboard, {
+    text: '« Back to Catalog',
+    callback_data: 'nav_shop',
+    style: 'primary',
+  });
+  addStyledInlineButton(keyboard, {
+    text: '🏠 Main Menu',
+    callback_data: 'nav_home',
+    style: 'primary',
+  }).row();
 
   const bannerPath = getBannerPngPath(bannerType);
 
@@ -160,3 +204,4 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
     }
   }
 }
+

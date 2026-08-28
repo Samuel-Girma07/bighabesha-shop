@@ -7,6 +7,7 @@ import { getConfig } from '../../config/env.js';
 import { renderPaymentRailSelection } from './checkout.js';
 import { escapeHtml } from '../../utils/html.js';
 import { t } from '../../i18n/index.js';
+import { addStyledInlineButton } from '../keyboards/menu.js';
 
 export function getStatusBadge(status: string): string {
   switch (status) {
@@ -62,9 +63,18 @@ export async function renderMyOrders(ctx: Context): Promise<void> {
       '<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n' +
       '📦 <b>My Orders</b>\n\n' +
       '<blockquote>You have not placed any orders yet.</blockquote>\n\n' +
-      'Browse our catalog to order Gemini Pro subscriptions, Telegram Premium, or Telegram Stars with instant automated delivery!';
+      'Browse our catalog to order Gemini Pro subscriptions or Telegram Premium with instant automated delivery!';
 
-    keyboard.text('🛍️ Browse Shop', 'nav_shop').text('« Main Menu', 'nav_home');
+    addStyledInlineButton(keyboard, {
+      text: '🛍️ Browse Shop',
+      callback_data: 'nav_shop',
+      style: 'success',
+    });
+    addStyledInlineButton(keyboard, {
+      text: '🏠 Main Menu',
+      callback_data: 'nav_home',
+      style: 'primary',
+    });
 
     if (ctx.callbackQuery) {
       await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
@@ -94,10 +104,23 @@ export async function renderMyOrders(ctx: Context): Promise<void> {
     text += `• <code>${order.id}</code> — <b>${escapeHtml(prodName)}</b>\n` +
       `   └ ${emoji} <b>[${badge}]</b> · <code>${formatPriceETB(order.amount_etb)}</code> · <i>${dateStr}</i>\n\n`;
 
-    keyboard.text(`${emoji} #${order.id} • ${badge}`, `order_detail_${order.id}`).row();
+    addStyledInlineButton(keyboard, {
+      text: `${emoji} #${order.id} • ${badge}`,
+      callback_data: `order_detail_${order.id}`,
+      style: 'primary',
+    }).row();
   }
 
-  keyboard.row().text('🛍️ Browse Shop', 'nav_shop').text('« Main Menu', 'nav_home');
+  addStyledInlineButton(keyboard, {
+    text: '🛍️ Browse Shop',
+    callback_data: 'nav_shop',
+    style: 'success',
+  });
+  addStyledInlineButton(keyboard, {
+    text: '🏠 Main Menu',
+    callback_data: 'nav_home',
+    style: 'primary',
+  }).row();
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
@@ -148,7 +171,16 @@ export async function renderOrderDetail(ctx: Context, orderId: string): Promise<
     text += `\n<blockquote>⚡ <b>Status Update: Processing Fulfillment</b>\nPayment confirmed! Fulfillment is in progress for <b>@${escapeHtml(order.username || 'your account')}</b>.</blockquote>`;
   } else if (order.status === 'awaiting_payment') {
     text += `\n<blockquote>💳 <b>Status Update: Awaiting Payment</b>\nThis order is waiting for payment confirmation. Tap below to resume payment or upload your transfer slip.</blockquote>`;
-    keyboard.text('💳 Resume Payment', `resume_pay_${order.id}`).text('🚫 Cancel Order', `cancel_order_${order.id}`).row();
+    addStyledInlineButton(keyboard, {
+      text: '💳 Resume Payment',
+      callback_data: `resume_pay_${order.id}`,
+      style: 'success',
+    });
+    addStyledInlineButton(keyboard, {
+      text: '🚫 Cancel Order',
+      callback_data: `cancel_order_${order.id}`,
+      style: 'danger',
+    }).row();
   } else if (order.status === 'rejected') {
     text += `\n<blockquote>🔴 <b>Status Update: Rejected</b>\n<b>Reason:</b> ${escapeHtml(order.rejection_reason || 'Payment verification failed')}\n<i>If you have questions, please contact support.</i></blockquote>`;
   } else if (order.status === 'refunded') {
@@ -157,7 +189,16 @@ export async function renderOrderDetail(ctx: Context, orderId: string): Promise<
     text += `\n<blockquote>⚪ <b>Status Update: Cancelled</b>\nThis order was cancelled.</blockquote>`;
   }
 
-  keyboard.row().text('« Back to Orders', 'nav_orders').url('💬 Contact Support', `https://t.me/${config.SUPPORT_USERNAME}`);
+  addStyledInlineButton(keyboard, {
+    text: '« Back to Orders',
+    callback_data: 'nav_orders',
+    style: 'primary',
+  });
+  addStyledInlineButton(keyboard, {
+    text: '💬 Contact Support',
+    url: `https://t.me/${config.SUPPORT_USERNAME}`,
+    style: 'primary',
+  }).row();
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
@@ -173,12 +214,22 @@ export async function renderLanguageMenu(ctx: Context): Promise<void> {
     '• 🇬🇧 <b>English</b> (Active Default)\n' +
     '• 🇪🇹 <b>አማርኛ (Amharic)</b>';
 
-  const keyboard = new InlineKeyboard()
-    .text('🇬🇧 English (Active)', 'set_lang_en')
-    .row()
-    .text('🇪🇹 አማርኛ (Amharic)', 'set_lang_am')
-    .row()
-    .text('« Main Menu', 'nav_home');
+  const keyboard = new InlineKeyboard();
+  addStyledInlineButton(keyboard, {
+    text: '🇬🇧 English (Active)',
+    callback_data: 'set_lang_en',
+    style: 'success',
+  }).row();
+  addStyledInlineButton(keyboard, {
+    text: '🇪🇹 አማርኛ (Amharic)',
+    callback_data: 'set_lang_am',
+    style: 'primary',
+  }).row();
+  addStyledInlineButton(keyboard, {
+    text: '🏠 Main Menu',
+    callback_data: 'nav_home',
+    style: 'primary',
+  });
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });

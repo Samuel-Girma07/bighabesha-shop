@@ -5,8 +5,9 @@ import { isAdmin } from './admin.js';
 import { getUserById, upsertUser as dbUpsertUser, isUserRegistered } from '../../services/users.service.js';
 import { promptPhoneRegistration } from './registration.js';
 import { promptLanguageSelection, checkChannelMembership, promptChannelSubscription } from './onboarding.js';
-import { getMainMenuKeyboard } from '../keyboards/menu.js';
+import { getMainMenuKeyboard, addStyledInlineButton } from '../keyboards/menu.js';
 import { getBannerPngPath } from '../../services/banner_generator.service.js';
+import { getProductVariants, formatPriceETB } from '../../services/catalog.service.js';
 import { logger } from '../../logger/index.js';
 
 export function upsertUser(user: {
@@ -87,10 +88,24 @@ export async function startHandler(ctx: Context): Promise<void> {
     `Telebirr · CBE Birr · Bank of Abyssinia · TON / USDT</blockquote>\n\n` +
     `<i>👇 Choose an option below or open the Web App to get started:</i>`;
 
+  // Fetch dynamic catalog prices for existing products
+  const geminiVariants = getProductVariants('gemini_pro_18m');
+  const geminiPrice = geminiVariants[0]?.price_etb || 1500;
+  const geminiLabel = `✦ Gemini Pro 18M — ${formatPriceETB(geminiPrice)}`;
+
+  const premVariants = getProductVariants('telegram_premium');
+  const premMinPrice = premVariants.length > 0 ? Math.min(...premVariants.map((v) => v.price_etb)) : 1100;
+  const premLabel = `⭐ Telegram Premium — from ${formatPriceETB(premMinPrice)}`;
+
   const keyboard = new InlineKeyboard();
 
   if (webAppUrl) {
-    keyboard.webApp('🚀 Open Web App Store', webAppUrl).row();
+    addStyledInlineButton(keyboard, {
+      text: '🚀 Open Web App Store',
+      web_app: { url: webAppUrl },
+      style: 'primary',
+    }).row();
+
     try {
       void ctx.setChatMenuButton({
         menu_button: {
@@ -104,17 +119,43 @@ export async function startHandler(ctx: Context): Promise<void> {
     }
   }
 
-  keyboard
-    .text(`🛍️ ${t(language_code, 'menu.shop')}`, 'nav_shop')
-    .text(`📦 ${t(language_code, 'menu.orders')}`, 'nav_orders')
-    .row()
-    .text('👤 My Profile', 'nav_profile')
-    .text(`🌐 ${t(language_code, 'menu.language')}`, 'nav_language')
-    .row()
-    .text(`💬 ${t(language_code, 'menu.support')}`, 'nav_support');
+  // Row 1: Gemini Pro 18M (Success Green)
+  addStyledInlineButton(keyboard, {
+    text: geminiLabel,
+    callback_data: 'prod_gemini_pro_18m',
+    style: 'success',
+  }).row();
+
+  // Row 2: Telegram Premium (Primary Blue/Teal)
+  addStyledInlineButton(keyboard, {
+    text: premLabel,
+    callback_data: 'prod_telegram_premium',
+    style: 'primary',
+  }).row();
+
+  // Row 3: Referral & Earn (Primary Blue)
+  addStyledInlineButton(keyboard, {
+    text: '🎁 Referral & Earn',
+    callback_data: 'nav_profile',
+    style: 'primary',
+  }).row();
+
+  // Row 4: My Account & Support & FAQ (2 Columns)
+  addStyledInlineButton(keyboard, {
+    text: '👤 My Account',
+    callback_data: 'nav_profile',
+  });
+  addStyledInlineButton(keyboard, {
+    text: '💬 Support & FAQ',
+    callback_data: 'nav_support',
+  }).row();
 
   if (isAdmin(from.id)) {
-    keyboard.row().text('⚡ Admin Panel', 'admin_menu');
+    addStyledInlineButton(keyboard, {
+      text: '⚡ Admin Panel',
+      callback_data: 'admin_menu',
+      style: 'danger',
+    }).row();
   }
 
   if (ctx.callbackQuery) {

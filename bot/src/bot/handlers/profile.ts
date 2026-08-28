@@ -4,6 +4,7 @@ import { getOrdersByUserId } from '../../services/orders.service.js';
 import { escapeHtml } from '../../utils/html.js';
 import { getReferralSummary } from '../../services/referral.service.js';
 import { getUserStats } from '../../services/loyalty.service.js';
+import { addStyledInlineButton } from '../keyboards/menu.js';
 
 export async function renderProfile(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
@@ -34,12 +35,28 @@ export async function renderProfile(ctx: Context): Promise<void> {
     `• <b>Available Balance:</b> <b>${referral.balanceEtb.toLocaleString('en-US')} ETB</b>\n\n` +
     `<blockquote>🔗 <b>Your Personal Referral Link:</b>\n<code>https://t.me/Bighabesha_shopBot?start=ref_${escapeHtml(referral.code)}</code></blockquote>`;
 
-  const keyboard = new InlineKeyboard()
-    .text('📱 Update Phone', 'action_update_phone')
-    .text('📦 My Orders', 'nav_orders')
-    .row()
-    .text('🌐 Change Language', 'nav_language')
-    .text('« Main Menu', 'nav_home');
+  const keyboard = new InlineKeyboard();
+  addStyledInlineButton(keyboard, {
+    text: '📱 Update Phone',
+    callback_data: 'action_update_phone',
+    style: 'primary',
+  });
+  addStyledInlineButton(keyboard, {
+    text: '📦 My Orders',
+    callback_data: 'nav_orders',
+    style: 'primary',
+  }).row();
+
+  addStyledInlineButton(keyboard, {
+    text: '🌐 Change Language',
+    callback_data: 'nav_language',
+    style: 'primary',
+  });
+  addStyledInlineButton(keyboard, {
+    text: '🏠 Main Menu',
+    callback_data: 'nav_home',
+    style: 'primary',
+  });
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
@@ -50,3 +67,4 @@ export async function renderProfile(ctx: Context): Promise<void> {
     });
   }
 }
+

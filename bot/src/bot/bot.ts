@@ -231,6 +231,18 @@ export function createBot(token: string): Bot {
   bot.command('ping', pingHandler);
 
   // Persistent Reply Keyboard Button Handlers (Hears exact button labels)
+  bot.hears(/Main Menu|Home|ዋና ማውጫ/i, async (ctx) => {
+    await startHandler(ctx);
+  });
+
+  bot.hears(/My Account|My Profile|Profile|መረጃ/i, async (ctx) => {
+    if (ctx.from && !isUserRegistered(ctx.from.id)) {
+      await promptPhoneRegistration(ctx);
+      return;
+    }
+    await renderProfile(ctx);
+  });
+
   bot.hears(/Browse Shop|Shop|ሱቅ/i, async (ctx) => {
     if (ctx.from && !isUserRegistered(ctx.from.id)) {
       await promptPhoneRegistration(ctx);
@@ -245,14 +257,6 @@ export function createBot(token: string): Bot {
       return;
     }
     await renderMyOrders(ctx);
-  });
-
-  bot.hears(/My Profile|Profile|መረጃ/i, async (ctx) => {
-    if (ctx.from && !isUserRegistered(ctx.from.id)) {
-      await promptPhoneRegistration(ctx);
-      return;
-    }
-    await renderProfile(ctx);
   });
 
   bot.hears(/Language|ቋንቋ/i, renderLanguageMenu);

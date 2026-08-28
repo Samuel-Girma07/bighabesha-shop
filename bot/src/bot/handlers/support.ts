@@ -1,6 +1,7 @@
 import { Context, InlineKeyboard } from 'grammy';
 import { getConfig } from '../../config/env.js';
 import { escapeHtml } from '../../utils/html.js';
+import { addStyledInlineButton } from '../keyboards/menu.js';
 
 export async function renderSupport(ctx: Context): Promise<void> {
   const config = getConfig();
@@ -15,13 +16,29 @@ export async function renderSupport(ctx: Context): Promise<void> {
     `• ⏰ <b>Operating Hours:</b> 24/7 Automated Dispatch & Live Agent Review\n\n` +
     `<i>👇 Tap below to start a direct message with an agent or return to the shop:</i>`;
 
-  const keyboard = new InlineKeyboard()
-    .url(`💬 Chat with Support (@${supportHandle})`, `https://t.me/${supportHandle}`)
-    .row()
-    .text('🛍️ Browse Shop', 'nav_shop')
-    .text('📦 My Orders', 'nav_orders')
-    .row()
-    .text('« Main Menu', 'nav_home');
+  const keyboard = new InlineKeyboard();
+  addStyledInlineButton(keyboard, {
+    text: `💬 Chat with Support (@${supportHandle})`,
+    url: `https://t.me/${supportHandle}`,
+    style: 'primary',
+  }).row();
+
+  addStyledInlineButton(keyboard, {
+    text: '🛍️ Browse Shop',
+    callback_data: 'nav_shop',
+    style: 'success',
+  });
+  addStyledInlineButton(keyboard, {
+    text: '📦 My Orders',
+    callback_data: 'nav_orders',
+    style: 'primary',
+  }).row();
+
+  addStyledInlineButton(keyboard, {
+    text: '🏠 Main Menu',
+    callback_data: 'nav_home',
+    style: 'primary',
+  });
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
@@ -40,8 +57,7 @@ export async function renderHelp(ctx: Context): Promise<void> {
     '<blockquote>Everything you need to know about purchasing digital goods on Bighabesha Shop.</blockquote>\n\n' +
     '🛍️ <b>Product Catalog:</b>\n' +
     '• 🤖 <b>Gemini Pro (18 Months):</b> Instant single-use activation link with 2TB storage\n' +
-    '• ⭐ <b>Telegram Premium (3/6/12m):</b> Direct Fragment gift to @username\n' +
-    '• 🪙 <b>Telegram Stars:</b> Direct account top-up in preset packs or custom amounts\n\n' +
+    '• ⭐ <b>Telegram Premium (3/6/12m):</b> Direct Fragment gift to @username\n\n' +
     '⚡ <b>Quick Ordering Steps:</b>\n' +
     '1. Tap <b>[Browse Shop]</b> or type <code>/shop</code>\n' +
     '2. Select your desired product and subscription duration\n' +
@@ -54,11 +70,23 @@ export async function renderHelp(ctx: Context): Promise<void> {
     '• <code>/language</code> — English / አማርኛ\n' +
     '• <code>/support</code> — Customer support desk';
 
-  const keyboard = new InlineKeyboard()
-    .text('🛍️ Browse Shop', 'nav_shop')
-    .text('💬 Contact Support', 'nav_support')
-    .row()
-    .text('« Main Menu', 'nav_home');
+  const keyboard = new InlineKeyboard();
+  addStyledInlineButton(keyboard, {
+    text: '🛍️ Browse Shop',
+    callback_data: 'nav_shop',
+    style: 'success',
+  });
+  addStyledInlineButton(keyboard, {
+    text: '💬 Contact Support',
+    callback_data: 'nav_support',
+    style: 'primary',
+  }).row();
+
+  addStyledInlineButton(keyboard, {
+    text: '🏠 Main Menu',
+    callback_data: 'nav_home',
+    style: 'primary',
+  });
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
@@ -69,4 +97,5 @@ export async function renderHelp(ctx: Context): Promise<void> {
     });
   }
 }
+
 
