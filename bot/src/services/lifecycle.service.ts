@@ -16,7 +16,6 @@ export interface LifecycleResult {
  */
 export function runLifecycleSweep(bot?: { api: { sendMessage: (id: number, text: string, opts?: any) => Promise<unknown> }, botInfo?: { username?: string } }): LifecycleResult {
   const db = getDatabase();
-  const now = Date.now();
   const reminderHours = getNumericSetting('recovery_reminder_hours', 2);
   const ttlHours = getNumericSetting('order_ttl_hours', 24);
 

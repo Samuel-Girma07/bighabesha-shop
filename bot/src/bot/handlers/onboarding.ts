@@ -1,5 +1,5 @@
 import { Context, InlineKeyboard } from 'grammy';
-import { getUserById, saveUserLanguage, isUserRegistered } from '../../services/users.service.js';
+import { saveUserLanguage, isUserRegistered } from '../../services/users.service.js';
 import { promptPhoneRegistration } from './registration.js';
 import { startHandler } from './start.js';
 import { logger } from '../../logger/index.js';
@@ -25,8 +25,16 @@ export function getRequiredChannelLink(): string {
 export const REQUIRED_CHANNEL_USERNAME = '@bighabesha_softwares';
 export const REQUIRED_CHANNEL_LINK = 'https://t.me/bighabesha_softwares';
 
+// In-memory cache for channel membership verification (TTL 60s)
+const membershipCache = new Map<number, { isMember: boolean; expiresAt: number }>();
+let lastAdminWarningTime = 0;
+let channelAdminInaccessibleUntil = 0;
+const ADMIN_WARN_THROTTLE_MS = 5 * 60 * 1000; // Log warning at most once every 5 minutes
+
 /**
  * Checks whether a user has joined the official channel.
+ * Uses a short 60s memory cache to avoid duplicate API calls across handlers
+ * and throttles non-admin warnings.
  */
 export async function checkChannelMembership(ctx: Context, userId: number): Promise<boolean> {
   try {
@@ -36,6 +44,20 @@ export async function checkChannelMembership(ctx: Context, userId: number): Prom
     }
   } catch {}
 
+  const now = Date.now();
+
+  // If we already detected the bot is not an admin in the channel recently,
+  // fail-open immediately without hammering Telegram API on every button click.
+  if (now < channelAdminInaccessibleUntil) {
+    return true;
+  }
+
+  // Check 60s memory cache for user
+  const cached = membershipCache.get(userId);
+  if (cached && now < cached.expiresAt) {
+    return cached.isMember;
+  }
+
   const channel = getRequiredChannelUsername();
 
   try {
@@ -43,12 +65,20 @@ export async function checkChannelMembership(ctx: Context, userId: number): Prom
     const validStatuses = ['creator', 'administrator', 'member', 'restricted'];
 
     if (member.status === 'left' || member.status === 'kicked') {
+      membershipCache.set(userId, { isMember: false, expiresAt: now + 60_000 });
       return false;
     }
 
-    return validStatuses.includes(member.status);
-  } catch (err: any) {
-    const errMsg = err?.description || err?.message || String(err);
+    const isMember = validStatuses.includes(member.status);
+    membershipCache.set(userId, { isMember, expiresAt: now + 60_000 });
+    return isMember;
+  } catch (err: unknown) {
+    const errMsg =
+      err instanceof Error
+        ? err.message
+        : typeof err === 'object' && err && 'description' in err
+          ? String((err as { description: unknown }).description)
+          : String(err);
 
     // If Telegram blocks the query because the bot is not an administrator in the channel:
     // e.g. "Bad Request: member list is inaccessible" or "Bad Request: chat not found"
@@ -58,10 +88,17 @@ export async function checkChannelMembership(ctx: Context, userId: number): Prom
       errMsg.includes('bot is not a member') ||
       errMsg.includes('CHAT_ADMIN_REQUIRED')
     ) {
-      logger.warn(
-        { err: errMsg, userId, channel },
-        '⚠️ [Channel Gate] Bot is not an administrator in the channel. Telegram blocks getChatMember unless the bot is an admin. Auto-allowing user to prevent lockout. Please add the bot as an administrator to the channel!'
-      );
+      // Cooldown API requests for 5 minutes when not admin
+      channelAdminInaccessibleUntil = now + ADMIN_WARN_THROTTLE_MS;
+
+      // Throttle warning log to once every 5 minutes
+      if (now - lastAdminWarningTime > ADMIN_WARN_THROTTLE_MS) {
+        lastAdminWarningTime = now;
+        logger.warn(
+          { err: errMsg, userId, channel },
+          '⚠️ [Channel Gate] Bot is not an administrator in the channel. Telegram blocks getChatMember unless the bot is an admin. Auto-allowing user to prevent lockout. Please add the bot as an administrator to the channel!'
+        );
+      }
       return true;
     }
 
@@ -163,8 +200,8 @@ export async function handleOnboardingLanguage(ctx: Context, lang: string): Prom
     return;
   }
 
-  // Fully onboarded: show welcome
-  await startHandler(ctx);
+  // Fully onboarded: show welcome (skip duplicate channel check)
+  await startHandler(ctx, { skipChannelCheck: true });
 }
 
 /**
@@ -190,5 +227,5 @@ export async function handleOnboardingChannelCheck(ctx: Context): Promise<void> 
     return;
   }
 
-  await startHandler(ctx);
+  await startHandler(ctx, { skipChannelCheck: true });
 }

@@ -9,7 +9,8 @@ export interface PendingAction {
     | 'admin_stock_csv_paste'
     | 'admin_edit_setting'
     | 'promo_entry'
-    | 'user_sms_forward';
+    | 'user_sms_forward'
+    | 'user_gift_username';
   data?: Record<string, any>;
   expiresAt: number;
 }

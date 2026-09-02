@@ -1,107 +1,109 @@
-# Handoff Document: Concurrency Remediation & Telegram Stars Decommissioning
+# Project Handoff: Telegram Premium B2B Reseller Pipeline
 
-**Target Repository:** `C:\Users\KATANA\Documents\Intern\Bot`  
-**Master Blueprint:** `finding.md` (Executable Work Order & Concurrency Audit)  
-**Previous Session ID:** `d5b762a4-681d-4d8e-ae25-a7a259905620`  
-**Target Workload:** 1000+ concurrent users, single-node SQLite + Telegram Bot + WebApp  
-
----
-
-## 1. Executive Summary & Objective
-
-This repository is undergoing a major architecture and concurrency remediation alongside the complete decommissioning of Telegram Stars (XTR).
-The work follows the strict **9-Step Execution Matrix (Part E)** and the blueprints in **Part B (B1–B19)** and **Part F (F-P1–F-P11)** of `finding.md`.
+**Date:** September 1, 2026  
+**Session ID:** `356a7cf1-8cfa-4465-bbda-82e1db8766cf`  
+**Repository:** `Samuel-Girma07/bighabesha-shop` (`c:\Users\KATANA\Documents\Intern\Bot`)
 
 ---
 
-## 2. Current Progress State
+## 1. Context & Objective
 
-### ✅ Completed Milestones (Verified in DB and Codebase)
+The Telegram Premium fulfillment engine was upgraded from a manual Fragment.com queue / static gift link model to a **Hybrid Manual-Approval + Modular Third-Party B2B Reseller API Pipeline** (supporting Gramix, iStar, Generic Webhook, and Mock adapters).
 
-1. **Step 1: Database Migration 008 (`bot/src/db/migrations/008_concurrency_perf.sql`) [Patch B15]**
-   - Applied to live DB (`data/shop.db`).
-   - Created 5 tables: `job_leases`, `broadcast_jobs`, `admin_otp_failures`, `request_idempotency`, `webhook_events`.
-   - Added 12 performance indexes across stock, orders, users, promo redemptions, sessions, and threads.
+The previous Claude Code session completed **Tasks 1 through 7** (Architecture, DB Migrations, Reseller Adapters, Buyer Recipient Selection Flow, Admin Approval/Retry wiring, Balance Monitoring, and Env config). The session was interrupted by an API token limit while beginning the cleanup and test suite creation.
 
-2. **Step 2: Database Migration 009 (`bot/src/db/migrations/009_decommission_stars.sql`) [Patch F-P1]**
-   - Applied to live DB (`data/shop.db`).
-   - Deactivated `telegram_stars` product and variants (`is_active = 0`).
-   - Purged Stars settings (`etb_per_star`, `stars_min`, `stars_max`, `stars_cashout_pct`).
-   - Preserved historical Stars orders.
-
-3. **Step 3: Resilient Outbound HTTP Client (`bot/src/lib/http.ts`, `bot/src/services/payments/`) [Patches B4, B5, B6]**
-   - Created `bot/src/lib/http.ts` with 8000ms timeouts, circuit breaker state machine, and retry backoff with jitter.
-   - Updated `bot/src/services/payments/chapa.ts` and `bot/src/services/payments/live_wallet_pay.ts` to use resilient client.
-   - Updated `bot/src/services/payments/ton.service.ts`.
-
-4. **Step 4: Single-Flight Cache & Rate Engine (`bot/src/services/cache.service.ts`, `bot/src/services/rate_engine.service.ts`) [Patches B2, B3]**
-   - Created `bot/src/services/cache.service.ts` with single-flight mutex / coalescing.
-   - Hardened CoinGecko rate fetch against cache stampedes.
-
-5. **Step 5: Database Core Hardening (`bot/src/db/index.ts`, `bot/tests/hygiene.test.ts`) [Patch B1]**
-   - Implemented `statementCache` (`prepared()`), reduced `busy_timeout` to 250ms, WAL checkpointing, and `withWriteRetry()`.
-   - Updated `bot/tests/hygiene.test.ts` assertions.
-
-6. **Step 6: Telegram Stars Decommissioning (85% Complete) [Patches F-P2 through F-P10]**
-   - `bot/src/db/seed.ts` (F-P2): Purged Stars seeding.
-   - `bot/src/bot/session.ts` (F-P6): Dropped `stars_custom_amount` session type.
-   - `bot/src/services/pricing.service.ts` (F-P7): Removed Stars calculations & rail.
-   - `bot/src/services/settings.service.ts` (F-P9): Removed Stars settings accessors.
-   - `bot/src/services/profit.service.ts` (F-P10 / B13): Removed Stars profit records.
-   - `bot/src/services/orders.service.ts` (F-P10): Removed Stars order resolution logic.
-   - `bot/src/bot/handlers/shop.ts` (F-P3): Removed Stars purchase button & custom amount keyboard.
-   - `bot/src/bot/handlers/checkout.ts` (F-P4): Removed Stars invoice payment branch.
-   - `bot/src/bot/handlers/input.ts`: Removed `stars_custom_amount` handler block.
-   - `bot/src/bot/handlers/gate.ts`: Removed Stars purchase check.
-   - `bot/src/bot/bot.ts` (F-P5): Removed `pre_checkout_query`, `successful_payment`, and Stars routers.
+All existing 18 test files (304 tests) pass with zero errors.
 
 ---
 
-## 3. Interruption Point & Current Failure State
+## 2. Completed Work & File Inventory
 
-The previous session was interrupted by an API credit limit while starting Patch **F-P11** / **Step 7 (B8)** in `bot/src/api/server.ts`.
+### A. Database Migration
+- **[010_b2b_reseller.sql](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/db/migrations/010_b2b_reseller.sql)**
+  - Rebuilt `orders` table to extend `status` CHECK constraint with `'processing'` and `'delivery_failed'`.
+  - Added columns: `target_username`, `reseller_provider`, `reseller_tx_id`, `reseller_error`.
+  - Added index `idx_orders_delivery_failed`.
+  - Backfilled existing unpaid/pending orders with `target_username = username`.
 
-Running `cd bot && npx tsc --noEmit` currently reports:
-```text
-src/api/server.ts(570,47): error TS2322: Type '"stars"' is not assignable to type 'PaymentRail'.
-src/api/server.ts(624,9): error TS2353: Object literal may only specify known properties, and 'customStars' does not exist in type 'ResolveOrderPriceParams'.
-```
+### B. Modular Reseller Service Architecture
+- **[types.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller/types.ts)**: Defined `IResellerProvider`, `ResellerFulfillParams`, `ResellerFulfillResult`, `ResellerBalanceResult`, and error hierarchy (`InsufficientFloatError`, `InvalidTargetUserError`, `ProviderUnavailableError`).
+- **[http-base.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller/http-base.ts)**: Robust HTTP client base with timeouts, retries, and error mapping.
+- **[mock.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller/mock.ts)**: `MockResellerAdapter` for local development and unit tests (supports deterministic success and failure triggering).
+- **[gramix.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller/gramix.ts)**: `GramixAdapter` for Gramix API.
+- **[istar.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller/istar.ts)**: `IStarAdapter` for iStar API.
+- **[generic.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller/generic.ts)**: `GenericWebhookAdapter` for custom REST webhooks.
+- **[index.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller/index.ts)**: Provider factory `createResellerProvider(config)`.
+- **[reseller.service.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller.service.ts)**: High-level orchestration facade:
+  - `deliverWithReseller(orderId, adminId, api)`: Coordinates `pending_approval` → `processing` → Provider API call → `fulfilled` | `delivery_failed`.
+  - `checkBalanceAndAlert(api)` / `notifyAdminsLowFloatFromResult(...)`: Queries float balance and alerts admins if below `RESELLER_LOW_BALANCE_ALERT_USDT`.
+  - `deliveryFailedKeyboard(orderId)`: Inline keyboard with `[🔁 Retry Delivery]`, `[↩️ Refund]`, and `[❌ Reject]`.
+
+### C. Buyer Recipient Username Selection Flow
+- **[gate.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/bot/handlers/gate.ts)**: Added `renderRecipientSelection(ctx, productId, variantId)` and `isValidTelegramUsername(username)`.
+- **[session.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/bot/session.ts)**: Added `recipient_username_entry` session state for capturing custom target `@username`.
+- **[input.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/bot/handlers/input.ts)**: Added input handler for validating and storing custom target `@username`.
+- **[orders.service.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/orders.service.ts)**:
+  - Extended `ALLOWED_TRANSITIONS` with `processing` and `delivery_failed`.
+  - Updated `CreateOrderInput` and `createOrder()` to accept and persist `targetUsername`.
+
+### D. Admin Approval & Reseller Triggering
+- **[checkout.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/bot/handlers/checkout.ts)**:
+  - Updated `notifyAdminsNewReceipt()` to display target `@username` and render `[✅ Approve & Deliver]`.
+  - Updated `performAdminApprove()`: for `telegram_premium`, automatically invokes `deliverWithReseller()`.
+  - Added `handleAdminRetryDelivery()` to re-attempt failed deliveries.
+- **[admin.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/bot/handlers/admin.ts)**: Added `renderAdminResellerBalance(ctx)` displaying active provider, float balance in USDT, and threshold status.
+- **[bot.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/bot/bot.ts)**: Registered callback query routes:
+  - `recipient_self_...`, `recipient_custom_...`
+  - `admin_retry_delivery_...`, `admin_reseller_balance`
+
+### E. Environment Configuration
+- **[env.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/config/env.ts)** & **[.env.example](file:///c:/Users/KATANA/Documents/Intern/Bot/.env.example)**:
+  - `RESELLER_PROVIDER`: `'mock' | 'gramix' | 'istar' | 'generic'` (default: `'mock'`)
+  - `RESELLER_API_KEY`: string (default: `''`)
+  - `RESELLER_API_URL`: string (default: `''`)
+  - `RESELLER_LOW_BALANCE_ALERT_USDT`: number (default: `20`)
 
 ---
 
-## 4. Immediate Remaining Work Order
+## 3. Verification & Quality Assurance (Completed)
 
-### Phase 1: Complete Step 6 (Stars Decommissioning)
-- **Files**:
-  - `bot/src/bot/handlers/admin.ts` (F-P11): Remove Stars settings editor and Stars configuration menus.
-  - `bot/src/api/server.ts` (F-P11): Remove `telegram_stars` routes, `stars` payment rail references, and `customStars` parameters.
-- **Verification**: Run `cd bot && npx tsc --noEmit` to confirm 0 compilation errors for Step 6.
+### Step 1: Reseller Test Suite (`bot/tests/reseller.test.ts`) — COMPLETE
+Created comprehensive 23-test suite in [`bot/tests/reseller.test.ts`](file:///C:/Users/KATANA/Documents/Intern/Bot/bot/tests/reseller.test.ts) covering:
+1. **Order State Machine Transitions**:
+   - Legal paths: `pending_approval` → `processing` → `fulfilled`.
+   - Failure & Recovery paths: `processing` → `delivery_failed` → `processing` → `fulfilled`.
+   - Terminal exits from `delivery_failed`: `rejected` and `refunded`.
+   - Illegal transition guards: strictly enforcing `ALLOWED_TRANSITIONS` (e.g. `awaiting_payment` → `delivery_failed` rejected).
+2. **Target Username Validation**:
+   - Telegram rule validation (`isValidTelegramUsername`).
+   - Normalization via `sanitizeUsername` (strips leading `@`).
+   - Persistence in `orders` table across creation and retrieval.
+3. **End-to-End Fulfillment with Mock Adapter**:
+   - Mock fulfill execution, setting `reseller_tx_id`, clearing `reseller_error`, notifying buyer with HTML activation text.
+4. **Provider Error Handling & Admin Retry**:
+   - Provider errors (`InsufficientFloatError`, `InvalidTargetUserError`, `ProviderUnavailableError`) gracefully transition order to `delivery_failed` and store sanitized error reason.
+   - Admin retry (`handleAdminRetryDelivery`) recovers once provider recovers and delivers.
+   - Unauthorized retry attempts by non-admins are strictly rejected.
+5. **Float Balance Monitoring & Alerts**:
+   - Balance query returns USDT balance.
+   - Low float triggers alerts to all configured admins.
+   - Provider balance API failure resilience without crashing bot background routines.
+6. **Security Audit (Target Usernames, Credential Safety & Admin Authorization)**:
+   - SQL injection & XSS attempts in target usernames are safely stored without executing or corrupting SQLite DB.
+   - Credentials (`RESELLER_API_KEY`) and bearer tokens are never leaked into `reseller_error` or audit log payloads.
+   - Non-admin callers attempting admin balance endpoints or manual retry are rejected.
 
-### Phase 2: Execute Step 7 (API Server Hardening & Idempotency)
-- **Files**:
-  - `bot/src/api/idempotency.ts` (Patch B19): Implement idempotency middleware backed by the `request_idempotency` SQLite table.
-  - `bot/src/api/server.ts` (Patch B8):
-    - Switch `globalApiLimiter` key to Telegram User ID (`req.user?.id` / init-data user ID with IP fallback).
-    - Install dedicated limiters for `/api/admin/*` and `/api/user/recheck-username`.
-    - Apply single-flight cache to `/api/bootstrap` catalog calls.
-    - Make user activity touches non-blocking / asynchronous.
-    - Wire `idempotencyMiddleware` on payment creation and order submission endpoints.
+### Step 2: Quality & Hygiene Verification — ALL GREEN
+- **Full Bot Test Suite**: **19 test files passed (327 passed, 5 skipped)**.
+- **TypeScript Compilation**: `pnpm --filter bot build` compiles with 0 errors.
+- **Knowledge Graph Parity**: Graphify updated with parity across all new and updated symbols.
 
-### Phase 3: Execute Step 8 (Admin Routes & Background Services)
-- **Files**:
-  - `bot/src/api/admin.ts` (Patch B10): Replace N+1 loop queries in `GET /api/admin/overview` with sargable SQL and cache overview stats using `cache.service.ts`.
-  - `bot/src/services/receipts.service.ts` (Patch B9): Convert synchronous `fs.writeFileSync` to `fsp.writeFile`.
-  - `bot/src/services/banner_generator.service.ts` (Patch B18): Convert synchronous image writes to async `fsp.writeFile`.
-  - `bot/src/services/broadcast.service.ts` (Patch B11): Migrate broadcast tracking from in-memory array to the `broadcast_jobs` SQLite table.
-  - `bot/src/services/users.service.ts` (Patch B12): Use cursor/streamed batch queries for user exports.
-  - `bot/src/services/promo.service.ts` (Patch B16): Implement atomic check-and-insert for promo redemption to eliminate check-then-act races.
+---
 
-### Phase 4: Execute Step 9 (Process Lifecycle & Leader Lease Election)
-- **Files**:
-  - `bot/src/services/payments/index.ts` (Patch B7): Bound reconciliation sweep loops with timeouts, single-flight locks, and batching.
-  - `bot/src/index.ts` (Patch B14): Implement DB leader lease acquisition (`job_leases` table) for Telegram polling and sweeper workers; enforce proper connection drain order before calling `closeDatabase()`.
+## 4. Key Architectural Rules Maintained
 
-### Phase 5: Verification & Quality Gate
-- Run full typecheck: `cd bot && npx tsc --noEmit`
-- Run test suite: `cd bot && npx vitest run`
-- Search codebase for any residual active Stars logic: `rg "telegram_stars|stars_custom|buy_custom_stars" bot/src/`
+1. **Strict State Transitions:** Order status mutations always go through `updateOrderStatus()` in `orders.service.ts`.
+2. **Fail-Closed Reseller Calls:** Outbound provider requests are bracketed by `processing` before calling the network, and reliably land in either `fulfilled` or `delivery_failed`.
+3. **Credential Safety:** Secrets (`RESELLER_API_KEY`) and authorization headers are fully redacted in error logs and customer/admin outputs.
+4. **Decoupled Architecture:** Telegram Premium fulfillment is fully modularized and decoupled from Fragment smart contracts, supporting pluggable adapters (`mock`, `gramix`, `istar`, `generic`).
+

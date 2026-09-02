@@ -1,10 +1,8 @@
 import { Context, InlineKeyboard } from 'grammy';
 import { isAdmin } from './admin.js';
 import { getBroadcastTargets, executeBroadcast } from '../../services/broadcast.service.js';
-import { setPendingAction, getPendingAction, clearPendingAction } from '../session.js';
+import { setPendingAction } from '../session.js';
 import { getDatabase } from '../../db/index.js';
-import { escapeHtml } from '../../utils/html.js';
-import { logger } from '../../logger/index.js';
 
 export async function renderBroadcastTargetSelection(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;

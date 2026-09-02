@@ -12,7 +12,7 @@ export function getLedgerBalance(userId: number): number {
   return row?.balance ?? 0;
 }
 
-export function getOrCreateReferralCode(userId: number, firstName?: string | null): string {
+export function getOrCreateReferralCode(userId: number, _firstName?: string | null): string {
   const db = getDatabase();
   const existing = db.prepare('SELECT referral_code FROM users WHERE id = ?').get(userId) as { referral_code: string | null } | undefined;
   if (existing?.referral_code) return existing.referral_code;

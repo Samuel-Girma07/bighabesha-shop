@@ -1,19 +1,17 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import path from 'path';
-import fs from 'fs';
 import crypto from 'crypto';
+import type { Bot } from 'grammy';
 import { getConfig } from '../config/env.js';
 import { getDatabase, prepared } from '../db/index.js';
 import { cachedSync } from '../services/cache.service.js';
 import { logger } from '../logger/index.js';
-import { resolveReceiptsDir, resolveStoredReceiptPath } from '../services/receipts.service.js';
+import { resolveStoredReceiptPath } from '../services/receipts.service.js';
 import { createReceiptDownloadToken, verifyReceiptDownloadToken } from '../services/download_tokens.service.js';
 import {
   getOrderById,
   approveReceipt,
   rejectReceipt,
   fulfillOrderWithProof,
-  Order,
 } from '../services/orders.service.js';
 import {
   addStockLink,
@@ -32,17 +30,16 @@ import {
 import { recordAudit, listAuditLogs } from '../services/audit.service.js';
 import { csvCell, guardExcelString } from '../utils/csv.js';
 import { ensureAdminRow, roleHasPermission, type AdminRole, type Permission } from '../auth/permissions.js';
-import { getLedgerBalance } from '../services/referral.service.js';
 import { forecastForStockProduct } from '../services/analytics.service.js';
-import { monthlyPnl, profitForOrder } from '../services/profit.service.js';
+import { monthlyPnl } from '../services/profit.service.js';
 import { createPromoCode, listPromoCodes } from '../services/promo.service.js';
 
 export const adminRouter: Router = Router();
 
 // Injected Bot reference for sending notifications & 2FA codes
-let botInstance: any = null;
+let botInstance: Bot | null = null;
 
-export function setAdminBotInstance(bot: any): void {
+export function setAdminBotInstance(bot: Bot): void {
   botInstance = bot;
 }
 
@@ -1032,7 +1029,7 @@ adminRouter.get('/export/orders.csv', requireAdminAuth, requirePermission('expor
   res.send('\ufeff' + lines.join('\n'));
 });
 
-adminRouter.get('/export/orders.xlsx', requireAdminAuth, requirePermission('export.financial'), async (req: Request, res: Response): Promise<void> => {
+adminRouter.get('/export/orders.xlsx', requireAdminAuth, requirePermission('export.financial'), async (_req: Request, res: Response): Promise<void> => {
   try {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Bighabesha Shop Admin';
@@ -1074,7 +1071,7 @@ adminRouter.get('/export/orders.xlsx', requireAdminAuth, requirePermission('expo
   }
 });
 
-adminRouter.get('/export/pnl.pdf', requireAdminAuth, requirePermission('export.financial'), (req: Request, res: Response): void => {
+adminRouter.get('/export/pnl.pdf', requireAdminAuth, requirePermission('export.financial'), (_req: Request, res: Response): void => {
   try {
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     res.setHeader('Content-Type', 'application/pdf');

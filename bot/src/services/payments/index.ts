@@ -6,7 +6,7 @@ import { chapaQueryStatus, isChapaEnabled } from './chapa.js';
 import { verifyTonPayment, isTonConnectEnabled } from './ton.service.js';
 import { fetchCoinGeckoPrices, calculateCryptoQuote } from '../rate_engine.service.js';
 import { notifyBuyerOfAutoApproval } from '../buyer_notify.js';
-import { getDatabase } from '../../db/index.js';
+import { prepared } from '../../db/index.js';
 import { logger } from '../../logger/index.js';
 import type { Bot } from 'grammy';
 import { Order, approveReceipt } from '../orders.service.js';
@@ -29,7 +29,6 @@ export function resetWalletPayAdapter(): void {
   adapterInstance = null;
 }
 
-import { prepared } from '../../db/index.js';
 import { tryAcquireLease } from '../../db/lease.js';
 
 const SWEEP_BATCH = 25;

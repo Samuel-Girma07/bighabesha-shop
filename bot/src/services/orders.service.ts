@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { getDatabase } from '../db/index.js';
 import { logger } from '../logger/index.js';
 import { allocateStock } from './stock.service.js';
-import { getProductById, getVariantById } from './catalog.service.js';
+import { getProductById } from './catalog.service.js';
 import { assertPositiveIntegerETB, PricingError } from './pricing.service.js';
 import { getNumericSetting } from './settings.service.js';
 import { adjustUserStats } from './loyalty.service.js';
@@ -14,10 +14,15 @@ export type OrderStatus =
   | 'awaiting_payment'
   | 'pending_approval'
   | 'pending_fulfillment'
+  | 'processing'
+  | 'delivery_failed'
   | 'fulfilled'
   | 'rejected'
   | 'refunded'
   | 'cancelled';
+
+/** Telegram Premium term lengths, validated at the reseller boundary. */
+export type PremiumMonths = 3 | 6 | 12;
 
 export interface Order {
   id: string;
@@ -43,6 +48,11 @@ export interface Order {
   fulfillment_proof: string | null;
   rejection_reason: string | null;
   admin_notes: string | null;
+  // B2B reseller fulfillment (Telegram Premium pipeline, nullable for non-Premium orders)
+  target_username: string | null;
+  reseller_provider: string | null;
+  reseller_tx_id: string | null;
+  reseller_error: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -70,6 +80,8 @@ export interface CreateOrderInput {
   status?: OrderStatus;
   /** Optional promo code — validated and atomically redeemed with the order. */
   promoCode?: string | null;
+  /** Public Telegram @username that will receive a Premium subscription. */
+  targetUsername?: string | null;
 }
 
 export function generateOrderId(): string {
@@ -90,16 +102,22 @@ export function generateOrderId(): string {
  *  - fulfilled orders can only be refunded
  *  - cancelled and refunded are terminal
  *  - rejected orders may return to pending_approval when the buyer re-uploads
+ *  - 010 adds the B2B reseller pipeline: pending_approval → processing →
+ *    fulfilled | delivery_failed, with delivery_failed retrying to processing
  */
 export const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  new: ['new', 'awaiting_payment', 'pending_approval', 'pending_fulfillment', 'fulfilled', 'cancelled'],
-  awaiting_payment: ['awaiting_payment', 'pending_approval', 'pending_fulfillment', 'fulfilled', 'cancelled'],
-  pending_approval: ['pending_approval', 'pending_fulfillment', 'fulfilled', 'rejected', 'refunded'],
-  pending_fulfillment: ['pending_fulfillment', 'fulfilled', 'refunded', 'rejected'],
+  new: ['new', 'awaiting_payment', 'pending_approval', 'pending_fulfillment', 'processing', 'fulfilled', 'cancelled'],
+  awaiting_payment: ['awaiting_payment', 'pending_approval', 'pending_fulfillment', 'processing', 'fulfilled', 'cancelled'],
+  pending_approval: ['pending_approval', 'pending_fulfillment', 'processing', 'fulfilled', 'rejected', 'refunded'],
+  // reseller pipeline: brackets the outbound provider call
+  processing: ['processing', 'fulfilled', 'delivery_failed'],
+  delivery_failed: ['delivery_failed', 'processing', 'rejected', 'refunded'],
   fulfilled: ['fulfilled', 'refunded'],
   rejected: ['rejected', 'pending_approval', 'refunded'],
   refunded: ['refunded'],
   cancelled: ['cancelled'],
+  // manual/stock path (Gemini Pro + hand-fulfilled orders) — not a reseller status.
+  pending_fulfillment: ['pending_fulfillment', 'processing', 'fulfilled', 'refunded', 'rejected'],
 };
 
 export class InvalidOrderTransitionError extends Error {
@@ -111,6 +129,39 @@ export class InvalidOrderTransitionError extends Error {
 
 export function isTransitionAllowed(from: OrderStatus, to: OrderStatus): boolean {
   return (ALLOWED_TRANSITIONS[from] || []).includes(to);
+}
+
+/**
+ * Telegram username format: 5–32 characters, alphanumerics and underscores
+ * only. The leading `@` is accepted and stripped.
+ */
+export const TELEGRAM_USERNAME_RE = /^[a-zA-Z0-9_]{5,32}$/;
+
+/** Returns true when the username (with or without leading @) is a valid Telegram handle. */
+export function isValidUsername(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  const cleaned = raw.trim().replace(/^@/, '');
+  return TELEGRAM_USERNAME_RE.test(cleaned);
+}
+
+/**
+ * Normalizes a buyer-supplied recipient username: trims, strips the leading
+ * '@', and enforces the Telegram character/length rules. Throws on invalid
+ * input — callers must surface the error to the buyer, not coerce silently.
+ */
+export function sanitizeUsername(raw: string): string {
+  const cleaned = raw.trim().replace(/^@/, '');
+  if (!TELEGRAM_USERNAME_RE.test(cleaned)) {
+    throw new InvalidUsernameError(raw);
+  }
+  return cleaned;
+}
+
+export class InvalidUsernameError extends Error {
+  constructor(public readonly input: string) {
+    super(`Invalid Telegram username: "${input}". Usernames are 5-32 characters (letters, numbers, underscores).`);
+    this.name = 'InvalidUsernameError';
+  }
 }
 
 export function createOrder(input: CreateOrderInput): Order {
@@ -170,8 +221,8 @@ export function createOrder(input: CreateOrderInput): Order {
           INSERT INTO orders (
             id, user_id, username, product_id, variant_id, quantity,
             amount_etb, payment_rail, payment_ref, status,
-            cost_basis_usd, fx_rate_at_sale, discount_etb, promo_code
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            cost_basis_usd, fx_rate_at_sale, discount_etb, promo_code, target_username
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           orderId,
           input.userId,
@@ -186,7 +237,8 @@ export function createOrder(input: CreateOrderInput): Order {
           costBasisUsd,
           fxRate,
           discountEtb,
-          promoCode
+          promoCode,
+          input.targetUsername ? sanitizeUsername(input.targetUsername) : null
         );
 
         appendOrderEvent(orderId, null, status, 'user', String(input.userId), 'Order created');
@@ -302,6 +354,22 @@ export function updateOrderStatus(
     if (updates.admin_notes !== undefined) {
       fields.push('admin_notes = ?');
       values.push(updates.admin_notes);
+    }
+    if (updates.target_username !== undefined) {
+      fields.push('target_username = ?');
+      values.push(updates.target_username ? sanitizeUsername(updates.target_username) : null);
+    }
+    if (updates.reseller_provider !== undefined) {
+      fields.push('reseller_provider = ?');
+      values.push(updates.reseller_provider);
+    }
+    if (updates.reseller_tx_id !== undefined) {
+      fields.push('reseller_tx_id = ?');
+      values.push(updates.reseller_tx_id);
+    }
+    if (updates.reseller_error !== undefined) {
+      fields.push('reseller_error = ?');
+      values.push(updates.reseller_error);
     }
 
     values.push(orderId);

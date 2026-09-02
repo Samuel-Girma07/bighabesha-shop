@@ -1,11 +1,13 @@
 import { Context, InlineKeyboard } from 'grammy';
 import { getConfig } from '../../config/env.js';
 import { ensureAdminRow, roleHasPermission, type Permission } from '../../auth/permissions.js';
-import { getAllProducts, getProductById, getProductVariants, getVariantById, formatPriceETB, updateVariantPrice, setProductActive } from '../../services/catalog.service.js';
+import { getAllProducts, getProductVariants, getVariantById, formatPriceETB } from '../../services/catalog.service.js';
+import { getResellerProvider, notifyAdminsLowFloatFromResult } from '../../services/reseller.service.js';
 import { getTotalStockCount } from '../../services/stock.service.js';
-import { getAllSettings, getNumericSetting, getSetting, setSetting } from '../../services/settings.service.js';
+import { getNumericSetting, getSetting } from '../../services/settings.service.js';
 import { setPendingAction } from '../session.js';
 import { escapeHtml } from '../../utils/html.js';
+import { logger } from '../../logger/index.js';
 
 /**
  * Bot-side admin check with optional RBAC permission scoping.
@@ -41,6 +43,8 @@ export async function renderAdminMenu(ctx: Context): Promise<void> {
     .row()
     .text('📢 Broadcast Announcement', 'admin_broadcast')
     .text('🏦 Settings & Accounts', 'admin_settings')
+    .row()
+    .text('💰 Reseller Balance', 'admin_reseller_balance')
     .row()
     .text('« Exit Admin Mode', 'nav_home');
 
@@ -237,6 +241,75 @@ export async function renderAdminSettings(ctx: Context): Promise<void> {
     await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
   }
 }
+
+/**
+ * [💰 Reseller Balance] — on-demand float check for the configured B2B
+ * provider. Alerts admins automatically when the balance dips below the
+ * RESELLER_LOW_BALANCE_ALERT_USDT threshold.
+ */
+export async function renderResellerBalance(ctx: Context): Promise<void> {
+  const userId = ctx.from?.id;
+  if (!isAdmin(userId)) return;
+
+  const config = getConfig();
+  const provider = getResellerProvider();
+
+  const backKeyboard = new InlineKeyboard()
+    .text('🔄 Refresh', 'admin_reseller_balance')
+    .row()
+    .text('« Back to Admin Menu', 'admin_menu');
+
+  if (!provider) {
+    const text = '💰 <b>Reseller Balance</b>\n\n' +
+      'No reseller provider is configured (<code>RESELLER_PROVIDER</code> is unset).\n' +
+      'Telegram Premium orders fall back to manual fulfillment.';
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: backKeyboard });
+    } else {
+      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: backKeyboard });
+    }
+    return;
+  }
+
+  try {
+    const balance = await provider.getBalance();
+    const belowThreshold = balance.balanceUsdt < config.RESELLER_LOW_BALANCE_ALERT_USDT;
+    const statusIcon = belowThreshold ? '🔴 Low' : '🟢 Healthy';
+
+    const text = '💰 <b>Reseller Balance</b>\n\n' +
+      `• Provider: <b>${escapeHtml(balance.provider)}</b>\n` +
+      `• Float Balance: <b>$${balance.balanceUsdt.toFixed(2)} ${escapeHtml(balance.currency)}</b>\n` +
+      `• Alert Threshold: $${config.RESELLER_LOW_BALANCE_ALERT_USDT.toFixed(2)}\n` +
+      `• Status: <b>${statusIcon}</b>` +
+      (belowThreshold ? '\n\n🚨 <i>Float is below threshold — Premium deliveries will fail until topped up.</i>' : '');
+
+    if (belowThreshold) {
+      // Alert the full admin group even though this was a manual refresh.
+      void notifyAdminsLowFloatFromResult(ctx.api, balance.provider, balance.balanceUsdt).catch((err) => {
+        logger.warn({ err }, 'Low-float alert fan-out failed');
+      });
+    }
+
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: backKeyboard });
+    } else {
+      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: backKeyboard });
+    }
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+    logger.warn({ err, provider: provider.name }, 'Failed to fetch reseller balance');
+    const text = '💰 <b>Reseller Balance</b>\n\n' +
+      `❌ Could not reach provider <b>${escapeHtml(provider.name)}</b>:\n` +
+      `<code>${escapeHtml(errorMsg)}</code>`;
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: backKeyboard });
+    } else {
+      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: backKeyboard });
+    }
+  }
+}
+
+export const renderAdminResellerBalance = renderResellerBalance;
 
 export async function promptEditSetting(ctx: Context, settingKey: string): Promise<void> {
   const userId = ctx.from?.id;

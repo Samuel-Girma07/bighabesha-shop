@@ -1,4 +1,3 @@
-import { InlineKeyboard } from 'grammy';
 import { escapeHtml } from '../utils/html.js';
 
 export interface StatusBadge {
@@ -65,7 +64,10 @@ export function formatOrderStatus(status: string): StatusBadge {
     case 'pending_approval':
       return { label: 'Under Review', badge: '⏳ Slip Under Review', icon: '⏳' };
     case 'pending_fulfillment':
+    case 'processing':
       return { label: 'Processing', badge: '📦 Processing Delivery', icon: '📦' };
+    case 'delivery_failed':
+      return { label: 'Delivery Issue', badge: '⚠️ Delivery Retrying', icon: '⚠️' };
     case 'awaiting_payment':
       return { label: 'Awaiting Payment', badge: '💳 Awaiting Payment', icon: '💳' };
     case 'rejected':

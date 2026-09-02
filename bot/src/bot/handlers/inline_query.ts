@@ -1,8 +1,8 @@
 import { Context, InlineKeyboard, InlineQueryResultBuilder } from 'grammy';
-import { getAllProducts, formatPriceETB } from '../../services/catalog.service.js';
+import type { InlineQueryResult } from 'grammy/types';
+import { getAllProducts } from '../../services/catalog.service.js';
 import { getNumericSetting } from '../../services/settings.service.js';
 import { getConfig } from '../../config/env.js';
-import { escapeHtml } from '../../utils/html.js';
 
 export async function inlineQueryHandler(ctx: Context): Promise<void> {
   const query = ctx.inlineQuery?.query?.trim().toLowerCase() || '';
@@ -11,7 +11,7 @@ export async function inlineQueryHandler(ctx: Context): Promise<void> {
   const botUsername = ctx.me?.username || 'bighabesha_bot';
 
   const products = getAllProducts();
-  const results: any[] = [];
+  const results: InlineQueryResult[] = [];
 
   const filtered = products.filter((p) =>
     !query ||

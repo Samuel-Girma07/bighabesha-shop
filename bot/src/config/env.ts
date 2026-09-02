@@ -116,6 +116,27 @@ export const EnvSchema = z
       .transform((v) => (v && /^-?\d+$/.test(v.trim()) ? parseInt(v.trim(), 10) : undefined)),
     CHAPA_SECRET_KEY: z.string().optional().default(''),
     TON_TREASURY_ADDRESS: z.string().optional().default(''),
+    /**
+     * B2B reseller fulfillment for Telegram Premium. When RESELLER_PROVIDER is
+     * unset the Premium pipeline falls back to the manual 'pending_fulfillment'
+     * queue (pre-010 behavior); when set, admin approval drives the provider.
+     * 'mock' is dev/test only and auto-succeeds.
+     */
+    RESELLER_PROVIDER: z.enum(['mock', 'gramix', 'istar', 'generic']).optional(),
+    RESELLER_API_KEY: z.string().optional().default(''),
+    RESELLER_API_URL: z
+      .string()
+      .optional()
+      .or(z.literal(''))
+      .transform((v) => v || undefined),
+    RESELLER_LOW_BALANCE_ALERT_USDT: z
+      .string()
+      .default('50')
+      .transform((v) => {
+        const n = parseFloat(v);
+        if (isNaN(n) || n < 0) throw new Error('RESELLER_LOW_BALANCE_ALERT_USDT must be a non-negative number');
+        return n;
+      }),
     REQUIRED_CHANNEL_USERNAME: z.string().default('@bighabesha_softwares'),
     REQUIRED_CHANNEL_LINK: z.string().default('https://t.me/bighabesha_softwares'),
     FORCE_SUBSCRIBE: z

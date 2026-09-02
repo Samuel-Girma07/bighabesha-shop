@@ -2,6 +2,7 @@ import { Context, InlineKeyboard, InputFile } from 'grammy';
 import { getProductById, formatPriceETB } from '../../services/catalog.service.js';
 import { resolveStoredReceiptPath } from '../../services/receipts.service.js';
 import { createOrder, getOrderById, updateOrderMeta, updateOrderStatus, approveReceipt, PaymentRail, Order } from '../../services/orders.service.js';
+import { isResellerEligible, deliverWithReseller, deliveryFailedKeyboard } from '../../services/reseller.service.js';
 import { resolveOrderPrice, PricingError } from '../../services/pricing.service.js';
 import { calculateCryptoQuote, fetchCoinGeckoPrices } from '../../services/rate_engine.service.js';
 import { getSetting } from '../../services/settings.service.js';
@@ -39,15 +40,17 @@ export async function safeEditMessage(
       try {
         await ctx.editMessageCaption({ caption: text, parse_mode, reply_markup });
         return;
-      } catch (err: any) {
-        logger.warn({ err: err?.message }, 'Failed to editMessageCaption, attempting reply');
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn({ err: message }, 'Failed to editMessageCaption, attempting reply');
       }
     } else {
       try {
         await ctx.editMessageText(text, { parse_mode, reply_markup });
         return;
-      } catch (err: any) {
-        logger.warn({ err: err?.message }, 'Failed to editMessageText, attempting reply');
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn({ err: message }, 'Failed to editMessageText, attempting reply');
       }
     }
   }
@@ -58,7 +61,9 @@ export async function safeEditMessage(
 export async function initiateCheckout(
   ctx: Context,
   productId: string,
-  variantId?: string
+  variantId?: string,
+  // Present when the buyer has already chosen a gift recipient; otherwise derived from the buyer.
+  targetUsername?: string | null
 ): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || null;
@@ -103,6 +108,12 @@ export async function initiateCheckout(
   if (existingOrder) {
     order = existingOrder;
     logger.info({ orderId: order.id, userId, productId }, 'Reusing active awaiting_payment order');
+
+    // If the buyer chose a gift recipient, make sure the reused order carries it
+    // (covers self→gift switches within the 15-minute reuse window).
+    if (targetUsername != null && order.target_username !== targetUsername) {
+      order = updateOrderStatus(order.id, order.status, { target_username: targetUsername });
+    }
   } else {
     order = createOrder({
       userId,
@@ -113,6 +124,7 @@ export async function initiateCheckout(
       paymentRail: 'wallet_pay',
       quantity: 1,
       status: 'awaiting_payment',
+      targetUsername: targetUsername ?? undefined,
     });
   }
 
@@ -193,9 +205,10 @@ export async function handleChapaPayment(ctx: Context, orderId: string): Promise
       `<i>Your order confirms automatically once payment completes.</i>`;
 
     await safeEditMessage(ctx, text, keyboard);
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'try another method.';
     logger.error({ err, orderId }, 'Chapa payment failed');
-    await ctx.reply(`❌ Payment provider unavailable: ${escapeHtml(err?.message || 'try another method.')}`);
+    await ctx.reply(`❌ Payment provider unavailable: ${escapeHtml(message)}`);
   }
 }
 
@@ -362,6 +375,13 @@ export async function performAdminApprove(ctx: Context, orderId: string): Promis
 
   try {
     const { order, autoDeliveredItem } = approveReceipt(orderId, adminId);
+
+    // B2B reseller pipeline: eligible Premium orders go straight to the provider.
+    if (!autoDeliveredItem && isResellerEligible(order)) {
+      await performResellerDelivery(ctx, order, adminId);
+      return;
+    }
+
     const adminUsername = ctx.from?.username ? `@${escapeHtml(ctx.from.username)}` : `Admin (${adminId})`;
 
     const statusText = `<b>Order <code>${order.id}</code> Approved by ${adminUsername}</b>\n` +
@@ -404,11 +424,91 @@ export async function performAdminApprove(ctx: Context, orderId: string): Promis
         logger.error({ err, userId: order.user_id }, 'Failed to notify buyer of approval');
       });
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
     logger.error({ err, orderId }, 'Error during admin approval');
-    await ctx.reply(`Could not approve order: ${escapeHtml(err.message)}`);
+    await ctx.reply(`Could not approve order: ${escapeHtml(message)}`);
   }
 }
+
+/**
+ * Shared delivery path for reseller-eligible orders, used both on first
+ * approval and on [Retry Delivery]. Renders the outcome in-place and notifies
+ * the buyer of success or failure.
+ */
+async function performResellerDelivery(ctx: Context, order: Order, adminId: number): Promise<void> {
+  const adminUsername = ctx.from?.username ? `@${escapeHtml(ctx.from.username)}` : `Admin (${adminId})`;
+  const outcome = await deliverWithReseller(order.id, adminId, ctx.api);
+
+  const statusText = outcome.delivered
+    ? `<b>Order <code>${order.id}</code> Approved by ${adminUsername}</b>\n` +
+      `• Status: FULFILLED\n` +
+      `• Amount: ${formatPriceETB(order.amount_etb)}\n` +
+      `• Delivered via <b>${escapeHtml(outcome.order.reseller_provider || 'reseller')}</b>` +
+      (outcome.order.reseller_tx_id ? `\n• Provider Tx: <code>${escapeHtml(outcome.order.reseller_tx_id)}</code>` : '')
+    : `<b>Order <code>${order.id}</code> — Delivery Failed</b>\n` +
+      `• Approved by ${adminUsername}\n` +
+      `• Amount: ${formatPriceETB(order.amount_etb)}\n` +
+      `• Error: ${escapeHtml(outcome.error || 'Unknown')}`;
+
+  const keyboard = outcome.delivered ? undefined : deliveryFailedKeyboard(order.id);
+
+  if (ctx.callbackQuery?.message) {
+    if (ctx.callbackQuery.message.photo) {
+      await ctx.editMessageCaption({ caption: statusText, parse_mode: 'HTML', reply_markup: keyboard }).catch(() => {});
+    } else {
+      await ctx.editMessageText(statusText, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => {});
+    }
+  }
+
+  if (outcome.delivered) {
+    const targetUsername = outcome.order.target_username || outcome.order.username || 'your account';
+    const notifyText = `<b>Payment Confirmed — Order #${order.id}</b>\n\n` +
+      `🎉 Your <b>Telegram Premium</b> has been activated on <b>@${escapeHtml(targetUsername)}</b>.\n\n` +
+      `<i>Thank you for choosing Bighabesha Shop!</i>`;
+    await ctx.api.sendMessage(order.user_id, notifyText, { parse_mode: 'HTML' }).catch((err) => {
+      logger.error({ err, userId: order.user_id }, 'Failed to notify buyer of successful delivery');
+    });
+  } else {
+    const notifyText = `<b>Payment Verified for Order #${order.id}</b>\n\n` +
+      `Your order has been approved but delivery encountered a temporary issue.\n` +
+      `Our team is resolving it — you will receive an update shortly.`;
+    await ctx.api.sendMessage(order.user_id, notifyText, { parse_mode: 'HTML' }).catch((err) => {
+      logger.error({ err, userId: order.user_id }, 'Failed to notify buyer of delivery failure');
+    });
+  }
+}
+
+/** Admin [Retry Delivery] callback for a delivery_failed reseller order. */
+export async function handleRetryDelivery(ctx: Context, orderId: string): Promise<void> {
+  const adminId = ctx.from?.id;
+  if (!adminId) return;
+
+  if (!isAdmin(adminId)) {
+    logger.warn({ adminId, orderId }, 'Non-admin attempted delivery retry');
+    return;
+  }
+
+  const order = getOrderById(orderId);
+  if (!order) {
+    await ctx.answerCallbackQuery({ text: 'Order not found.', show_alert: true });
+    return;
+  }
+
+  if (order.status !== 'delivery_failed') {
+    await ctx.answerCallbackQuery({ text: `Order is in status "${order.status}" — retry not applicable.`, show_alert: true });
+    return;
+  }
+
+  if (!isResellerEligible(order)) {
+    await ctx.answerCallbackQuery({ text: 'This order is not reseller-eligible.', show_alert: true });
+    return;
+  }
+
+  await performResellerDelivery(ctx, order, adminId);
+}
+
+export const handleAdminRetryDelivery = handleRetryDelivery;
 
 export async function promptAdminReject(ctx: Context, orderId: string): Promise<void> {
   const adminId = ctx.from?.id;
@@ -442,6 +542,7 @@ export async function notifyAdminsNewReceipt(ctx: Context, order: Order): Promis
   const caption = `<b>Receipt Pending Verification</b>\n\n` +
     `• Order ID: <code>${order.id}</code>\n` +
     `• Buyer: @${escapeHtml(order.username || 'unknown')} (ID: <code>${order.user_id}</code>)\n` +
+    (order.target_username ? `• Target: @${escapeHtml(order.target_username)}\n` : '') +
     `• Product: ${escapeHtml(productName)}\n` +
     `• Amount: <b>${formatPriceETB(order.amount_etb)}</b>\n` +
     `• Rail: ${order.payment_rail.toUpperCase()}\n` +
@@ -449,7 +550,7 @@ export async function notifyAdminsNewReceipt(ctx: Context, order: Order): Promis
     `Review receipt and choose an action:`;
 
   const keyboard = new InlineKeyboard()
-    .text('Approve Receipt', `admin_approve_${order.id}`)
+    .text('✅ Approve & Deliver', `admin_approve_${order.id}`)
     .text('Reject', `admin_reject_${order.id}`);
 
   for (const adminId of config.ADMIN_IDS) {

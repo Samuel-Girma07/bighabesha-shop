@@ -1,12 +1,10 @@
 import { Context, InlineKeyboard } from 'grammy';
-import { getOrdersByUserId, getOrderById, updateOrderStatus, Order } from '../../services/orders.service.js';
+import { getOrdersByUserId, getOrderById } from '../../services/orders.service.js';
 import { getProductById, formatPriceETB } from '../../services/catalog.service.js';
 import { getSetting } from '../../services/settings.service.js';
 import { getDatabase } from '../../db/index.js';
 import { getConfig } from '../../config/env.js';
-import { renderPaymentRailSelection } from './checkout.js';
 import { escapeHtml } from '../../utils/html.js';
-import { t } from '../../i18n/index.js';
 import { addStyledInlineButton } from '../keyboards/menu.js';
 
 export function getStatusBadge(status: string): string {
@@ -14,7 +12,10 @@ export function getStatusBadge(status: string): string {
     case 'fulfilled':
       return 'Delivered';
     case 'pending_fulfillment':
+    case 'processing':
       return 'Processing';
+    case 'delivery_failed':
+      return 'Delivery Retrying';
     case 'pending_approval':
       return 'Under Review';
     case 'awaiting_payment':

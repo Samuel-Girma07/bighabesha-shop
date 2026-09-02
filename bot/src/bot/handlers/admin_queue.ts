@@ -1,6 +1,6 @@
 import { Context, InlineKeyboard } from 'grammy';
 import { isAdmin } from './admin.js';
-import { getFulfillmentQueue, getOrderById, fulfillOrderWithProof, refundOrder } from '../../services/orders.service.js';
+import { getFulfillmentQueue, getOrderById, fulfillOrderWithProof } from '../../services/orders.service.js';
 import { getProductById, formatPriceETB } from '../../services/catalog.service.js';
 import { getSetting } from '../../services/settings.service.js';
 import { setPendingAction } from '../session.js';
@@ -31,7 +31,7 @@ export async function renderAdminOrdersQueue(ctx: Context): Promise<void> {
 
   let text = `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
     `📋 <b>Fulfillment Queue (${queue.length} Pending)</b>\n\n` +
-    `<i>Sorted oldest-first (FIFO) for Fragment & Telegram fulfillment:</i>\n\n`;
+    `<i>Sorted oldest-first (FIFO) for manual & Telegram fulfillment:</i>\n\n`;
 
   for (let i = 0; i < queue.length; i++) {
     const order = queue[i];
@@ -69,15 +69,16 @@ export async function renderAdminQueueOrderDetail(ctx: Context, orderId: string)
   const product = getProductById(order.product_id);
   const prodName = product ? product.name : order.product_id;
 
+  const target = order.target_username || order.username || 'MISSING_USERNAME';
   const text = `⚡ <b>Fulfill Order — <code>${order.id}</code></b>\n\n` +
     `• <b>Product:</b> ${escapeHtml(prodName)}\n` +
     `• <b>Quantity/Variant:</b> ${order.quantity} item(s)\n` +
-    `• <b>Target Username:</b> <b>@${escapeHtml(order.username || 'MISSING_USERNAME')}</b>\n` +
+    `• <b>Target Username:</b> <b>@${escapeHtml(target)}</b>\n` +
     `• <b>Buyer User ID:</b> <code>${order.user_id}</code>\n` +
     `• <b>Total Paid:</b> <b>${formatPriceETB(order.amount_etb)}</b>\n` +
     `• <b>Payment Rail:</b> ${order.payment_rail.toUpperCase()}\n` +
     `• <b>Current Status:</b> <code>${order.status.toUpperCase()}</code>\n\n` +
-    `<i>Fulfill the order via Fragment (https://fragment.com) to @${escapeHtml(order.username || 'user')}, then choose an action below:</i>`;
+    `<i>Complete fulfillment to @${escapeHtml(target)}, then choose an action below:</i>`;
 
   const keyboard = new InlineKeyboard()
     .text('📸 Upload Proof Screenshot & Fulfill', `queue_proof_prompt_${order.id}`)
@@ -106,7 +107,7 @@ export async function promptQueueProof(ctx: Context, orderId: string): Promise<v
   });
 
   const text = `📸 <b>Fulfillment Proof for Order <code>${orderId}</code></b>\n\n` +
-    `Please send a screenshot/photo of the completed Fragment transaction or type a completion note in chat.\n\n` +
+    `Please send a screenshot/photo of the completed fulfillment transaction or type a completion note in chat.\n\n` +
     `<i>This proof will be delivered directly to the buyer as receipt of delivery.</i>`;
 
   const keyboard = new InlineKeyboard().text('❌ Cancel', `admin_queue_detail_${orderId}`);

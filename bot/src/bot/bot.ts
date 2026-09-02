@@ -17,6 +17,7 @@ import {
   promptStockPaste,
   promptStockCSV,
   promptEditSetting,
+  renderResellerBalance,
   isAdmin,
 } from './handlers/admin.js';
 import {
@@ -38,25 +39,24 @@ import {
   promptReceiptUpload,
   performAdminApprove,
   promptAdminReject,
+  handleRetryDelivery,
   renderPaymentRailSelection,
   handleChapaPayment,
   handleTonConnect,
 } from './handlers/checkout.js';
-import { isUsernameRequired, hasPublicUsername, renderUsernameGate, handleGateRecheck } from './handlers/gate.js';
+import { isUsernameRequired, hasPublicUsername, renderUsernameGate, handleGateRecheck, renderRecipientSelection, handleRecipientSelf, handleRecipientGift } from './handlers/gate.js';
 import { renderMyOrders, renderOrderDetail, renderLanguageMenu, handleSetLanguage } from './handlers/orders.js';
 import { inlineQueryHandler } from './handlers/inline_query.js';
 import { handleTextInput, handleDocumentInput, handlePhotoInput } from './handlers/input.js';
 import { getOrderById, approveReceipt, updateOrderStatus } from '../services/orders.service.js';
-import { getAvailableStockCount } from '../services/stock.service.js';
 import { findThreadByTopic, insertSupportMessage, SUPPORT_MAX_MESSAGE_LENGTH } from '../services/support.service.js';
 import { setPendingAction } from './session.js';
 import { getProductById, formatPriceETB } from '../services/catalog.service.js';
 import { getSetting } from '../services/settings.service.js';
 import { isUserRegistered } from '../services/users.service.js';
 import { getConfig } from '../config/env.js';
-import { t } from '../i18n/index.js';
 import { escapeHtml } from '../utils/html.js';
-import { previewUserText, redactSecret } from '../logger/index.js';
+import { previewUserText } from '../logger/index.js';
 
 export function createBot(token: string): Bot {
   const bot = new Bot(token);
@@ -423,6 +423,10 @@ export function createBot(token: string): Bot {
       await renderProductDetails(ctx, productId);
     } else if (data.startsWith('gate_recheck_')) {
       await handleGateRecheck(ctx, data);
+    } else if (data.startsWith('recipient_self_')) {
+      await handleRecipientSelf(ctx, data);
+    } else if (data.startsWith('recipient_gift_')) {
+      await handleRecipientGift(ctx, data);
     } else if (data.startsWith('buy_var_')) {
       const variantId = data.replace('buy_var_', '');
       let productId = 'gemini_pro_18m';
@@ -434,6 +438,9 @@ export function createBot(token: string): Bot {
       // Check username gate for Premium
       if (isUsernameRequired(productId) && !hasPublicUsername(ctx.from)) {
         await renderUsernameGate(ctx, productId, variantId);
+      } else if (isUsernameRequired(productId)) {
+        // Username present — let the buyer pick self vs. gift recipient.
+        await renderRecipientSelection(ctx, productId, variantId);
       } else {
         await initiateCheckout(ctx, productId, variantId);
       }
@@ -492,6 +499,12 @@ export function createBot(token: string): Bot {
     } else if (data.startsWith('admin_reject_')) {
       const orderId = data.replace('admin_reject_', '');
       await promptAdminReject(ctx, orderId);
+    } else if (data.startsWith('admin_retry_delivery_')) {
+      const orderId = data.replace('admin_retry_delivery_', '');
+      await handleRetryDelivery(ctx, orderId);
+    } else if (data.startsWith('admin_refund_')) {
+      const orderId = data.replace('admin_refund_', '');
+      await promptQueueRefund(ctx, orderId);
     } else if (data === 'action_sold_out') {
       await ctx.reply('🚨 <b>Sold Out</b>: This product is currently unavailable. Please check back soon or contact support.', { parse_mode: 'HTML' });
     } else if (data === 'admin_menu') {
@@ -534,6 +547,8 @@ export function createBot(token: string): Bot {
       await renderAdminRates(ctx);
     } else if (data === 'admin_settings') {
       await renderAdminSettings(ctx);
+    } else if (data === 'admin_reseller_balance') {
+      await renderResellerBalance(ctx);
     } else if (data.startsWith('admin_edit_setting_')) {
       const settingKey = data.replace('admin_edit_setting_', '');
       await promptEditSetting(ctx, settingKey);

@@ -1,11 +1,11 @@
 import { Context } from 'grammy';
-import { getPendingAction, clearPendingAction } from '../session.js';
-import { formatPriceETB, updateVariantPrice, getVariantById, getProductById } from '../../services/catalog.service.js';
+import { getPendingAction, setPendingAction, clearPendingAction } from '../session.js';
+import { formatPriceETB, updateVariantPrice, getProductById } from '../../services/catalog.service.js';
 import { addStockLink, importStockCSV, getTotalStockCount } from '../../services/stock.service.js';
 import { setSetting, getSetting } from '../../services/settings.service.js';
 import { isAdmin, renderAdminProducts, renderAdminRates, renderAdminSettings, renderAdminStock } from './admin.js';
-import { submitReceipt, rejectReceipt, getOrderById, fulfillOrderWithProof, refundOrder } from '../../services/orders.service.js';
-import { notifyAdminsNewReceipt } from './checkout.js';
+import { submitReceipt, rejectReceipt, getOrderById, fulfillOrderWithProof, refundOrder, sanitizeUsername, InvalidUsernameError } from '../../services/orders.service.js';
+import { notifyAdminsNewReceipt, initiateCheckout } from './checkout.js';
 import { previewBroadcastDraft } from './broadcast.js';
 import { renderAdminOrdersQueue } from './admin_queue.js';
 import { escapeHtml } from '../../utils/html.js';
@@ -118,6 +118,34 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
     } catch (err) {
       logger.warn({ err }, 'Failed notifying admins of matched SMS');
     }
+    return true;
+  }
+
+  // Gift recipient @username entry (Premium checkout)
+  if (session.type === 'user_gift_username') {
+    const { productId, variantId } = session.data as { productId: string; variantId?: string | null };
+    let recipient: string;
+    try {
+      recipient = sanitizeUsername(text);
+    } catch (err) {
+      if (err instanceof InvalidUsernameError) {
+        // Keep the prompt armed so the buyer can correct the username.
+        await ctx.reply(
+          `❌ <b>Invalid username</b>\n\nTelegram usernames are 5–32 characters using letters, digits and underscores only.\n\n<i>Send a valid @username, or type <b>/cancel</b> to abort.</i>`,
+          { parse_mode: 'HTML' }
+        );
+        setPendingAction(userId, { type: 'user_gift_username', data: { productId, variantId: variantId || null } }, 10);
+        return true;
+      }
+      throw err;
+    }
+
+    clearPendingAction(userId);
+    await ctx.reply(
+      `🎁 <b>Gifting to @${escapeHtml(recipient)}</b>\n\nLoading your payment options...`,
+      { parse_mode: 'HTML' }
+    );
+    await initiateCheckout(ctx, productId, variantId || undefined, recipient);
     return true;
   }
 

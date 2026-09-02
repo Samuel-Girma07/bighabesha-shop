@@ -5,7 +5,7 @@ import helmet from 'helmet';
 import { rateLimit, ipKeyGenerator } from 'express-rate-limit';
 import { Bot } from 'grammy';
 import { validateTelegramInitData, TelegramUser } from './auth.js';
-import { getAllProducts, getProductVariants, getProductById } from '../services/catalog.service.js';
+import { getProductById } from '../services/catalog.service.js';
 
 /** Non-throwing product lookup for pre-flight checks (DB may be mid-migration). */
 function getProductByIdSafe(productId: string) {
@@ -16,11 +16,11 @@ function getProductByIdSafe(productId: string) {
   }
 }
 import { getAvailableStockCount } from '../services/stock.service.js';
-import { getPublicSettings, getNumericSetting, getSetting } from '../services/settings.service.js';
+import { getPublicSettings } from '../services/settings.service.js';
 import { fetchCoinGeckoPrices } from '../services/rate_engine.service.js';
-import { createOrder, getOrdersByUserId, getOrderById, getOrderEvents, submitReceipt, approveReceipt, updateOrderStatus, Order, PaymentRail } from '../services/orders.service.js';
+import { createOrder, getOrdersByUserId, getOrderById, getOrderEvents, submitReceipt, approveReceipt, updateOrderStatus, PaymentRail } from '../services/orders.service.js';
 import { resolveOrderPrice, PricingError } from '../services/pricing.service.js';
-import { saveReceiptImage, ReceiptValidationError, resolveReceiptsDir } from '../services/receipts.service.js';
+import { saveReceiptImage, ReceiptValidationError } from '../services/receipts.service.js';
 import { getWalletPayAdapter, verifyWalletPayWebhookSignature, isWebhookTimestampFresh, startWalletPayReconciliation } from '../services/payments/index.js';
 import { verifyChapaSignature, chapaInitialize, isChapaEnabled } from '../services/payments/chapa.js';
 import { verifyTonPayment, isTonConnectEnabled } from '../services/payments/ton.service.js';
@@ -399,6 +399,7 @@ function buildCatalogPayload() {
 
   app.use(cors(buildCorsOptions(config)));
   app.use(express.json({ limit: GENERAL_BODY_LIMIT, verify: captureRawBody }));
+  app.use(globalApiLimiter);
   // Dynamic TonConnect Manifest Handler
   app.get('/tonconnect-manifest.json', (req: Request, res: Response) => {
     const origin = config.WEBAPP_URL?.replace(/\/+$/, '') || `${req.protocol}://${req.get('host')}`;

@@ -1,12 +1,10 @@
 import { Resvg } from '@resvg/resvg-js';
 import crypto from 'crypto';
 import fs from 'fs';
-import fsp from 'fs/promises';
 import path from 'path';
 import { logger } from '../logger/index.js';
 import { getProductVariants } from './catalog.service.js';
-import { getNumericSetting, getSetting } from './settings.service.js';
-import { cached } from './cache.service.js';
+import { getSetting } from './settings.service.js';
 
 const ASSETS_DIR = path.resolve(process.cwd(), 'assets/banners');
 

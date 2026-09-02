@@ -203,18 +203,28 @@ describe('Medium #10: Health check verifies database connectivity', () => {
 
 describe('Medium #7: Expired sessions, OTPs, drafts & receipts purge', () => {
   let db: Database.Database;
+  const testPurgeDir = path.join(__dirname, '../tmp-receipts-purge-test');
 
   beforeEach(() => {
     process.env.BOT_TOKEN = TOKEN;
     process.env.ADMIN_IDS = '111111111';
     process.env.WALLET_PAY_MODE = 'mock';
     process.env.NODE_ENV = 'development';
+    process.env.RECEIPTS_DIR = testPurgeDir;
+    if (fs.existsSync(testPurgeDir)) {
+      fs.rmSync(testPurgeDir, { recursive: true, force: true });
+    }
+    fs.mkdirSync(testPurgeDir, { recursive: true });
     resetConfigCache();
     db = initDatabase(':memory:', MIGRATIONS_DIR);
   });
 
   afterEach(() => {
     closeDatabase();
+    if (fs.existsSync(testPurgeDir)) {
+      fs.rmSync(testPurgeDir, { recursive: true, force: true });
+    }
+    delete process.env.RECEIPTS_DIR;
     resetConfigCache();
   });
 
@@ -263,13 +273,8 @@ describe('Medium #7: Expired sessions, OTPs, drafts & receipts purge', () => {
   });
 
   it('purges expired receipt files but keeps recent ones', async () => {
-    process.env.RECEIPTS_DIR = path.join(__dirname, '../tmp-receipts-purge-test');
-    resetConfigCache();
-    fs.rmSync(process.env.RECEIPTS_DIR, { recursive: true, force: true });
-    fs.mkdirSync(process.env.RECEIPTS_DIR, { recursive: true });
-
-    const oldFile = path.join(process.env.RECEIPTS_DIR, 'receipt_OLD_1.jpg');
-    const freshFile = path.join(process.env.RECEIPTS_DIR, 'receipt_NEW_1.jpg');
+    const oldFile = path.join(testPurgeDir, 'receipt_OLD_1.jpg');
+    const freshFile = path.join(testPurgeDir, 'receipt_NEW_1.jpg');
     fs.writeFileSync(oldFile, 'x');
     fs.writeFileSync(freshFile, 'x');
     const past = new Date(Date.now() - 120 * 24 * 3600 * 1000);
@@ -280,10 +285,6 @@ describe('Medium #7: Expired sessions, OTPs, drafts & receipts purge', () => {
     expect(removed).toBe(1);
     expect(fs.existsSync(oldFile)).toBe(false);
     expect(fs.existsSync(freshFile)).toBe(true);
-
-    fs.rmSync(process.env.RECEIPTS_DIR, { recursive: true, force: true });
-    delete process.env.RECEIPTS_DIR;
-    resetConfigCache();
   });
 });
 

@@ -1,5 +1,4 @@
 import { Context, InlineKeyboard, InputFile } from 'grammy';
-import { t } from '../../i18n/index.js';
 import { getConfig } from '../../config/env.js';
 import { isAdmin } from './admin.js';
 import { getUserById, upsertUser as dbUpsertUser, isUserRegistered } from '../../services/users.service.js';
@@ -27,14 +26,24 @@ export function upsertUser(user: {
   };
 }
 
-export async function startHandler(ctx: Context): Promise<void> {
+export interface StartHandlerOptions {
+  skipChannelCheck?: boolean;
+}
+
+export async function startHandler(
+  ctx: Context,
+  optionsOrNext?: StartHandlerOptions | (() => Promise<void>)
+): Promise<void> {
+  const options: StartHandlerOptions =
+    typeof optionsOrNext === 'function' || !optionsOrNext ? {} : optionsOrNext;
+
   const from = ctx.from;
   if (!from) return;
 
   const payload = String(ctx.match || '').trim();
   const existing = getUserById(from.id);
 
-  const user = upsertUser({
+  upsertUser({
     id: from.id,
     username: from.username || null,
     first_name: from.first_name || 'User',
@@ -54,13 +63,14 @@ export async function startHandler(ctx: Context): Promise<void> {
   }
 
   // Step 3: Mandatory channel membership check
-  const isMember = await checkChannelMembership(ctx, from.id);
-  if (!isMember) {
-    await promptChannelSubscription(ctx);
-    return;
+  if (!options?.skipChannelCheck) {
+    const isMember = await checkChannelMembership(ctx, from.id);
+    if (!isMember) {
+      await promptChannelSubscription(ctx);
+      return;
+    }
   }
 
-  const language_code = user.language_code || 'en';
   const config = getConfig();
 
   // Referral attribution: /start ref_<CODE>. Runs AFTER the user row exists;
