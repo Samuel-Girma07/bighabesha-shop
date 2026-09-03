@@ -391,8 +391,13 @@ const StoreFront: React.FC = () => {
     setSubmittingOrder(true);
     try {
       const recipientCandidate = (recipientUsername || pendingCheckoutItem.recipient || '').trim();
-      const cleanTarget = recipientCandidate.replace(/^@/, '').trim();
-      const targetUsername = cleanTarget && cleanTarget !== 'Telegram User' ? cleanTarget : undefined;
+      const cleanTarget = recipientCandidate
+        .replace(/^https?:\/\/t\.me\//i, '')
+        .replace(/^t\.me\//i, '')
+        .replace(/^@+/, '')
+        .trim()
+        .toLowerCase();
+      const targetUsername = cleanTarget && cleanTarget !== 'telegram user' ? cleanTarget : undefined;
 
       const res = await createOrderApi({
         productId: pendingCheckoutItem.productId,

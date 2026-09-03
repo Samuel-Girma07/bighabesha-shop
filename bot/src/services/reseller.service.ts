@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Api, InlineKeyboard, RawApi } from 'grammy';
 import { getConfig } from '../config/env.js';
 import { logger } from '../logger/index.js';
@@ -13,7 +14,7 @@ import {
   type ResellerBalanceSubProvider,
 } from './reseller/types.js';
 import { getDatabase } from '../db/index.js';
-import { tryAcquireLease } from '../db/lease.js';
+import { tryAcquireLease, releaseLease } from '../db/lease.js';
 
 export interface DeliverOutcome {
   order: Order;
@@ -82,79 +83,91 @@ export async function deliverWithReseller(
   const order = getOrderById(orderId);
   if (!order) throw new Error(`Order ${orderId} not found`);
 
-  const provider = getResellerProvider();
-  if (!provider) {
-    throw new ProviderUnavailableError('reseller', 'No reseller provider configured');
-  }
-
-  // Ensure order is transitioned into processing before invoking provider or failing delivery
-  if (order.status !== 'processing') {
-    updateOrderStatus(orderId, 'processing', {
-      reseller_provider: provider.name,
-      reseller_error: null,
-    }, { actorType: 'admin', actorId: String(adminId), note: `Delivery started via ${provider.name}` });
-  }
-
-  const rawTarget = order.target_username || order.username;
-  const targetUsername = rawTarget ? rawTarget.trim().replace(/^@/, '') : null;
-  if (!targetUsername) {
-    const updated = updateOrderStatus(orderId, 'delivery_failed', {
-      reseller_provider: provider.name,
-      reseller_error: 'No target @username recorded for this order.',
-    }, { actorType: 'admin', actorId: String(adminId) });
-    return { order: updated, delivered: false, error: 'No target username' };
-  }
-
-  const months = getPremiumMonths(order);
-  if (!months) {
-    const updated = updateOrderStatus(orderId, 'delivery_failed', {
-      reseller_provider: provider.name,
-      reseller_error: 'Could not determine Premium term (months) from variant.',
-    }, { actorType: 'admin', actorId: String(adminId) });
-    return { order: updated, delivered: false, error: 'Unknown premium term' };
+  const leaseKey = `reseller:order:${orderId}`;
+  const leaseOwner = crypto.randomUUID();
+  const acquired = tryAcquireLease(leaseKey, 60_000, leaseOwner);
+  if (!acquired) {
+    logger.warn({ orderId }, 'Delivery attempt skipped — order lease already held');
+    return { order, delivered: false, error: 'Order is already being processed' };
   }
 
   try {
-    const result = await provider.fulfill({
-      orderId: order.id,
-      targetUsername,
-      months,
-    });
+    const provider = getResellerProvider();
+    if (!provider) {
+      throw new ProviderUnavailableError('reseller', 'No reseller provider configured');
+    }
 
-    const fulfillingProvider = result.provider || provider.name;
-    const fulfilled = updateOrderStatus(orderId, 'fulfilled', {
-      reseller_provider: fulfillingProvider,
-      reseller_tx_id: result.providerTxId || null,
-      fulfillment_payload: `Telegram Premium ${months}M activated on @${targetUsername}`,
-      fulfillment_proof: result.providerTxId ? `Provider tx ${result.providerTxId}` : null,
-    }, { actorType: 'admin', actorId: String(adminId), note: `Delivered via ${fulfillingProvider}` });
+    // Ensure order is transitioned into processing before invoking provider or failing delivery
+    if (order.status !== 'processing') {
+      updateOrderStatus(orderId, 'processing', {
+        reseller_provider: provider.name,
+        reseller_error: null,
+      }, { actorType: 'admin', actorId: String(adminId), note: `Delivery started via ${provider.name}` });
+    }
 
-    logger.info(
-      { orderId, provider: fulfillingProvider, providerTxId: result.providerTxId, months },
-      'Reseller delivery succeeded'
-    );
+    const rawTarget = order.target_username || order.username;
+    const targetUsername = rawTarget ? rawTarget.trim().replace(/^@+/, '').toLowerCase() : null;
+    if (!targetUsername) {
+      const updated = updateOrderStatus(orderId, 'delivery_failed', {
+        reseller_provider: provider.name,
+        reseller_error: 'No target @username recorded for this order.',
+      }, { actorType: 'admin', actorId: String(adminId) });
+      return { order: updated, delivered: false, error: 'No target username' };
+    }
 
-    // Low-float watch after each successful delivery (non-blocking).
-    if (api) {
-      void checkBalanceAndAlert(api).catch((err) => {
-        logger.warn({ err }, 'Post-delivery balance check failed');
+    const months = getPremiumMonths(order);
+    if (!months) {
+      const updated = updateOrderStatus(orderId, 'delivery_failed', {
+        reseller_provider: provider.name,
+        reseller_error: 'Could not determine Premium term (months) from variant.',
+      }, { actorType: 'admin', actorId: String(adminId) });
+      return { order: updated, delivered: false, error: 'Unknown premium term' };
+    }
+
+    try {
+      const result = await provider.fulfill({
+        orderId: order.id,
+        targetUsername,
+        months,
       });
+
+      const fulfillingProvider = result.provider || provider.name;
+      const fulfilled = updateOrderStatus(orderId, 'fulfilled', {
+        reseller_provider: fulfillingProvider,
+        reseller_tx_id: result.providerTxId || null,
+        fulfillment_payload: `Telegram Premium ${months}M activated on @${targetUsername}`,
+        fulfillment_proof: result.providerTxId ? `Provider tx ${result.providerTxId}` : null,
+      }, { actorType: 'admin', actorId: String(adminId), note: `Delivered via ${fulfillingProvider}` });
+
+      logger.info(
+        { orderId, provider: fulfillingProvider, providerTxId: result.providerTxId, months },
+        'Reseller delivery succeeded'
+      );
+
+      // Low-float watch after each successful delivery (non-blocking).
+      if (api) {
+        void checkBalanceAndAlert(api).catch((err) => {
+          logger.warn({ err }, 'Post-delivery balance check failed');
+        });
+      }
+
+      return { order: fulfilled, delivered: true };
+    } catch (err: unknown) {
+      const message = describeResellerError(err);
+      const failed = updateOrderStatus(orderId, 'delivery_failed', {
+        reseller_error: message,
+      }, { actorType: 'admin', actorId: String(adminId), note: `Delivery failed via ${provider.name}` });
+
+      logger.warn({ orderId, provider: provider.name, err: message }, 'Reseller delivery failed');
+
+      if (api && err instanceof InsufficientFloatError) {
+        void notifyAdminsLowFloat(api, err).catch(() => {});
+      }
+
+      return { order: failed, delivered: false, error: message };
     }
-
-    return { order: fulfilled, delivered: true };
-  } catch (err: unknown) {
-    const message = describeResellerError(err);
-    const failed = updateOrderStatus(orderId, 'delivery_failed', {
-      reseller_error: message,
-    }, { actorType: 'admin', actorId: String(adminId), note: `Delivery failed via ${provider.name}` });
-
-    logger.warn({ orderId, provider: provider.name, err: message }, 'Reseller delivery failed');
-
-    if (api && err instanceof InsufficientFloatError) {
-      void notifyAdminsLowFloat(api, err).catch(() => {});
-    }
-
-    return { order: failed, delivered: false, error: message };
+  } finally {
+    releaseLease(leaseKey, leaseOwner);
   }
 }
 

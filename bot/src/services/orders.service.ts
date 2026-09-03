@@ -138,29 +138,38 @@ export function isTransitionAllowed(from: OrderStatus, to: OrderStatus): boolean
 }
 
 /**
- * Telegram username format: 5–32 characters, alphanumerics and underscores
- * only. The leading `@` is accepted and stripped.
+ * Telegram username format: 5–32 characters, alphanumerics and underscores only.
+ * Must NOT be purely numeric (Telegram user IDs are not public @usernames).
  */
-export const TELEGRAM_USERNAME_RE = /^[a-zA-Z0-9_]{5,32}$/;
+export const TELEGRAM_USERNAME_RE = /^(?![0-9]+$)[a-zA-Z0-9_]{5,32}$/;
 
 /** Returns true when the username (with or without leading @) is a valid Telegram handle. */
 export function isValidUsername(raw: string | null | undefined): boolean {
   if (!raw) return false;
-  const cleaned = raw.trim().replace(/^@/, '');
+  const cleaned = raw
+    .trim()
+    .replace(/^https?:\/\/t\.me\//i, '')
+    .replace(/^t\.me\//i, '')
+    .replace(/^@+/, '')
+    .trim();
   return TELEGRAM_USERNAME_RE.test(cleaned);
 }
 
 /**
  * Normalizes a buyer-supplied recipient username: trims, strips the leading
- * '@', and enforces the Telegram character/length rules. Throws on invalid
- * input — callers must surface the error to the buyer, not coerce silently.
+ * '@' / URLs, and enforces the Telegram character/length rules.
  */
 export function sanitizeUsername(raw: string): string {
-  const cleaned = raw.trim().replace(/^@/, '');
+  let cleaned = raw
+    .trim()
+    .replace(/^https?:\/\/t\.me\//i, '')
+    .replace(/^t\.me\//i, '')
+    .replace(/^@+/, '')
+    .trim();
   if (!TELEGRAM_USERNAME_RE.test(cleaned)) {
     throw new InvalidUsernameError(raw);
   }
-  return cleaned;
+  return cleaned.toLowerCase();
 }
 
 export class InvalidUsernameError extends Error {

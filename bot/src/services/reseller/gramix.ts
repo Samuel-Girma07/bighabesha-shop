@@ -4,20 +4,35 @@ import { HttpResellerProviderBase } from './http-base.js';
 import type { ResellerBalanceResult, ResellerFulfillParams, ResellerFulfillResult } from './types.js';
 import { InsufficientFloatError, InvalidTargetUserError, ProviderUnavailableError } from './types.js';
 
-const DEFAULT_BASE_URL = 'https://api.gramix.io/v1';
+const DEFAULT_BASE_URL = 'https://api.gramix.io/api/v1';
 
 interface GramixOrderResponse {
+  success?: boolean;
   ok?: boolean;
+  orderId?: string;
   order_id?: string;
-  transaction_id?: string;
-  cost?: number | string;
-  cost_usdt?: number | string;
+  data?: {
+    orderId?: string;
+    order_id?: string;
+    id?: string;
+    cost?: number | string;
+    costUsdt?: number | string;
+    cost_usdt?: number | string;
+    status?: string;
+  };
   status?: string;
   error?: string;
   message?: string;
 }
 
 interface GramixBalanceResponse {
+  success?: boolean;
+  data?: {
+    usdt?: number | string;
+    balance?: number | string;
+    currency?: string;
+  };
+  usdt?: number | string;
   balance?: number | string;
   balance_usdt?: number | string;
   currency?: string;
@@ -34,13 +49,18 @@ function toNumber(value: unknown): number | undefined {
 
 /**
  * Gramix B2B adapter. Contract:
- *   POST /premium/orders  { username, months, external_id }  -> { ok, transaction_id, cost_usdt }
- *   GET  /account/balance                                    -> { balance_usdt, currency }
+ *   POST /purchase/premium/{months}  { recipientName, paymentCurrency: 'usdt' } -> { success, data: { orderId, costUsdt } }
+ *   GET  /wallets/balance                                                       -> { success, data: { usdt, currency } }
  *
- * Deterministic 4xx mapping:
- *   402 / insufficient_funds -> InsufficientFloatError
- *   400 / 404 / user_not_found -> InvalidTargetUserError
- *   everything else -> ProviderUnavailableError
+ * Auth & Idempotency:
+ *   Header: x-api-key: <key>
+ *   Header: idempotency-key: <orderId>
+ *
+ * Deterministic error mapping:
+ *   403 / 402 / insufficient funds -> InsufficientFloatError
+ *   400 + invalid username         -> InvalidTargetUserError
+ *   404 route not found            -> ProviderUnavailableError (cascades to secondary)
+ *   everything else                -> ProviderUnavailableError
  */
 export class GramixAdapter extends HttpResellerProviderBase {
   readonly name = 'gramix';
@@ -53,32 +73,36 @@ export class GramixAdapter extends HttpResellerProviderBase {
     return (this.config.GRAMIX_API_URL ?? this.config.RESELLER_API_URL ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
   }
 
+  protected override authHeaders(): Record<string, string> {
+    return { 'x-api-key': this.apiKey() };
+  }
+
   async fulfill(params: ResellerFulfillParams): Promise<ResellerFulfillResult> {
+    const cleanUsername = params.targetUsername.trim().replace(/^@+/, '').toLowerCase();
     let response: GramixOrderResponse;
+
     try {
-      response = await this.postJson<GramixOrderResponse>('premium/orders', {
-        username: params.targetUsername,
-        months: params.months,
-        // Provider-side idempotency key: a duplicate delivery attempt for the
-        // same order must not double-charge our float.
-        external_id: params.orderId,
-      });
+      response = await this.postJson<GramixOrderResponse>(
+        `purchase/premium/${params.months}`,
+        { recipientName: cleanUsername, paymentCurrency: 'usdt' },
+        { headers: { 'idempotency-key': params.orderId } }
+      );
     } catch (err) {
       throw this.mapFulfillError(err, params);
     }
 
-    if (response.ok === false || (response.status && response.status === 'failed')) {
+    if (response.success === false || response.ok === false || response.status === 'failed') {
       const reason = response.error || response.message || 'unknown provider rejection';
       if (/insufficient|balance|funds/i.test(reason)) {
         throw new InsufficientFloatError(this.name);
       }
-      if (/user|username|recipient|not.?found/i.test(reason)) {
+      if (/invalid username|user.*not.*found|does not exist/i.test(reason)) {
         throw new InvalidTargetUserError(this.name, params.targetUsername);
       }
       throw new ProviderUnavailableError(this.name, `Gramix rejected order: ${reason}`);
     }
 
-    const providerTxId = response.transaction_id || response.order_id;
+    const providerTxId = response.data?.orderId || response.order_id || response.data?.id || response.orderId || 'gramix-ok';
     logger.info(
       { ...this.logContext(), orderId: params.orderId, providerTxId },
       'Gramix premium activation accepted'
@@ -88,7 +112,10 @@ export class GramixAdapter extends HttpResellerProviderBase {
       success: true,
       provider: 'gramix',
       providerTxId,
-      costUsdt: toNumber(response.cost_usdt) ?? toNumber(response.cost),
+      costUsdt:
+        toNumber(response.data?.costUsdt) ??
+        toNumber(response.data?.cost_usdt) ??
+        toNumber(response.data?.cost),
       rawResponse: response,
     };
   }
@@ -96,26 +123,35 @@ export class GramixAdapter extends HttpResellerProviderBase {
   async getBalance(): Promise<ResellerBalanceResult> {
     let response: GramixBalanceResponse;
     try {
-      response = await this.getJson<GramixBalanceResponse>('account/balance');
+      response = await this.getJson<GramixBalanceResponse>('wallets/balance');
     } catch (err) {
       throw this.toUnavailable(err);
     }
 
-    const balanceUsdt = toNumber(response.balance_usdt) ?? toNumber(response.balance);
-    if (balanceUsdt === undefined) {
-      throw new ProviderUnavailableError(this.name, 'Gramix balance response missing a numeric balance');
-    }
-    return { balanceUsdt, currency: response.currency || 'USDT', provider: this.name };
+    const balanceUsdt =
+      toNumber(response.data?.usdt) ??
+      toNumber(response.data?.balance) ??
+      toNumber(response.balance_usdt) ??
+      0;
+
+    return {
+      balanceUsdt,
+      currency: response.data?.currency || 'USDT',
+      provider: this.name,
+    };
   }
 
   private mapFulfillError(err: unknown, params: ResellerFulfillParams): Error {
     if (err instanceof HttpError) {
       const body = err.body ?? '';
-      if (err.status === 402 || /insufficient|balance|funds/i.test(body)) {
+      if (err.status === 403 || err.status === 402 || /insufficient|balance|funds/i.test(body)) {
         return new InsufficientFloatError(this.name);
       }
-      if (err.status === 404 || (err.status === 400 && /user|username|recipient/i.test(body))) {
+      if (err.status === 400 && /invalid username|user.*not.*found|does not exist/i.test(body)) {
         return new InvalidTargetUserError(this.name, params.targetUsername);
+      }
+      if (err.status === 404) {
+        return new ProviderUnavailableError(this.name, 'Gramix route not found (HTTP 404)');
       }
     }
     return this.toUnavailable(err);

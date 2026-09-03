@@ -107,7 +107,7 @@ export async function renderRecipientSelection(
   const userId = ctx.from?.id;
   if (!userId) return;
 
-  const ownUsername = ctx.from?.username?.trim() || null;
+  const ownUsername = ctx.from?.username?.trim().replace(/^@+/, '').toLowerCase() || null;
   const variantSuffix = variantId || 'default';
 
   const text =
@@ -134,7 +134,7 @@ export async function handleRecipientSelf(ctx: Context, dataPayload: string): Pr
   const userId = ctx.from?.id;
   if (!userId) return;
 
-  const ownUsername = ctx.from?.username?.trim();
+  const ownUsername = ctx.from?.username?.trim().replace(/^@+/, '').toLowerCase();
   if (!ownUsername) {
     await ctx.answerCallbackQuery({ text: '❌ No public @username found. Set one in Telegram Settings first.', show_alert: true });
     return;

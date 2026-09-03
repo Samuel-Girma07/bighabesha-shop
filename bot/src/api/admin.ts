@@ -33,6 +33,8 @@ import { ensureAdminRow, roleHasPermission, type AdminRole, type Permission } fr
 import { forecastForStockProduct } from '../services/analytics.service.js';
 import { monthlyPnl } from '../services/profit.service.js';
 import { createPromoCode, listPromoCodes } from '../services/promo.service.js';
+import { escapeHtml } from '../utils/html.js';
+import { isResellerEligible, deliverWithReseller } from '../services/reseller.service.js';
 
 export const adminRouter: Router = Router();
 
@@ -615,7 +617,18 @@ adminRouter.post('/orders/:id/approve', requireAdminAuth, requirePermission('ord
     const { order, autoDeliveredItem } = approveReceipt(orderId, adminId);
     recordAudit({ adminId, action: 'order.approve', targetType: 'order', targetId: orderId, changes: { newStatus: order.status, autoDelivered: Boolean(autoDeliveredItem) }, ip: req.ip });
 
-    if (botInstance) {
+    let finalOrder = order;
+
+    if (!autoDeliveredItem && isResellerEligible(order)) {
+      const outcome = await deliverWithReseller(order.id, adminId, botInstance?.api);
+      if (outcome.delivered && botInstance?.api) {
+        const buyerMsg = `🎉 <b>Payment Verified & Order Fulfilled!</b>\n\n` +
+          `Your Telegram Premium has been activated on <b>@${escapeHtml(order.target_username || order.username || '')}</b>.\n\n` +
+          `<i>Thank you for choosing Bighabesha Shop.</i>`;
+        await botInstance.api.sendMessage(order.user_id, buyerMsg, { parse_mode: 'HTML' }).catch(() => {});
+      }
+      finalOrder = outcome.order;
+    } else if (botInstance) {
       if (autoDeliveredItem) {
         const rawTemplate = getSetting(
           'gemini_instructions',
@@ -635,7 +648,7 @@ adminRouter.post('/orders/:id/approve', requireAdminAuth, requirePermission('ord
       }
     }
 
-    res.json({ success: true, order, autoDeliveredItem });
+    res.json({ success: true, order: finalOrder, autoDeliveredItem });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }

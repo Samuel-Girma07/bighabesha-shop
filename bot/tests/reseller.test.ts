@@ -219,14 +219,27 @@ describe('B2B Telegram Premium Reseller Pipeline', () => {
       expect(isValidUsername('@')).toBe(false);
     });
 
-    it('sanitizeUsername normalizes input and throws InvalidUsernameError on invalid format', () => {
+    it('sanitizeUsername normalizes input, lowercases, and throws InvalidUsernameError on invalid format', () => {
       expect(sanitizeUsername('@bighabesha')).toBe('bighabesha');
       expect(sanitizeUsername('   @clean_user   ')).toBe('clean_user');
       expect(sanitizeUsername('telegram_vip')).toBe('telegram_vip');
+      expect(sanitizeUsername('@BigHabesha')).toBe('bighabesha');
+      expect(sanitizeUsername('https://t.me/User_Name')).toBe('user_name');
+      expect(sanitizeUsername('t.me/VIP_User')).toBe('vip_user');
 
       expect(() => sanitizeUsername('bad!')).toThrow(InvalidUsernameError);
       expect(() => sanitizeUsername('@123')).toThrow(InvalidUsernameError); // 3 chars
       expect(() => sanitizeUsername('user name')).toThrow(InvalidUsernameError);
+      expect(() => sanitizeUsername('123456789')).toThrow(InvalidUsernameError); // pure numeric Telegram ID rejected
+      expect(() => sanitizeUsername('@987654321')).toThrow(InvalidUsernameError);
+    });
+
+    it('isValidUsername validates URLs and prefixes while rejecting pure numeric Telegram IDs', () => {
+      expect(isValidUsername('https://t.me/valid_user')).toBe(true);
+      expect(isValidUsername('t.me/valid_user')).toBe(true);
+      expect(isValidUsername('@valid_user')).toBe(true);
+      expect(isValidUsername('123456789')).toBe(false);
+      expect(isValidUsername('@123456789')).toBe(false);
     });
 
     it('persists target_username in createOrder and updateOrderStatus', () => {
@@ -828,4 +841,314 @@ describe('B2B Telegram Premium Reseller Pipeline', () => {
       expect(updated?.fulfillment_payload).toContain('cb_queue_target');
     });
   });
+
+  // =========================================================================
+  // 12. Delivery Concurrency Lease
+  // =========================================================================
+  describe('12. Delivery Concurrency Lease', () => {
+    it('prevents concurrent delivery attempts on the same order using atomic job lease', async () => {
+      const { tryAcquireLease, releaseLease } = await import('../src/db/lease.js');
+      const mockAdapter = new MockResellerAdapter();
+      setResellerProviderForTest(mockAdapter);
+
+      const order = createOrder({
+        userId: BUYER_ID,
+        username: 'buyeruser',
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
+        paymentRail: 'cbe',
+        status: 'pending_approval',
+        targetUsername: 'lease_target_user',
+      });
+
+      // Simulate a concurrent delivery worker holding the lease
+      const leaseKey = `reseller:order:${order.id}`;
+      const preAcquired = tryAcquireLease(leaseKey, 60_000, 'worker-1');
+      expect(preAcquired).toBe(true);
+
+      // Attempt concurrent delivery
+      const outcome = await deliverWithReseller(order.id, ADMIN_1);
+      expect(outcome.delivered).toBe(false);
+      expect(outcome.error).toBe('Order is already being processed');
+
+      // Release the held lease
+      releaseLease(leaseKey, 'worker-1');
+
+      // Subsequent attempt now acquires and succeeds
+      const outcome2 = await deliverWithReseller(order.id, ADMIN_1);
+      expect(outcome2.delivered).toBe(true);
+      expect(outcome2.order.status).toBe('fulfilled');
+    });
+  });
+
+  // =========================================================================
+  // 13. Gramix API v1 Protocol & Error Mapping
+  // =========================================================================
+  describe('13. Gramix API v1 Protocol & Error Mapping', () => {
+    it('sends correct purchase/premium/N path, x-api-key, idempotency-key, and lowercase recipientName body', async () => {
+      const { GramixAdapter } = await import('../src/services/reseller/gramix.js');
+      const { getConfig } = await import('../src/config/env.js');
+      const cfg = { ...getConfig(), GRAMIX_API_KEY: 'test-gmx-key', GRAMIX_API_URL: 'https://api.gramix.io/api/v1' };
+      const adapter = new GramixAdapter(cfg);
+
+      let capturedPath = '';
+      let capturedBody: any = null;
+      let capturedOptions: any = null;
+
+      (adapter as any).postJson = async (path: string, body: any, options: any) => {
+        capturedPath = path;
+        capturedBody = body;
+        capturedOptions = options;
+        return {
+          success: true,
+          data: {
+            orderId: 'GMX-ORD-777',
+            costUsdt: 11.5,
+            status: 'completed',
+          },
+        };
+      };
+
+      const res = await adapter.fulfill({
+        orderId: 'ORD-987654',
+        targetUsername: '@MixedCaseUser',
+        months: 3,
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.provider).toBe('gramix');
+      expect(res.providerTxId).toBe('GMX-ORD-777');
+      expect(res.costUsdt).toBe(11.5);
+      expect(capturedPath).toBe('purchase/premium/3');
+      expect(capturedBody).toEqual({
+        recipientName: 'mixedcaseuser',
+        paymentCurrency: 'usdt',
+      });
+      expect(capturedOptions?.headers?.['idempotency-key']).toBe('ORD-987654');
+    });
+
+    it('queries wallets/balance with x-api-key and extracts numeric USDT balance', async () => {
+      const { GramixAdapter } = await import('../src/services/reseller/gramix.js');
+      const { getConfig } = await import('../src/config/env.js');
+      const cfg = { ...getConfig(), GRAMIX_API_KEY: 'test-gmx-key' };
+      const adapter = new GramixAdapter(cfg);
+
+      let capturedPath = '';
+      (adapter as any).getJson = async (path: string) => {
+        capturedPath = path;
+        return {
+          success: true,
+          data: {
+            usdt: 245.8,
+            currency: 'USDT',
+          },
+        };
+      };
+
+      const bal = await adapter.getBalance();
+      expect(capturedPath).toBe('wallets/balance');
+      expect(bal.balanceUsdt).toBe(245.8);
+      expect(bal.currency).toBe('USDT');
+    });
+
+    it('maps HTTP 404 to ProviderUnavailableError and NEVER to InvalidTargetUserError', async () => {
+      const { GramixAdapter } = await import('../src/services/reseller/gramix.js');
+      const { HttpError } = await import('../src/lib/http.js');
+      const { getConfig } = await import('../src/config/env.js');
+      const cfg = { ...getConfig(), GRAMIX_API_KEY: 'test-gmx-key' };
+      const adapter = new GramixAdapter(cfg);
+
+      (adapter as any).postJson = async () => {
+        throw new HttpError('Not Found', 404, 'Endpoint not found');
+      };
+
+      try {
+        await adapter.fulfill({
+          orderId: 'ORD-404',
+          targetUsername: 'user404',
+          months: 3,
+        });
+        expect.unreachable('Should have thrown');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(ProviderUnavailableError);
+        expect(err).not.toBeInstanceOf(InvalidTargetUserError);
+        expect(err.message).toContain('Gramix route not found (HTTP 404)');
+      }
+    });
+
+    it('maps HTTP 400 with invalid username to InvalidTargetUserError', async () => {
+      const { GramixAdapter } = await import('../src/services/reseller/gramix.js');
+      const { HttpError } = await import('../src/lib/http.js');
+      const { getConfig } = await import('../src/config/env.js');
+      const cfg = { ...getConfig(), GRAMIX_API_KEY: 'test-gmx-key' };
+      const adapter = new GramixAdapter(cfg);
+
+      (adapter as any).postJson = async () => {
+        throw new HttpError('Bad Request', 400, 'Invalid username or user does not exist');
+      };
+
+      await expect(
+        adapter.fulfill({
+          orderId: 'ORD-400',
+          targetUsername: 'baduser',
+          months: 3,
+        })
+      ).rejects.toThrow(InvalidTargetUserError);
+    });
+
+    it('maps HTTP 403, 402, and insufficient funds to InsufficientFloatError', async () => {
+      const { GramixAdapter } = await import('../src/services/reseller/gramix.js');
+      const { HttpError } = await import('../src/lib/http.js');
+      const { getConfig } = await import('../src/config/env.js');
+      const cfg = { ...getConfig(), GRAMIX_API_KEY: 'test-gmx-key' };
+      const adapter = new GramixAdapter(cfg);
+
+      (adapter as any).postJson = async () => {
+        throw new HttpError('Forbidden', 403, 'Insufficient balance');
+      };
+
+      await expect(
+        adapter.fulfill({
+          orderId: 'ORD-403',
+          targetUsername: 'gooduser',
+          months: 3,
+        })
+      ).rejects.toThrow(InsufficientFloatError);
+    });
+  });
+
+  // =========================================================================
+  // 14. Web Admin Dashboard Approval Integration
+  // =========================================================================
+  describe('14. Web Admin Dashboard Approval Integration', () => {
+    it('POST /orders/:id/approve triggers reseller delivery for telegram_premium orders and fulfills', async () => {
+      const express = (await import('express')).default;
+      const http = await import('http');
+      const { adminRouter, setAdminBotInstance } = await import('../src/api/admin.js');
+      const { ensureAdminRow } = await import('../src/auth/permissions.js');
+
+      ensureAdminRow(ADMIN_1);
+      db.prepare('INSERT INTO admin_sessions (token, admin_id, expires_at) VALUES (?, ?, ?)').run(
+        'test_admin_session_token_123',
+        ADMIN_1,
+        Date.now() + 86400000
+      );
+
+      const mockAdapter = new MockResellerAdapter();
+      setResellerProviderForTest(mockAdapter);
+
+      const sentMessages: { to: number; text: string }[] = [];
+      const mockBot: any = {
+        api: {
+          sendMessage: async (to: number, text: string) => {
+            sentMessages.push({ to, text });
+            return { message_id: 100 };
+          },
+        },
+      };
+      setAdminBotInstance(mockBot);
+
+      const order = createOrder({
+        userId: BUYER_ID,
+        username: 'buyeruser',
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
+        paymentRail: 'cbe',
+        status: 'pending_approval',
+        targetUsername: 'web_approved_user',
+      });
+
+      const app = express();
+      app.use(express.json());
+      app.use('/api/admin', adminRouter);
+
+      const srv = http.createServer(app);
+      const port = await new Promise<number>((resolve) => srv.listen(0, () => resolve((srv.address() as any).port)));
+
+      try {
+        const res = await fetch(`http://localhost:${port}/api/admin/orders/${order.id}/approve`, {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer test_admin_session_token_123',
+            'Content-Type': 'application/json',
+          },
+          body: '{}',
+        });
+
+        expect(res.status).toBe(200);
+        const data = await res.json();
+        expect(data.success).toBe(true);
+        expect(data.order.status).toBe('fulfilled');
+
+        const updated = getOrderById(order.id);
+        expect(updated?.status).toBe('fulfilled');
+        expect(updated?.reseller_tx_id).toBeTruthy();
+
+        expect(sentMessages.length).toBe(1);
+        expect(sentMessages[0].to).toBe(BUYER_ID);
+        expect(sentMessages[0].text).toContain('web_approved_user');
+      } finally {
+        await new Promise<void>((resolve) => srv.close(() => resolve()));
+      }
+    });
+
+    it('prevents concurrent double-spend in deliverWithReseller via invocation-scoped lease', async () => {
+      let fulfillCalls = 0;
+      let resolveFulfill!: () => void;
+      const fulfillPromise = new Promise<void>((resolve) => {
+        resolveFulfill = resolve;
+      });
+
+      const mockAdapter: any = {
+        name: 'mock-slow',
+        fulfill: async () => {
+          fulfillCalls++;
+          await fulfillPromise;
+          return {
+            success: true,
+            provider: 'mock-slow',
+            providerTxId: 'slow_tx_123',
+            costUsdt: 12,
+          };
+        },
+        getBalance: async () => ({ balanceUsdt: 100, currency: 'USDT', provider: 'mock-slow' }),
+      };
+      setResellerProviderForTest(mockAdapter);
+
+      const order = createOrder({
+        userId: BUYER_ID,
+        username: 'buyeruser',
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
+        paymentRail: 'cbe',
+        status: 'pending_approval',
+        targetUsername: 'concurrent_user',
+      });
+
+      // Launch call 1 (will hold in provider.fulfill)
+      const p1 = deliverWithReseller(order.id, ADMIN_1);
+
+      // Give call 1 a tick to acquire lease and start fulfillment
+      await new Promise((r) => setTimeout(r, 20));
+
+      // Launch concurrent call 2 for the exact same order in the same process
+      const outcome2 = await deliverWithReseller(order.id, ADMIN_1);
+
+      // Verify call 2 was immediately rejected because the lease was held
+      expect(outcome2.delivered).toBe(false);
+      expect(outcome2.error).toBe('Order is already being processed');
+
+      // Unblock call 1
+      resolveFulfill();
+      const outcome1 = await p1;
+
+      expect(outcome1.delivered).toBe(true);
+      expect(outcome1.order.status).toBe('fulfilled');
+      expect(fulfillCalls).toBe(1); // Provider only called ONCE!
+    });
+  });
 });
+

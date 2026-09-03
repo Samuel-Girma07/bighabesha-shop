@@ -39,6 +39,14 @@ export abstract class HttpResellerProviderBase implements IResellerProvider {
     return `Bearer ${this.apiKey()}`;
   }
 
+  /**
+   * Overridable auth header builder. Defaults to standard Bearer token.
+   * Providers using proprietary auth (e.g., Gramix x-api-key) override this.
+   */
+  protected authHeaders(): Record<string, string> {
+    return { Authorization: this.authHeaderValue() };
+  }
+
   /** Default request timeout; delivery calls are long-running on the provider side. */
   protected get timeoutMs(): number {
     return 30_000;
@@ -50,13 +58,18 @@ export abstract class HttpResellerProviderBase implements IResellerProvider {
    * Delivery calls are NOT retried automatically at this layer: idempotency is
    * the service layer's job (orderId is sent as the provider idempotency key).
    */
-  protected async postJson<T>(path: string, body: unknown): Promise<T> {
+  protected async postJson<T>(
+    path: string,
+    body: unknown,
+    options?: { headers?: Record<string, string> }
+  ): Promise<T> {
     const url = `${this.baseUrl()}/${path.replace(/^\//, '')}`;
     return fetchJson<T>(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: this.authHeaderValue(),
+        ...this.authHeaders(),
+        ...options?.headers,
       },
       body: JSON.stringify(body),
       timeoutMs: this.timeoutMs,
@@ -66,11 +79,17 @@ export abstract class HttpResellerProviderBase implements IResellerProvider {
     });
   }
 
-  protected async getJson<T>(path: string): Promise<T> {
+  protected async getJson<T>(
+    path: string,
+    options?: { headers?: Record<string, string> }
+  ): Promise<T> {
     const url = `${this.baseUrl()}/${path.replace(/^\//, '')}`;
     return fetchJson<T>(url, {
       method: 'GET',
-      headers: { Authorization: this.authHeaderValue() },
+      headers: {
+        ...this.authHeaders(),
+        ...options?.headers,
+      },
       timeoutMs: 15_000,
       attempts: 2,
       breakerKey: `reseller:${this.name}`,

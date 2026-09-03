@@ -30,6 +30,8 @@ import {
   ActivePaymentRail,
   ACTIVE_PAYMENT_RAILS,
   TELEGRAM_USERNAME_RE,
+  sanitizeUsername,
+  isValidUsername,
 } from '../services/orders.service.js';
 import { resolveOrderPrice, PricingError } from '../services/pricing.service.js';
 import { saveReceiptImage, ReceiptValidationError } from '../services/receipts.service.js';
@@ -686,18 +688,16 @@ function buildCatalogPayload() {
     let targetUsername: string | null = null;
     const rawTargetUsername = req.body.targetUsername;
     if (typeof rawTargetUsername === 'string' && rawTargetUsername.trim()) {
-      const cleaned = rawTargetUsername.trim().replace(/^@/, '');
-      if (!TELEGRAM_USERNAME_RE.test(cleaned)) {
-        res.status(400).json({
-          error: `Invalid Telegram username: "${rawTargetUsername}". Usernames are 5-32 characters (letters, numbers, underscores).`,
-        });
+      try {
+        targetUsername = sanitizeUsername(rawTargetUsername);
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
         return;
       }
-      targetUsername = cleaned;
     } else if (user.username && user.username.trim()) {
-      const cleaned = user.username.trim().replace(/^@/, '');
-      if (TELEGRAM_USERNAME_RE.test(cleaned)) {
-        targetUsername = cleaned;
+      const fallback = user.username.trim().replace(/^@+/, '').toLowerCase();
+      if (isValidUsername(fallback)) {
+        targetUsername = fallback;
       }
     }
 
