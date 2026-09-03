@@ -8,6 +8,7 @@ import { startLifecycleJobs, stopLifecycleJobs } from './services/lifecycle.serv
 import { syncAdminsFromEnv } from './auth/permissions.js';
 import { prewarmAllBanners } from './services/banner_generator.service.js';
 import { tryAcquireLease } from './db/lease.js';
+import { startResellerRetrySweeper, stopResellerRetrySweeper } from './services/reseller.service.js';
 
 async function main() {
   // Process-level safety nets. Express 5 routes async-handler rejections into
@@ -46,6 +47,7 @@ async function main() {
       logger.info('Node acquired leader lease: starting background sweepers and Telegram polling');
       startPeriodicCleanup();
       startLifecycleJobs(bot);
+      startResellerRetrySweeper(bot.api);
     } else {
       logger.info('Node operating as follower: HTTP API active; sweepers and Telegram polling standby');
     }
@@ -57,6 +59,7 @@ async function main() {
         logger.info('Node promoted to leader: activating background sweepers and Telegram polling');
         startPeriodicCleanup();
         startLifecycleJobs(bot);
+        startResellerRetrySweeper(bot.api);
         bot.start({
           onStart: (botInfo) => {
             logger.info({ botId: botInfo.id, username: botInfo.username }, 'Promoted bot started polling');
@@ -80,6 +83,7 @@ async function main() {
         stopPeriodicCleanup();
         stopLifecycleJobs();
         stopWalletPayReconciliation();
+        stopResellerRetrySweeper();
 
         if (isLeader) {
           try {

@@ -12,6 +12,7 @@ import {
   fetchReferralsApi,
   getOrderEventsApi,
   type ReferralSummary,
+  type PaymentRail,
 } from './api.ts';
 import { translations, Language } from './i18n.ts';
 import {
@@ -208,7 +209,6 @@ const StoreFront: React.FC = () => {
   const [supportDrawerOpen, setSupportDrawerOpen] = useState<boolean>(false);
 
   // Payment Selection Sheet
-  type PaymentRail = 'telebirr' | 'cbe' | 'abyssinia' | 'ton';
   interface PendingCheckoutItem {
     productId: string;
     variantId?: string;
@@ -222,7 +222,6 @@ const StoreFront: React.FC = () => {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentStep, setPaymentStep] = useState<1 | 2 | 3>(1); // 1: Select Method, 2: Transfer Details / Upload, 3: Success
   const [selectedPaymentRail, setSelectedPaymentRail] = useState<PaymentRail>('telebirr');
-  const [paymentTypeGroup, setPaymentTypeGroup] = useState<'local' | 'crypto'>('local');
   const [checkoutOrder, setCheckoutOrder] = useState<OrderItem | null>(null);
   const [submittingOrder, setSubmittingOrder] = useState(false);
 
@@ -381,23 +380,26 @@ const StoreFront: React.FC = () => {
 
     setSelectedProductDrawer(null);
     setPaymentStep(1);
-    setPaymentTypeGroup('local');
     setSelectedPaymentRail('telebirr');
     setPaymentModalOpen(true);
   };
 
-  // Step 1 -> Step 2: Initialize Order & Show Bank Transfer / TON
+  // Step 1 -> Step 2: Initialize Order & Show Bank Transfer Details
   const handleConfirmPaymentMethod = async () => {
     if (!pendingCheckoutItem) return;
     haptic.tap();
     setSubmittingOrder(true);
     try {
-      const railToUse = paymentTypeGroup === 'crypto' ? 'ton' : selectedPaymentRail;
+      const recipientCandidate = (recipientUsername || pendingCheckoutItem.recipient || '').trim();
+      const cleanTarget = recipientCandidate.replace(/^@/, '').trim();
+      const targetUsername = cleanTarget && cleanTarget !== 'Telegram User' ? cleanTarget : undefined;
+
       const res = await createOrderApi({
         productId: pendingCheckoutItem.productId,
-        paymentRail: railToUse,
+        paymentRail: selectedPaymentRail,
         variantId: pendingCheckoutItem.variantId,
         promoCode: promoCodeInput.trim() || undefined,
+        targetUsername: pendingCheckoutItem.productId === 'telegram_premium' ? targetUsername : undefined,
       });
 
       if (res.order) {
@@ -751,6 +753,18 @@ const StoreFront: React.FC = () => {
                           {isDelivered && <span className="hulupay-badge green">DELIVERED</span>}
                           {isReview && <span className="hulupay-badge blue">PENDING APPROVAL</span>}
                           {isRejected && <span className="hulupay-badge discount">REJECTED</span>}
+                          {ord.reseller_provider && (
+                            <span
+                              className="hulupay-badge blue"
+                              style={{
+                                background: ord.reseller_provider.toLowerCase() === 'gramix' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(192, 132, 252, 0.15)',
+                                color: ord.reseller_provider.toLowerCase() === 'gramix' ? '#38BDF8' : '#C084FC',
+                                borderColor: ord.reseller_provider.toLowerCase() === 'gramix' ? 'rgba(56, 189, 248, 0.3)' : 'rgba(192, 132, 252, 0.3)',
+                              }}
+                            >
+                              {ord.reseller_provider.toLowerCase() === 'gramix' ? 'Gramix' : ord.reseller_provider.toLowerCase() === 'istar' ? 'iStar' : ord.reseller_provider}
+                            </span>
+                          )}
                         </div>
                         <div style={{ fontSize: '12px', color: '#94A3B8', display: 'flex', justifyContent: 'space-between' }}>
                           <span>Order #{ord.id}</span>
@@ -1156,7 +1170,8 @@ const StoreFront: React.FC = () => {
                   <div style={{ background: '#080D14', padding: '14px', borderRadius: '12px', marginBottom: '12px', textAlign: 'center' }}>
                     <span style={{ fontSize: '11px', color: '#64748B', display: 'block', marginBottom: '2px' }}>ACCOUNT NUMBER</span>
                     <div style={{ fontSize: '20px', fontWeight: 900, color: '#38BDF8', letterSpacing: '1px' }}>
-                      {data?.settings?.[`${selectedPaymentRail}_account` as keyof typeof data.settings] || '1000123456789'}
+                      {data?.settings?.[`${selectedPaymentRail}_account` as keyof typeof data.settings] ||
+                        (selectedPaymentRail === 'telebirr' ? '0912345678' : selectedPaymentRail === 'cbe' ? '1000123456789' : '123456789')}
                     </div>
                   </div>
 
@@ -1165,7 +1180,8 @@ const StoreFront: React.FC = () => {
                     style={{ height: '40px', minHeight: '40px', fontSize: '13px', marginBottom: '12px' }}
                     onClick={() =>
                       copyToClipboard(
-                        data?.settings?.[`${selectedPaymentRail}_account` as keyof typeof data.settings] || '1000123456789',
+                        data?.settings?.[`${selectedPaymentRail}_account` as keyof typeof data.settings] ||
+                          (selectedPaymentRail === 'telebirr' ? '0912345678' : selectedPaymentRail === 'cbe' ? '1000123456789' : '123456789'),
                         'acc'
                       )
                     }
@@ -1176,6 +1192,11 @@ const StoreFront: React.FC = () => {
                   <div style={{ fontSize: '13px', color: '#10B981', fontWeight: 800, textAlign: 'center' }}>
                     Exact Amount to Send: {checkoutOrder.amount_etb?.toLocaleString()} ETB
                   </div>
+                  {(checkoutOrder.target_username || (pendingCheckoutItem.productId === 'telegram_premium' && pendingCheckoutItem.recipient && pendingCheckoutItem.recipient !== 'Telegram User')) && (
+                    <div style={{ fontSize: '12px', color: '#A855F7', fontWeight: 600, textAlign: 'center', marginTop: '6px' }}>
+                      Gift Recipient: @{checkoutOrder.target_username || pendingCheckoutItem.recipient.replace(/^@/, '')}
+                    </div>
+                  )}
                 </div>
 
                 {/* Slip Upload Box */}
@@ -1434,6 +1455,14 @@ const StoreFront: React.FC = () => {
               <div>Product: <strong>{selectedDetailOrder.product_id?.replace(/_/g, ' ').toUpperCase()}</strong></div>
               <div>Amount: <strong style={{ color: '#38BDF8' }}>{selectedDetailOrder.amount_etb?.toLocaleString()} ETB</strong> ({selectedDetailOrder.payment_rail?.toUpperCase()})</div>
               <div>Status: <strong>{selectedDetailOrder.status?.toUpperCase()}</strong></div>
+              {selectedDetailOrder.target_username && (
+                <div>Recipient: <strong style={{ color: '#A855F7' }}>@{selectedDetailOrder.target_username}</strong></div>
+              )}
+              {selectedDetailOrder.reseller_provider && (
+                <div>Delivered via: <strong style={{ color: selectedDetailOrder.reseller_provider.toLowerCase() === 'gramix' ? '#38BDF8' : '#C084FC' }}>
+                  {selectedDetailOrder.reseller_provider.toLowerCase() === 'gramix' ? 'Gramix' : selectedDetailOrder.reseller_provider.toLowerCase() === 'istar' ? 'iStar' : selectedDetailOrder.reseller_provider}
+                </strong></div>
+              )}
             </div>
 
             <OrderTimeline order={selectedDetailOrder} events={detailEvents} />

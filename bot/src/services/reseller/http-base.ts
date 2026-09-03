@@ -29,9 +29,14 @@ export abstract class HttpResellerProviderBase implements IResellerProvider {
   /** Absolute base URL with trailing slash stripped; throws on misconfiguration. */
   protected abstract baseUrl(): string;
 
+  /** Resolved API key for this provider; subclasses can prioritize provider-specific keys. */
+  protected apiKey(): string {
+    return this.config.RESELLER_API_KEY;
+  }
+
   /** Auth header value, e.g. `Bearer <key>`; subclasses may override the scheme. */
   protected authHeaderValue(): string {
-    return `Bearer ${this.config.RESELLER_API_KEY}`;
+    return `Bearer ${this.apiKey()}`;
   }
 
   /** Default request timeout; delivery calls are long-running on the provider side. */
@@ -74,7 +79,7 @@ export abstract class HttpResellerProviderBase implements IResellerProvider {
   }
 
   protected logContext(): Record<string, unknown> {
-    return { provider: this.name, apiKey: redactSecret(this.config.RESELLER_API_KEY) };
+    return { provider: this.name, apiKey: redactSecret(this.apiKey()) };
   }
 
   /**

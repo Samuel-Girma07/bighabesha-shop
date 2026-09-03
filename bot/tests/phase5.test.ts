@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import http from 'http';
 import fs from 'fs';
 import Database from 'better-sqlite3';
-import { initDatabase, closeDatabase } from '../src/db/index.js';
+import { initDatabase, closeDatabase, getDatabase } from '../src/db/index.js';
 import { validateTelegramInitData } from '../src/api/auth.js';
 import { createApiServer } from '../src/api/server.js';
 import { createBot } from '../src/bot/bot.js';
@@ -348,12 +348,9 @@ describe('Phase 5: Telegram Mini App & Authenticated API', () => {
       } catch {}
     });
 
-    it('processes Wallet Pay webhook, marking stock orders as fulfilled with auto-delivery', async () => {
-      // 1. Seed stock for Gemini Pro
+    it('returns 410 Gone for decommissioned Wallet Pay webhook on stock order', async () => {
       addStockLink('gemini_pro_18m', 'https://g.co/gemini/claim/test-wallet-pay-link-123');
 
-      // 2. Create order on wallet_pay rail with a stored payment quote
-      //    (as the creation flow now persists at payment-creation time)
       const order = createOrder({
         userId: 999888,
         username: 'cryptobuyer',
@@ -368,7 +365,6 @@ describe('Phase 5: Telegram Mini App & Authenticated API', () => {
         crypto_currency: 'TON',
       });
 
-      // 3. Post webhook event from Wallet Pay (fresh timestamp + matching amount)
       const webhookRes = await fetch(`http://localhost:${port}/api/wallet-pay/webhook`, {
         method: 'POST',
         headers: {
@@ -386,17 +382,16 @@ describe('Phase 5: Telegram Mini App & Authenticated API', () => {
         }),
       });
 
-      expect(webhookRes.status).toBe(200);
+      expect(webhookRes.status).toBe(410);
+      const resBody = await webhookRes.json();
+      expect(resBody.error).toMatch(/decommissioned/i);
 
-      // 4. Verify order is now fulfilled with auto-allocated stock link
       const updatedOrder = getOrderById(order.id);
       expect(updatedOrder).toBeDefined();
-      expect(updatedOrder?.status).toBe('fulfilled');
-      expect(updatedOrder?.fulfillment_payload).toBe('https://g.co/gemini/claim/test-wallet-pay-link-123');
-      expect(updatedOrder?.payment_ref).toBe('12345678');
+      expect(updatedOrder?.status).toBe('awaiting_payment');
     });
 
-    it('processes Wallet Pay webhook for non-stock order, transitioning to pending_fulfillment', async () => {
+    it('returns 410 Gone for decommissioned Wallet Pay webhook on non-stock order', async () => {
       const order = createOrder({
         userId: 999888,
         username: 'cryptobuyer',
@@ -431,12 +426,42 @@ describe('Phase 5: Telegram Mini App & Authenticated API', () => {
         ]),
       });
 
-      expect(webhookRes.status).toBe(200);
+      expect(webhookRes.status).toBe(410);
+      const resBody = await webhookRes.json();
+      expect(resBody.error).toMatch(/decommissioned/i);
 
       const updatedOrder = getOrderById(order.id);
       expect(updatedOrder).toBeDefined();
-      expect(updatedOrder?.status).toBe('pending_fulfillment');
-      expect(updatedOrder?.payment_ref).toBe('87654321');
+      expect(updatedOrder?.status).toBe('awaiting_payment');
+    });
+
+    it('accepts and persists targetUsername for gifting in SQLite orders.target_username', async () => {
+      const buyer = { id: 777001, first_name: 'Gifter', username: 'gifter_user' };
+      const authInitData = generateValidInitData(buyer, token);
+
+      const res = await fetch(`http://localhost:${port}/api/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `tma ${authInitData}`,
+        },
+        body: JSON.stringify({
+          productId: 'telegram_premium',
+          variantId: 'tg_prem_3m',
+          paymentRail: 'telebirr',
+          targetUsername: '@gift_recipient',
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = await res.json();
+      expect(body.order).toBeDefined();
+      expect(body.order.target_username).toBe('gift_recipient');
+
+      const db = getDatabase();
+      const row = db.prepare('SELECT target_username FROM orders WHERE id = ?').get(body.order.id) as any;
+      expect(row).toBeDefined();
+      expect(row.target_username).toBe('gift_recipient');
     });
   });
 });

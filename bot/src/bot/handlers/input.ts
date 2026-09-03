@@ -13,6 +13,7 @@ import { logger, redactSecret } from '../../logger/index.js';
 import { parseBankSms, matchSmsToOrders } from '../../services/sms_parser.service.js';
 import { getDatabase } from '../../db/index.js';
 import { renderPaymentRailSelection } from './checkout.js';
+import { getConfig } from '../../config/env.js';
 
 async function renderPaymentRailSelectionFor(ctx: Context, order: any, productName: string): Promise<void> {
   try {
@@ -20,6 +21,42 @@ async function renderPaymentRailSelectionFor(ctx: Context, order: any, productNa
   } catch {
     /* rail re-render is best-effort */
   }
+}
+
+export async function handleAdminInput(
+  ctx: Context,
+  session: { type: string; data?: Record<string, any> },
+  text: string,
+  userId: number
+): Promise<boolean> {
+  if (session.type === 'admin_refund_reason' || session.data?.action === 'refund_order') {
+    if (!isAdmin(userId)) return true;
+    clearPendingAction(userId);
+    const orderId = session.data?.orderId;
+    if (!orderId) {
+      await ctx.reply('❌ No order ID found in session.');
+      return true;
+    }
+    try {
+      const order = refundOrder(orderId, userId, text);
+      await ctx.reply(`↩️ <b>Order <code>${order.id}</code> marked as REFUNDED.</b>`, { parse_mode: 'HTML' });
+
+      const config = getConfig();
+      const buyerMsg = `↩️ <b>Order Refund Processed</b>\n\n` +
+        `Your Order #${order.id} has been refunded.\n\n` +
+        `• <b>Details / Note:</b> ${escapeHtml(text)}\n\n` +
+        `If you have any questions, please contact our support: @${config.SUPPORT_USERNAME || 'Vweah'}`;
+
+      await ctx.api.sendMessage(order.user_id, buyerMsg, { parse_mode: 'HTML' }).catch((err) => {
+        logger.error({ err, userId: order.user_id }, 'Failed to send refund notice to buyer');
+      });
+      await renderAdminOrdersQueue(ctx);
+    } catch (err: any) {
+      await ctx.reply(`❌ Failed to refund order: ${escapeHtml(err.message)}`, { parse_mode: 'HTML' });
+    }
+    return true;
+  }
+  return false;
 }
 
 export async function handleTextInput(ctx: Context): Promise<boolean> {
@@ -198,24 +235,8 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
     return true;
   }
 
-  if (session.data?.action === 'refund_order') {
-    // Authorization gate: only configured administrators may refund orders.
-    if (!isAdmin(userId)) return true;
-    clearPendingAction(userId);
-    const orderId = session.data.orderId;
-    const order = refundOrder(orderId, userId, text);
-
-    await ctx.reply(`↩️ <b>Order <code>${order.id}</code> marked as REFUNDED.</b>`, { parse_mode: 'HTML' });
-
-    // Notify buyer
-    const buyerMsg = `↩️ <b>Order Refund Processed</b>\n\n` +
-      `Your order <code>#${order.id}</code> has been refunded.\n\n` +
-      `• <b>Details:</b> ${escapeHtml(text)}\n\n` +
-      `If you have any questions, please contact our support: @Vweah`;
-
-    await ctx.api.sendMessage(order.user_id, buyerMsg, { parse_mode: 'HTML' }).catch(() => {});
-    await renderAdminOrdersQueue(ctx);
-    return true;
+  if (session.type === 'admin_refund_reason' || session.data?.action === 'refund_order') {
+    return await handleAdminInput(ctx, session, text, userId);
   }
 
   switch (session.type) {
@@ -233,7 +254,7 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
         const buyerMsg = `❌ <b>Payment Verification Failed</b>\n\n` +
           `Your payment receipt for Order #${order.id} was not accepted.\n\n` +
           `• <b>Reason:</b> ${escapeHtml(reason)}\n\n` +
-          `If you believe this is a mistake or have questions, please reach out to our official support: @Vweah`;
+          `If you believe this is a mistake or have questions, please reach out to our official support: @${getConfig().SUPPORT_USERNAME || 'Vweah'}`;
 
         await ctx.api.sendMessage(order.user_id, buyerMsg, { parse_mode: 'HTML' }).catch((err) => {
           logger.error({ err, userId: order.user_id }, 'Failed to send rejection to buyer');

@@ -4,11 +4,7 @@ import { resolveStoredReceiptPath } from '../../services/receipts.service.js';
 import { createOrder, getOrderById, updateOrderMeta, updateOrderStatus, approveReceipt, PaymentRail, Order } from '../../services/orders.service.js';
 import { isResellerEligible, deliverWithReseller, deliveryFailedKeyboard } from '../../services/reseller.service.js';
 import { resolveOrderPrice, PricingError } from '../../services/pricing.service.js';
-import { calculateCryptoQuote, fetchCoinGeckoPrices } from '../../services/rate_engine.service.js';
 import { getSetting } from '../../services/settings.service.js';
-import { getWalletPayAdapter } from '../../services/payments/index.js';
-import { isChapaEnabled, chapaInitialize } from '../../services/payments/chapa.js';
-import { isTonConnectEnabled } from '../../services/payments/ton.service.js';
 import { setPendingAction } from '../session.js';
 import { isAdmin } from './admin.js';
 import { getConfig } from '../../config/env.js';
@@ -114,6 +110,9 @@ export async function initiateCheckout(
     if (targetUsername != null && order.target_username !== targetUsername) {
       order = updateOrderStatus(order.id, order.status, { target_username: targetUsername });
     }
+    if (order.payment_rail !== 'telebirr' && order.payment_rail !== 'cbe' && order.payment_rail !== 'abyssinia') {
+      order = updateOrderStatus(order.id, order.status, { payment_rail: 'telebirr' });
+    }
   } else {
     order = createOrder({
       userId,
@@ -121,7 +120,7 @@ export async function initiateCheckout(
       productId,
       variantId: variantId || null,
       amountETB,
-      paymentRail: 'wallet_pay',
+      paymentRail: 'telebirr',
       quantity: 1,
       status: 'awaiting_payment',
       targetUsername: targetUsername ?? undefined,
@@ -134,8 +133,6 @@ export async function initiateCheckout(
 export async function renderPaymentRailSelection(ctx: Context, order: Order, productName: string): Promise<void> {
   const discount = order.discount_etb || 0;
   const netAmount = Math.max(order.amount_etb - discount, 1);
-  const { tonUsd } = await fetchCoinGeckoPrices();
-  const { cryptoAmount: tonAmount, usdAmountWithMargin } = calculateCryptoQuote(netAmount, tonUsd);
 
   const text =
     `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
@@ -144,22 +141,9 @@ export async function renderPaymentRailSelection(ctx: Context, order: Order, pro
     `• 🧾 <b>Order Ref:</b> <code>${order.id}</code>\n` +
     (discount > 0 ? `• 🏷️ <b>Original Price:</b> <s>${formatPriceETB(order.amount_etb)}</s>\n• 🎁 <b>Promo (${escapeHtml(order.promo_code || '')}):</b> <b>−${formatPriceETB(discount)}</b>\n` : '') +
     `• 💰 <b>Total Payable:</b> <code>${formatPriceETB(netAmount)}</code>\n\n` +
-    `<blockquote>⚡ <b>Automated Crypto Quote:</b>\n` +
-    `• 💎 TON / USDT: <code>$${usdAmountWithMargin.toFixed(2)} USD</code> (~${tonAmount} TON)</blockquote>\n\n` +
     `<i>👇 Select your preferred payment rail below:</i>`;
 
   const keyboard = new InlineKeyboard()
-    .text(`🪙 Pay with Crypto (TON / USDT)`, `pay_wp_${order.id}`)
-    .row();
-
-  if (isChapaEnabled()) {
-    keyboard.text(`💳 Card / Telebirr / CBE Birr (Chapa)`, `pay_chapa_${order.id}`).row();
-  }
-  if (isTonConnectEnabled()) {
-    keyboard.text(`💎 Pay via TON Wallet (Connect)`, `pay_ton_${order.id}`).row();
-  }
-
-  keyboard
     .text(`📱 Telebirr`, `pay_manual_telebirr_${order.id}`)
     .text(`🏦 CBE Bank`, `pay_manual_cbe_${order.id}`)
     .row()
@@ -171,127 +155,43 @@ export async function renderPaymentRailSelection(ctx: Context, order: Order, pro
   await safeEditMessage(ctx, text, keyboard);
 }
 
-/** Chapa hosted checkout for an existing awaiting-payment order. */
+/** Chapa hosted checkout (deprecated). */
 export async function handleChapaPayment(ctx: Context, orderId: string): Promise<void> {
-  const userId = ctx.from?.id;
-  if (!userId) return;
+  await ctx.answerCallbackQuery({
+    text: 'Card (Chapa) payments are discontinued. Please choose Telebirr, CBE Bank, or Bank of Abyssinia.',
+    show_alert: true,
+  }).catch(() => {});
   const order = getOrderById(orderId);
-  if (!order || order.user_id !== userId) {
-    await ctx.reply('Order not found.');
-    return;
-  }
-
-  try {
-    updateOrderMeta(orderId, { payment_rail: 'chapa' });
-    const netAmountEtb = Math.max(order.amount_etb - (order.discount_etb || 0), 1);
-    const init = await chapaInitialize({
-      txRef: order.id,
-      amountEtb: netAmountEtb,
-      buyerName: ctx.from?.first_name,
-      buyerPhone: null,
-      returnUrl: `${getConfig().WEBAPP_URL || ''}/orders`,
-    });
-    updateOrderStatus(orderId, order.status, { payment_ref: init.providerRef });
-
-    const keyboard = new InlineKeyboard()
-      .url('Open Secure Checkout', init.payUrl)
-      .row()
-      .text('« Change Payment Method', `checkout_back_${order.id}`);
-
-    const text = `<b>Chapa Secure Checkout</b>\n\n` +
-      `• Order ID: <code>${order.id}</code>\n` +
-      `• Amount: <b>${formatPriceETB(netAmountEtb)}</b>\n\n` +
-      `Card, Telebirr, CBE Birr and more are supported.\n` +
-      `<i>Your order confirms automatically once payment completes.</i>`;
-
-    await safeEditMessage(ctx, text, keyboard);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'try another method.';
-    logger.error({ err, orderId }, 'Chapa payment failed');
-    await ctx.reply(`❌ Payment provider unavailable: ${escapeHtml(message)}`);
+  if (order) {
+    const product = getProductById(order.product_id);
+    await renderPaymentRailSelection(ctx, order, product ? product.name : 'Subscription');
   }
 }
 
-/** TON Connect instructions for an existing awaiting-payment order. */
+/** TON Connect instructions (deprecated). */
 export async function handleTonConnect(ctx: Context, orderId: string): Promise<void> {
-  const userId = ctx.from?.id;
-  if (!userId) return;
+  await ctx.answerCallbackQuery({
+    text: 'TON Connect payments are discontinued. Please choose Telebirr, CBE Bank, or Bank of Abyssinia.',
+    show_alert: true,
+  }).catch(() => {});
   const order = getOrderById(orderId);
-  if (!order || order.user_id !== userId) {
-    await ctx.reply('Order not found.');
-    return;
+  if (order) {
+    const product = getProductById(order.product_id);
+    await renderPaymentRailSelection(ctx, order, product ? product.name : 'Subscription');
   }
-
-  updateOrderMeta(orderId, { payment_rail: 'ton_connect' });
-  const netAmountEtb = Math.max(order.amount_etb - (order.discount_etb || 0), 1);
-  const { tonUsd } = await fetchCoinGeckoPrices();
-  const { cryptoAmount } = calculateCryptoQuote(netAmountEtb, tonUsd);
-
-  const text = `<b>Pay with TON Wallet</b>\n\n` +
-    `• Order ID (memo): <code>${order.id}</code>\n` +
-    `• Amount: <code>${cryptoAmount} TON</code>\n\n` +
-    `Open the Mini App store, tap <b>“Pay with TON”</b>, approve the transaction in your connected wallet.\n` +
-    `<i>The exact memo is required for automatic on-chain matching.</i>\n\n` +
-    `Your order confirms automatically after 1 network confirmation.`;
-
-  const keyboard = new InlineKeyboard()
-    .webApp('Open Mini App to Pay', getConfig().WEBAPP_URL || 'https://t.me')
-    .row()
-    .text('« Change Payment Method', `checkout_back_${order.id}`);
-
-  await safeEditMessage(ctx, text, keyboard);
 }
 
+/** Wallet Pay checkout (deprecated). */
 export async function handleWalletPay(ctx: Context, orderId: string): Promise<void> {
+  await ctx.answerCallbackQuery({
+    text: 'Wallet Pay is discontinued. Please choose Telebirr, CBE Bank, or Bank of Abyssinia.',
+    show_alert: true,
+  }).catch(() => {});
   const order = getOrderById(orderId);
-  if (!order) {
-    await ctx.reply('Order not found.');
-    return;
+  if (order) {
+    const product = getProductById(order.product_id);
+    await renderPaymentRailSelection(ctx, order, product ? product.name : 'Subscription');
   }
-
-  const product = getProductById(order.product_id);
-  const productName = product ? product.name : 'Subscription';
-
-  // Rail switch without status regression (receipts on pending_approval survive)
-  updateOrderMeta(orderId, { payment_rail: 'wallet_pay' });
-
-  const adapter = getWalletPayAdapter();
-  const payment = await adapter.createPayment({
-    orderId: order.id,
-    userId: order.user_id,
-    amountETB: order.amount_etb,
-    productName,
-    currency: 'TON',
-  });
-
-  // Persist the provider payment reference and quoted crypto amount at
-  // creation time — reconciliation and webhook verification rely on them.
-  updateOrderMeta(orderId, {
-    payment_ref: payment.paymentRef || null,
-    crypto_amount: payment.cryptoAmount ?? null,
-    crypto_currency: payment.cryptoCurrency ?? null,
-  });
-
-  const config = getConfig();
-  const isMock = config.WALLET_PAY_MODE === 'mock';
-
-  let text = `<b>Wallet Pay (TON / USDT)</b>\n\n` +
-    `• Order ID: <code>${order.id}</code>\n` +
-    `• Amount: <code>${payment.cryptoAmount} ${payment.cryptoCurrency}</code>\n` +
-    `• Status: Awaiting Payment\n\n` +
-    `Tap below to open Telegram Wallet:`;
-
-  if (isMock) {
-    text += `\n\n<i>Dev Simulation Mode:</i> Use <code>/wp_simulate ${order.id}</code> to simulate payment.`;
-  }
-
-  const keyboard = new InlineKeyboard();
-  if (payment.payUrl) {
-    keyboard.url('Open Wallet Pay', payment.payUrl).row();
-  }
-  keyboard.text('« Change Payment Method', `checkout_back_${order.id}`);
-
-  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function handleManualRail(ctx: Context, rail: 'telebirr' | 'cbe' | 'abyssinia', orderId: string): Promise<void> {

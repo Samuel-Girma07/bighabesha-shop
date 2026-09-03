@@ -35,6 +35,15 @@ export interface BootstrapData {
   tonTreasury?: string;
 }
 
+export type PaymentRail = 'telebirr' | 'cbe' | 'abyssinia';
+
+export interface CreateOrderResponse {
+  order: OrderItem;
+  invoiceLink?: string;
+  payUrl?: string;
+  saleApplied?: boolean;
+}
+
 export interface OrderItem {
   id: string;
   user_id: number;
@@ -51,13 +60,17 @@ export interface OrderItem {
   fulfillment_payload: string | null;
   fulfillment_proof: string | null;
   rejection_reason: string | null;
+  target_username?: string | null;
+  reseller_provider?: string | null;
+  reseller_tx_id?: string | null;
+  reseller_error?: string | null;
   created_at: string;
 }
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL || '';
 
 function getAuthHeader(): Record<string, string> {
-  const initData = window.Telegram?.WebApp?.initData || '';
+  const initData = typeof window !== 'undefined' ? (window.Telegram?.WebApp?.initData || '') : '';
   if (initData) {
     return { Authorization: `tma ${initData}` };
   }
@@ -90,18 +103,58 @@ export async function fetchOrders(): Promise<{ orders: OrderItem[] }> {
   return res.json();
 }
 
-export async function createOrderApi(params: {
+export interface CreateOrderOptions {
   productId: string;
   variantId?: string;
   customStars?: number;
-  paymentRail: string;
+  paymentRail?: PaymentRail | string;
   promoCode?: string;
-}): Promise<{ order: OrderItem; invoiceLink?: string; payUrl?: string; saleApplied?: boolean }> {
+  targetUsername?: string;
+}
+
+export async function createOrderApi(
+  productId: string,
+  variantId?: string,
+  paymentRail?: PaymentRail,
+  promoCode?: string,
+  targetUsername?: string,
+): Promise<CreateOrderResponse>;
+export async function createOrderApi(
+  options: CreateOrderOptions,
+): Promise<CreateOrderResponse>;
+export async function createOrderApi(
+  productIdOrOptions: string | CreateOrderOptions,
+  variantId?: string,
+  paymentRail: PaymentRail = 'telebirr',
+  promoCode?: string,
+  targetUsername?: string,
+): Promise<CreateOrderResponse> {
   const headers = getAuthHeader();
-  // NOTE: prices are never sent from the client — the server computes the
-  // authoritative amount from the catalog and rate engine.
-  const body: Record<string, unknown> = { ...params };
-  if (!params.promoCode) delete (body as any).promoCode;
+  let body: Record<string, unknown>;
+
+  if (typeof productIdOrOptions === 'object') {
+    const opts = productIdOrOptions;
+    body = {
+      productId: opts.productId,
+      variantId: opts.variantId,
+      paymentRail: opts.paymentRail || 'telebirr',
+      promoCode: opts.promoCode,
+      targetUsername: opts.targetUsername,
+    };
+  } else {
+    body = {
+      productId: productIdOrOptions,
+      variantId,
+      paymentRail,
+      promoCode,
+      targetUsername,
+    };
+  }
+
+  if (!body.promoCode) delete body.promoCode;
+  if (!body.variantId) delete body.variantId;
+  if (!body.targetUsername) delete body.targetUsername;
+
   const res = await fetch(`${API_BASE}/api/orders`, {
     method: 'POST',
     headers: {

@@ -253,14 +253,16 @@ describe('Feature: Chapa payment gateway adapter', () => {
     expect(verifyChapaSignature(CHAPA_KEY, undefined, body)).toBe(false);
   });
 
-  it('rejects unsigned webhooks with 403', async () => {
+  it('rejects webhooks with 410 Gone as decommissioned', async () => {
     const order = seedPaidOrder();
     const res = await postWebhook(order.id, undefined);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(410);
+    const body = await res.json();
+    expect(body.error).toMatch(/decommissioned/i);
     expect(getOrderById(order.id)?.status).toBe('awaiting_payment');
   });
 
-  it('fulfils correctly signed matching webhooks with auto delivery', async () => {
+  it('returns 410 Gone even for signed webhooks and leaves order awaiting_payment', async () => {
     const order = seedPaidOrder();
     const body = JSON.stringify({ event: 'CHARGE.SUCCESS', tx_ref: order.id, status: 'success', amount: 1500 });
     const res = await fetch(`http://localhost:${port}/api/webhooks/chapa`, {
@@ -268,14 +270,16 @@ describe('Feature: Chapa payment gateway adapter', () => {
       headers: { 'Content-Type': 'application/json', 'chapa-signature': chapaSignature(body) },
       body,
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(410);
+    const resBody = await res.json();
+    expect(resBody.error).toMatch(/decommissioned/i);
 
     const updated = getOrderById(order.id);
-    expect(updated?.status).toBe('fulfilled');
-    expect(updated?.fulfillment_payload).toBe('https://g.co/chapa-delivery-1');
+    expect(updated?.status).toBe('awaiting_payment');
+    expect(updated?.fulfillment_payload).toBeNull();
   });
 
-  it('ignores amount mismatches even when signed', async () => {
+  it('returns 410 Gone for amount mismatches on decommissioned endpoint', async () => {
     const order = seedPaidOrder();
     const body = JSON.stringify({ event: 'CHARGE.SUCCESS', tx_ref: order.id, status: 'success', amount: 15 }); // partial payment!
     const res = await fetch(`http://localhost:${port}/api/webhooks/chapa`, {
@@ -283,18 +287,21 @@ describe('Feature: Chapa payment gateway adapter', () => {
       headers: { 'Content-Type': 'application/json', 'chapa-signature': chapaSignature(body) },
       body,
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(410);
     expect(getOrderById(order.id)?.status).toBe('awaiting_payment');
   });
 
-  it('is idempotent against duplicate webhook deliveries', async () => {
+  it('returns 410 Gone on duplicate webhook deliveries without allocating stock', async () => {
     const order = seedPaidOrder();
     const send = () => postWebhook(order.id, chapaSignature(JSON.stringify({ event: 'CHARGE.SUCCESS', tx_ref: order.id, status: 'success', amount: 1500 })));
-    await send();
-    await send();
-    await send();
-    // Stock consumed exactly once
-    expect(getDatabase().prepare("SELECT COUNT(*) c FROM stock_items WHERE status='allocated'").get() as any).toEqual({ c: 1 });
+    const res1 = await send();
+    const res2 = await send();
+    const res3 = await send();
+    expect(res1.status).toBe(410);
+    expect(res2.status).toBe(410);
+    expect(res3.status).toBe(410);
+    // Stock remains untouched (0 allocated)
+    expect(getDatabase().prepare("SELECT COUNT(*) c FROM stock_items WHERE status='allocated'").get() as any).toEqual({ c: 0 });
   });
 });
 
@@ -331,7 +338,7 @@ describe('Feature: TON Connect verification', () => {
     expect(matchTonTransaction([tx(null, expectedTon)], { memo: ORDER_ID, expectedNano: tonToNano(expectedTon) })).toBeNull();
   });
 
-  it('endpoint requires initData auth and verifies ownership', async () => {
+  it('endpoint returns 410 Gone as TON payments are decommissioned', async () => {
     process.env.BOT_TOKEN = TOKEN;
     process.env.ADMIN_IDS = '111111111';
     process.env.WALLET_PAY_MODE = 'mock';
@@ -347,24 +354,10 @@ describe('Feature: TON Connect verification', () => {
       seedUser(getDatabase(), 730001);
       const order = createOrder({ userId: 730001, productId: 'telegram_premium', variantId: 'tg_prem_3m', amountETB: 1100, paymentRail: 'ton_connect' as any });
 
-      // Unauthenticated → 401
       const anon = await fetch(`http://localhost:${port}/api/payments/ton/status/${order.id}`, { method: 'POST' });
-      expect(anon.status).toBe(401);
-
-      // Wrong owner → 404 (IDOR guard)
-      const stranger = await fetch(`http://localhost:${port}/api/payments/ton/status/${order.id}`, {
-        method: 'POST',
-        headers: { Authorization: `tma ${signedInitData(999999)}` },
-      });
-      expect(stranger.status).toBe(404);
-
-      // Rightful owner, nothing on chain yet → verified:false, no transition
-      const pending = await fetch(`http://localhost:${port}/api/payments/ton/status/${order.id}`, {
-        method: 'POST',
-        headers: { Authorization: `tma ${signedInitData(730001)}` },
-      });
-      expect(pending.status).toBe(200);
-      expect((await pending.json()).verified).toBe(false);
+      expect(anon.status).toBe(410);
+      const body = await anon.json();
+      expect(body.error).toMatch(/decommissioned/i);
       expect(getOrderById(order.id)?.status).toBe('awaiting_payment');
     } finally {
       await closeServer(server);

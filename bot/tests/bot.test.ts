@@ -93,5 +93,55 @@ describe('Bot Core & Handlers', () => {
     expect(rows[0][1].text).toBe('⭐ Telegram Premium');
     expect((rows[0][1] as any).style).toBe('primary');
   });
+
+  it('checkout keyboard contains strictly Telebirr, CBE Bank, and Bank of Abyssinia (no decommissioned rails)', async () => {
+    const { renderPaymentRailSelection } = await import('../src/bot/handlers/checkout.js');
+    const { createOrder } = await import('../src/services/orders.service.js');
+
+    const order = createOrder({
+      userId: 999999,
+      username: 'habeshatester',
+      productId: 'gemini_pro_18m',
+      amountETB: 1500,
+      paymentRail: 'telebirr',
+    });
+
+    let renderedKeyboard: any = null;
+    let renderedText = '';
+    const mockCtx: any = {
+      callbackQuery: {
+        message: {},
+      },
+      editMessageText: async (text: string, options: any) => {
+        renderedText = text;
+        renderedKeyboard = options?.reply_markup;
+      },
+    };
+
+    await renderPaymentRailSelection(mockCtx, order, 'Gemini Pro 18M');
+
+    expect(renderedText).toContain('Order Ref');
+    expect(renderedKeyboard).toBeDefined();
+
+    const flatButtons = renderedKeyboard.inline_keyboard.flat();
+    const buttonTexts = flatButtons.map((b: any) => b.text);
+    const callbackDatas = flatButtons.map((b: any) => b.callback_data);
+
+    // Active rails present
+    expect(buttonTexts.some((t: string) => t.includes('Telebirr'))).toBe(true);
+    expect(buttonTexts.some((t: string) => t.includes('CBE Bank'))).toBe(true);
+    expect(buttonTexts.some((t: string) => t.includes('Bank of Abyssinia'))).toBe(true);
+
+    // Exact callback data prefixes
+    expect(callbackDatas).toContain(`pay_manual_telebirr_${order.id}`);
+    expect(callbackDatas).toContain(`pay_manual_cbe_${order.id}`);
+    expect(callbackDatas).toContain(`pay_manual_abyssinia_${order.id}`);
+
+    // Strictly NO decommissioned rails present (chapa, wallet_pay, ton_connect)
+    expect(callbackDatas.some((cb: string) => cb.includes('chapa'))).toBe(false);
+    expect(callbackDatas.some((cb: string) => cb.includes('wallet_pay'))).toBe(false);
+    expect(callbackDatas.some((cb: string) => cb.includes('ton'))).toBe(false);
+    expect(buttonTexts.some((t: string) => /chapa|wallet|ton/i.test(t))).toBe(false);
+  });
 });
 

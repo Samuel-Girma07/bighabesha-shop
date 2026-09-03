@@ -408,7 +408,7 @@ describe('Medium #8: API refuses orders/invoices for sold-out stock products', (
     return fetch(`http://localhost:${port}/api/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `tma ${signedInitData(userId)}` },
-      body: JSON.stringify({ productId: 'gemini_pro_18m', variantId: 'gemini_pro_18m_default', paymentRail: 'wallet_pay' }),
+      body: JSON.stringify({ productId: 'gemini_pro_18m', variantId: 'gemini_pro_18m_default', paymentRail: 'telebirr' }),
     });
   }
 
@@ -438,7 +438,7 @@ describe('Medium #8: API refuses orders/invoices for sold-out stock products', (
     const res = await fetch(`http://localhost:${port}/api/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `tma ${signedInitData(710003)}` },
-      body: JSON.stringify({ productId: 'telegram_premium', variantId: 'tg_prem_3m', paymentRail: 'wallet_pay' }),
+      body: JSON.stringify({ productId: 'telegram_premium', variantId: 'tg_prem_3m', paymentRail: 'telebirr' }),
     });
     expect(res.status).toBe(201);
   });

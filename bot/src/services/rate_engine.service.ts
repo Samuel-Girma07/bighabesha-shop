@@ -26,42 +26,10 @@ export function getFallbackTonUsd(): number {
   return getNumericSetting('fallback_ton_usd', 3.50);
 }
 
-export async function fetchCoinGeckoPrices(forceRefresh = false): Promise<{ tonUsd: number; usdtUsd: number }> {
-  const now = Date.now();
-  if (!forceRefresh && priceCache.lastFetchedAt > 0 && now - priceCache.lastFetchedAt < CACHE_TTL_MS) {
-    return { tonUsd: priceCache.tonUsd, usdtUsd: priceCache.usdtUsd };
-  }
-
-  if (forceRefresh) invalidate(PRICE_CACHE_KEY);
-
-  const fallbackTon = getFallbackTonUsd();
-
-  try {
-    // cached() shares a single in-flight promise across concurrent callers, so
-    // a stampede of cache misses still issues exactly one upstream request.
-    return await cached(PRICE_CACHE_KEY, { ttlMs: CACHE_TTL_MS, staleMs: PRICE_STALE_MS }, async () => {
-      const data = await fetchJson<{
-        'the-open-network'?: { usd?: number };
-        tether?: { usd?: number };
-      }>('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network,tether&vs_currencies=usd', {
-        timeoutMs: 5000,
-        attempts: 2,
-        retryOn5xx: true,
-        breakerKey: 'coingecko',
-      });
-
-      const tonUsd = data['the-open-network']?.usd || priceCache.tonUsd || fallbackTon;
-      const usdtUsd = data.tether?.usd || 1.0;
-
-      priceCache = { tonUsd, usdtUsd, lastFetchedAt: Date.now() };
-
-      logger.debug({ tonUsd, usdtUsd }, 'Updated crypto prices from CoinGecko');
-      return { tonUsd, usdtUsd };
-    });
-  } catch (err: any) {
-    logger.warn({ err: err?.message || err }, 'Failed to fetch CoinGecko rates, using cached or fallback prices.');
-    return { tonUsd: priceCache.tonUsd || fallbackTon, usdtUsd: priceCache.usdtUsd || 1.0 };
-  }
+export async function fetchCoinGeckoPrices(_forceRefresh = false): Promise<{ tonUsd: number; usdtUsd: number }> {
+  const tonUsd = priceCache.tonUsd || getFallbackTonUsd();
+  const usdtUsd = priceCache.usdtUsd || 1.0;
+  return { tonUsd, usdtUsd };
 }
 
 export async function fetchLiveUSDToETB(): Promise<number | null> {

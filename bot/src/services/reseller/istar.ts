@@ -49,8 +49,12 @@ function errorMessage(err: IStarTopUpResponse['error'] | IStarBalanceResponse['e
 export class IStarAdapter extends HttpResellerProviderBase {
   readonly name = 'istar';
 
-  protected baseUrl(): string {
-    return (this.config.RESELLER_API_URL ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+  protected override apiKey(): string {
+    return this.config.ISTAR_API_KEY || this.config.RESELLER_API_KEY;
+  }
+
+  protected override baseUrl(): string {
+    return (this.config.ISTAR_API_URL ?? this.config.RESELLER_API_URL ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
   }
 
   async fulfill(params: ResellerFulfillParams): Promise<ResellerFulfillResult> {
@@ -84,6 +88,7 @@ export class IStarAdapter extends HttpResellerProviderBase {
 
     return {
       success: true,
+      provider: 'istar',
       providerTxId,
       costUsdt: toNumber(response.data?.price),
       rawResponse: response,

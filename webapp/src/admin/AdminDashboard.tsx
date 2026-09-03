@@ -57,6 +57,7 @@ import {
   TelegramBrandIcon,
   StarsBrandIcon,
 } from '../components/Icons.tsx';
+import { ResellerBadge } from './Orders.tsx';
 import './admin.css';
 
 // ── Additional Clean Inline Vector Icons ─────────────────────────────
@@ -333,6 +334,7 @@ export const AdminDashboard: React.FC = () => {
   // Filter & Search States
   const [categoryRail, setCategoryRail] = useState<string>('all');
   const [orderFilter, setOrderFilter] = useState<string>('all');
+  const [providerFilter, setProviderFilter] = useState<string>('all');
   const [orderSearch, setOrderSearch] = useState<string>('');
   const [orders, setOrders] = useState<any[]>([]);
 
@@ -356,7 +358,7 @@ export const AdminDashboard: React.FC = () => {
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [fulfillProof, setFulfillProof] = useState('');
-  const [modalType, setModalType] = useState<'receipt' | 'reject' | 'fulfill' | null>(null);
+  const [modalType, setModalType] = useState<'receipt' | 'reject' | 'fulfill' | 'details' | null>(null);
 
   // In-flight guards
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -995,12 +997,15 @@ export const AdminDashboard: React.FC = () => {
   const filteredOrders = orders.filter((o) => {
     if (orderFilter !== 'all' && o.status !== orderFilter) return false;
     if (categoryRail !== 'all' && (o.payment_rail || '').toLowerCase() !== categoryRail.toLowerCase()) return false;
+    if (providerFilter !== 'all' && (o.reseller_provider || '').toLowerCase() !== providerFilter.toLowerCase()) return false;
     if (orderSearch) {
       const q = orderSearch.toLowerCase();
       const matchId = String(o.id).includes(q);
       const matchUser = o.username?.toLowerCase().includes(q) || String(o.user_id).includes(q);
       const matchProd = o.product_id?.toLowerCase().includes(q);
-      if (!matchId && !matchUser && !matchProd) return false;
+      const matchProvider = o.reseller_provider?.toLowerCase().includes(q);
+      const matchTarget = o.target_username?.toLowerCase().includes(q);
+      if (!matchId && !matchUser && !matchProd && !matchProvider && !matchTarget) return false;
     }
     return true;
   });
@@ -1908,6 +1913,22 @@ export const AdminDashboard: React.FC = () => {
                       {rail.toUpperCase()}
                     </span>
                   ))}
+                  <span style={{ width: '1px', height: '16px', background: 'var(--admin-border)', margin: '0 4px', alignSelf: 'center' }} />
+                  <span
+                    className={`filter-chip ${providerFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => setProviderFilter('all')}
+                  >
+                    All Providers
+                  </span>
+                  {['gramix', 'istar'].map((prov) => (
+                    <span
+                      key={prov}
+                      className={`filter-chip ${providerFilter === prov ? 'active' : ''}`}
+                      onClick={() => setProviderFilter(providerFilter === prov ? 'all' : prov)}
+                    >
+                      {prov === 'gramix' ? 'Gramix' : 'iStar'}
+                    </span>
+                  ))}
                 </div>
 
                 <div className="table-actions-right">
@@ -1929,10 +1950,10 @@ export const AdminDashboard: React.FC = () => {
                   <thead>
                     <tr>
                       <th style={{ width: '22%' }}>ORDER &amp; TIME ↕</th>
-                      <th style={{ width: '20%' }}>CUSTOMER ↕</th>
-                      <th style={{ width: '26%' }}>PRODUCT &amp; PLAN ↕</th>
-                      <th style={{ width: '17%' }}>PRICE &amp; RAIL ↕</th>
-                      <th style={{ width: '15%', textAlign: 'right' }}>STATUS &amp; ACTIONS ↕</th>
+                      <th style={{ width: '19%' }}>CUSTOMER ↕</th>
+                      <th style={{ width: '27%' }}>PRODUCT &amp; PROVIDER ↕</th>
+                      <th style={{ width: '16%' }}>PRICE &amp; RAIL ↕</th>
+                      <th style={{ width: '16%', textAlign: 'right' }}>STATUS &amp; ACTIONS ↕</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1955,8 +1976,11 @@ export const AdminDashboard: React.FC = () => {
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                                 <span
                                   className="admin-order-id-chip"
-                                  title="Click to copy Order ID"
-                                  onClick={() => copyTextToClipboard(String(ord.id), 'Order ID')}
+                                  title="Click to view order details"
+                                  onClick={() => {
+                                    setSelectedOrder(ord);
+                                    setModalType('details');
+                                  }}
                                 >
                                   #{ord.id}
                                 </span>
@@ -1983,8 +2007,18 @@ export const AdminDashboard: React.FC = () => {
                                 </div>
                                 <div className="table-product-info">
                                   <span className="table-product-title">{prod.name}</span>
-                                  {prod.variant && (
-                                    <span className="table-product-variant">{prod.variant}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
+                                    {prod.variant && (
+                                      <span className="table-product-variant">{prod.variant}</span>
+                                    )}
+                                    {ord.reseller_provider && (
+                                      <ResellerBadge provider={ord.reseller_provider} />
+                                    )}
+                                  </div>
+                                  {ord.target_username && (
+                                    <span style={{ fontSize: '10.5px', color: 'var(--admin-amethyst)', marginTop: '2px' }}>
+                                      Recipient: @{ord.target_username}
+                                    </span>
                                   )}
                                 </div>
                               </div>
@@ -2075,19 +2109,34 @@ export const AdminDashboard: React.FC = () => {
                                       )}
                                     </>
                                   )}
-                                  {ord.status !== 'pending_approval' && ord.status !== 'pending_fulfillment' && ord.receipt_file_id && (
-                                    <button
-                                      className="action-btn-pill-secondary"
-                                      title="Inspect payment slip"
-                                      aria-label="Inspect payment slip"
-                                      onClick={() => {
-                                        setSelectedOrder(ord);
-                                        setModalType('receipt');
-                                      }}
-                                    >
-                                      <EyeIcon size={12} />
-                                      <span>Slip</span>
-                                    </button>
+                                  {ord.status !== 'pending_approval' && ord.status !== 'pending_fulfillment' && (
+                                    <>
+                                      <button
+                                        className="action-btn-pill-secondary"
+                                        title="View order specifications and fulfillment"
+                                        aria-label="View order details"
+                                        onClick={() => {
+                                          setSelectedOrder(ord);
+                                          setModalType('details');
+                                        }}
+                                      >
+                                        <EyeIcon size={12} />
+                                        <span>Details</span>
+                                      </button>
+                                      {ord.receipt_file_id && (
+                                        <button
+                                          className="action-btn-pill-secondary"
+                                          title="Inspect payment slip"
+                                          aria-label="Inspect payment slip"
+                                          onClick={() => {
+                                            setSelectedOrder(ord);
+                                            setModalType('receipt');
+                                          }}
+                                        >
+                                          <span>Slip</span>
+                                        </button>
+                                      )}
+                                    </>
                                   )}
                                 </div>
                               </div>
@@ -2896,10 +2945,29 @@ export const AdminDashboard: React.FC = () => {
                   <span className="impeccable-detail-label">Customer Account</span>
                   <span className="impeccable-detail-value">@{selectedOrder.username || 'Customer'} (ID: {selectedOrder.user_id})</span>
                 </div>
+                {selectedOrder.target_username && (
+                  <div className="impeccable-modal-detail-row">
+                    <span className="impeccable-detail-label">Gift Recipient</span>
+                    <span className="impeccable-detail-value" style={{ color: 'var(--admin-amethyst)' }}>@{selectedOrder.target_username}</span>
+                  </div>
+                )}
                 <div className="impeccable-modal-detail-row">
                   <span className="impeccable-detail-label">Settlement Amount</span>
                   <span className="impeccable-detail-value">{selectedOrder.amount_etb?.toLocaleString()} ETB ({selectedOrder.payment_rail?.toUpperCase()})</span>
                 </div>
+                {selectedOrder.reseller_provider && (
+                  <div className="impeccable-modal-detail-row">
+                    <span className="impeccable-detail-label">Reseller Provider</span>
+                    <span className="impeccable-detail-value" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                      <ResellerBadge provider={selectedOrder.reseller_provider} size="md" />
+                      {selectedOrder.reseller_tx_id && (
+                        <span style={{ fontSize: '11px', color: 'var(--admin-text-muted)', fontFamily: 'var(--font-admin-mono)' }}>
+                          Tx: {selectedOrder.reseller_tx_id}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
                 {selectedOrder.receipt_note && (
                   <div className="impeccable-modal-detail-row">
                     <span className="impeccable-detail-label">Buyer Note</span>
@@ -3087,7 +3155,160 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* 4. Impeccable Action Confirmation Dialog */}
+      {/* 4. Comprehensive Order Details Modal */}
+      {modalType === 'details' && selectedOrder && (
+        <div className="impeccable-modal-backdrop" onClick={() => setModalType(null)}>
+          <div className="impeccable-modal-card" role="dialog" aria-modal="true" aria-labelledby="details-modal-title" onClick={(e) => e.stopPropagation()}>
+            <div className="impeccable-modal-header">
+              <div className="impeccable-modal-header-left">
+                <div className="impeccable-modal-icon-badge general">
+                  <ShoppingBagIcon size={20} />
+                </div>
+                <div className="impeccable-modal-title-box">
+                  <span className="impeccable-modal-category-tag">Order Specifications</span>
+                  <h3 id="details-modal-title" className="impeccable-modal-title">
+                    Order #{selectedOrder.id} Details
+                  </h3>
+                </div>
+              </div>
+              <button
+                className="impeccable-modal-close-btn"
+                aria-label="Close dialog"
+                onClick={() => setModalType(null)}
+              >
+                <CloseIcon size={14} />
+              </button>
+            </div>
+
+            <div className="impeccable-modal-body">
+              <div className="impeccable-modal-details-grid">
+                <div className="impeccable-modal-detail-row">
+                  <span className="impeccable-detail-label">Status</span>
+                  <span className="impeccable-detail-value">
+                    <span className={formatOrderStatus(selectedOrder.status).className}>
+                      <span className="status-dot" />
+                      {formatOrderStatus(selectedOrder.status).label}
+                    </span>
+                  </span>
+                </div>
+                <div className="impeccable-modal-detail-row">
+                  <span className="impeccable-detail-label">Product</span>
+                  <span className="impeccable-detail-value">
+                    {formatProductName(selectedOrder.product_id, selectedOrder.variant_id).name}
+                    {formatProductName(selectedOrder.product_id, selectedOrder.variant_id).variant && ` (${formatProductName(selectedOrder.product_id, selectedOrder.variant_id).variant})`}
+                  </span>
+                </div>
+                <div className="impeccable-modal-detail-row">
+                  <span className="impeccable-detail-label">Customer Account</span>
+                  <span className="impeccable-detail-value">@{selectedOrder.username || 'Customer'} (ID: {selectedOrder.user_id})</span>
+                </div>
+                {selectedOrder.target_username && (
+                  <div className="impeccable-modal-detail-row">
+                    <span className="impeccable-detail-label">Gift Recipient</span>
+                    <span className="impeccable-detail-value" style={{ color: 'var(--admin-amethyst)' }}>@{selectedOrder.target_username}</span>
+                  </div>
+                )}
+                <div className="impeccable-modal-detail-row">
+                  <span className="impeccable-detail-label">Settlement</span>
+                  <span className="impeccable-detail-value">
+                    {selectedOrder.amount_etb?.toLocaleString()} ETB ({selectedOrder.payment_rail?.toUpperCase()})
+                  </span>
+                </div>
+                {selectedOrder.reseller_provider && (
+                  <div className="impeccable-modal-detail-row">
+                    <span className="impeccable-detail-label">Reseller Provider</span>
+                    <span className="impeccable-detail-value" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                      <ResellerBadge provider={selectedOrder.reseller_provider} size="md" />
+                      {selectedOrder.reseller_tx_id && (
+                        <span style={{ fontSize: '11px', color: 'var(--admin-text-muted)', fontFamily: 'var(--font-admin-mono)' }}>
+                          Tx: {selectedOrder.reseller_tx_id}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
+                {selectedOrder.reseller_error && (
+                  <div className="impeccable-modal-detail-row">
+                    <span className="impeccable-detail-label">Reseller Warning</span>
+                    <span className="impeccable-detail-value" style={{ color: 'var(--admin-ruby)' }}>
+                      {selectedOrder.reseller_error}
+                    </span>
+                  </div>
+                )}
+                {selectedOrder.receipt_note && (
+                  <div className="impeccable-modal-detail-row">
+                    <span className="impeccable-detail-label">Buyer Note</span>
+                    <span className="impeccable-detail-value" style={{ color: 'var(--admin-accent-text)' }}>{selectedOrder.receipt_note}</span>
+                  </div>
+                )}
+                {selectedOrder.rejection_reason && (
+                  <div className="impeccable-modal-detail-row">
+                    <span className="impeccable-detail-label">Rejection Reason</span>
+                    <span className="impeccable-detail-value" style={{ color: 'var(--admin-ruby)' }}>{selectedOrder.rejection_reason}</span>
+                  </div>
+                )}
+                {selectedOrder.fulfillment_payload && (
+                  <div className="impeccable-modal-detail-row">
+                    <span className="impeccable-detail-label">Payload / Key</span>
+                    <span className="impeccable-detail-value" style={{ wordBreak: 'break-all', fontFamily: 'var(--font-admin-mono)', color: 'var(--admin-emerald)' }}>
+                      {selectedOrder.fulfillment_payload}
+                    </span>
+                  </div>
+                )}
+                {selectedOrder.fulfillment_proof && (
+                  <div className="impeccable-modal-detail-row">
+                    <span className="impeccable-detail-label">Fulfillment Note</span>
+                    <span className="impeccable-detail-value">{selectedOrder.fulfillment_proof}</span>
+                  </div>
+                )}
+                <div className="impeccable-modal-detail-row">
+                  <span className="impeccable-detail-label">Placed At</span>
+                  <span className="impeccable-detail-value">
+                    {formatDateTime(selectedOrder.created_at).date} · {formatDateTime(selectedOrder.created_at).time}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="impeccable-modal-footer">
+              {selectedOrder.receipt_file_id && (
+                <button
+                  className="impeccable-btn-action secondary"
+                  onClick={() => setModalType('receipt')}
+                >
+                  <EyeIcon size={14} />
+                  <span>Inspect Slip</span>
+                </button>
+              )}
+              {selectedOrder.status === 'pending_approval' && (
+                <button
+                  className="impeccable-btn-action danger"
+                  onClick={() => setModalType('reject')}
+                >
+                  Reject
+                </button>
+              )}
+              {selectedOrder.status === 'pending_approval' && (
+                <button
+                  className="impeccable-btn-action primary"
+                  onClick={() => handleApprove(selectedOrder.id)}
+                >
+                  <CheckCircleIcon size={14} />
+                  <span>Approve &amp; Deliver</span>
+                </button>
+              )}
+              <button
+                className="impeccable-btn-cancel"
+                onClick={() => setModalType(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Impeccable Action Confirmation Dialog */}
       {confirmModal && (
         <div className="impeccable-modal-backdrop" onClick={() => setConfirmModal(null)}>
           <div

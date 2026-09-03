@@ -276,16 +276,27 @@ export async function renderResellerBalance(ctx: Context): Promise<void> {
     const belowThreshold = balance.balanceUsdt < config.RESELLER_LOW_BALANCE_ALERT_USDT;
     const statusIcon = belowThreshold ? '🔴 Low' : '🟢 Healthy';
 
+    let breakdown = '';
+    if (balance.providers && balance.providers.length > 0) {
+      breakdown = '\n\n<b>Provider Breakdown:</b>\n' +
+        balance.providers.map((p) => {
+          const name = p.name.toLowerCase() === 'gramix' ? 'Gramix' : p.name.toLowerCase() === 'istar' ? 'iStar' : p.name;
+          const bal = p.ok ? `$${(p.balanceUsdt ?? p.balance).toFixed(2)} ${escapeHtml(p.currency || 'USDT')}` : 'unavailable';
+          return `• ${escapeHtml(name)}: ${bal}`;
+        }).join('\n');
+    }
+
     const text = '💰 <b>Reseller Balance</b>\n\n' +
       `• Provider: <b>${escapeHtml(balance.provider)}</b>\n` +
       `• Float Balance: <b>$${balance.balanceUsdt.toFixed(2)} ${escapeHtml(balance.currency)}</b>\n` +
       `• Alert Threshold: $${config.RESELLER_LOW_BALANCE_ALERT_USDT.toFixed(2)}\n` +
       `• Status: <b>${statusIcon}</b>` +
+      breakdown +
       (belowThreshold ? '\n\n🚨 <i>Float is below threshold — Premium deliveries will fail until topped up.</i>' : '');
 
     if (belowThreshold) {
       // Alert the full admin group even though this was a manual refresh.
-      void notifyAdminsLowFloatFromResult(ctx.api, balance.provider, balance.balanceUsdt).catch((err) => {
+      void notifyAdminsLowFloatFromResult(ctx.api, balance.provider, balance.balanceUsdt, balance.providers).catch((err) => {
         logger.warn({ err }, 'Low-float alert fan-out failed');
       });
     }

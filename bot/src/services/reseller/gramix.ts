@@ -45,8 +45,12 @@ function toNumber(value: unknown): number | undefined {
 export class GramixAdapter extends HttpResellerProviderBase {
   readonly name = 'gramix';
 
-  protected baseUrl(): string {
-    return (this.config.RESELLER_API_URL ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+  protected override apiKey(): string {
+    return this.config.GRAMIX_API_KEY || this.config.RESELLER_API_KEY;
+  }
+
+  protected override baseUrl(): string {
+    return (this.config.GRAMIX_API_URL ?? this.config.RESELLER_API_URL ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
   }
 
   async fulfill(params: ResellerFulfillParams): Promise<ResellerFulfillResult> {
@@ -82,6 +86,7 @@ export class GramixAdapter extends HttpResellerProviderBase {
 
     return {
       success: true,
+      provider: 'gramix',
       providerTxId,
       costUsdt: toNumber(response.cost_usdt) ?? toNumber(response.cost),
       rawResponse: response,

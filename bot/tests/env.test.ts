@@ -41,4 +41,31 @@ describe('Environment Configuration Validation', () => {
     expect(config.PORT).toBe(4000);
     expect(config.SUPPORT_USERNAME).toBe('Vweah');
   });
+
+  it('correctly validates and parses dual-provider cascade reseller configuration', () => {
+    const config = loadEnv({
+      BOT_TOKEN: '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ',
+      ADMIN_IDS: '123456789',
+      RESELLER_PROVIDER: 'both',
+      GRAMIX_API_KEY: 'gramix_key_123',
+      ISTAR_API_KEY: 'istar_key_456',
+      GRAMIX_API_URL: 'https://api.gramix.io/v1',
+      ISTAR_API_URL: '',
+    });
+
+    expect(config.RESELLER_PROVIDER).toBe('both');
+    expect(config.GRAMIX_API_KEY).toBe('gramix_key_123');
+    expect(config.ISTAR_API_KEY).toBe('istar_key_456');
+    expect(config.GRAMIX_API_URL).toBe('https://api.gramix.io/v1');
+    expect(config.ISTAR_API_URL).toBeUndefined();
+
+    const cascadeConfig = loadEnv({
+      BOT_TOKEN: '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ',
+      ADMIN_IDS: '123456789',
+      RESELLER_PROVIDER: 'cascade',
+    });
+    expect(cascadeConfig.RESELLER_PROVIDER).toBe('cascade');
+    expect(cascadeConfig.GRAMIX_API_KEY).toBe('');
+    expect(cascadeConfig.ISTAR_API_KEY).toBe('');
+  });
 });

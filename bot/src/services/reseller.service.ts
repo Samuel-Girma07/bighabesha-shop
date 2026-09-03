@@ -9,7 +9,11 @@ import {
   InsufficientFloatError,
   InvalidTargetUserError,
   ProviderUnavailableError,
+  type ResellerBalanceResult,
+  type ResellerBalanceSubProvider,
 } from './reseller/types.js';
+import { getDatabase } from '../db/index.js';
+import { tryAcquireLease } from '../db/lease.js';
 
 export interface DeliverOutcome {
   order: Order;
@@ -117,14 +121,16 @@ export async function deliverWithReseller(
       months,
     });
 
+    const fulfillingProvider = result.provider || provider.name;
     const fulfilled = updateOrderStatus(orderId, 'fulfilled', {
+      reseller_provider: fulfillingProvider,
       reseller_tx_id: result.providerTxId || null,
       fulfillment_payload: `Telegram Premium ${months}M activated on @${targetUsername}`,
       fulfillment_proof: result.providerTxId ? `Provider tx ${result.providerTxId}` : null,
-    }, { actorType: 'admin', actorId: String(adminId), note: `Delivered via ${provider.name}` });
+    }, { actorType: 'admin', actorId: String(adminId), note: `Delivered via ${fulfillingProvider}` });
 
     logger.info(
-      { orderId, provider: provider.name, providerTxId: result.providerTxId, months },
+      { orderId, provider: fulfillingProvider, providerTxId: result.providerTxId, months },
       'Reseller delivery succeeded'
     );
 
@@ -186,29 +192,102 @@ export async function checkBalanceAndAlert(api: Api<RawApi>): Promise<{ provider
   const config = getConfig();
 
   if (balance.balanceUsdt < config.RESELLER_LOW_BALANCE_ALERT_USDT) {
-    await notifyAdminsLowFloatFromResult(api, balance.provider, balance.balanceUsdt);
+    await notifyAdminsLowFloatFromResult(api, balance.provider, balance.balanceUsdt, balance.providers);
+  } else if (balance.providers && balance.providers.length > 0) {
+    const hasLowSub = balance.providers.some(
+      (sub) => !sub.ok || (sub.balanceUsdt ?? sub.balance) < config.RESELLER_LOW_BALANCE_ALERT_USDT
+    );
+    if (hasLowSub) {
+      await notifyAdminsLowFloatFromResult(api, balance.provider, balance.balanceUsdt, balance.providers);
+    }
   }
   return { provider: balance.provider, balanceUsdt: balance.balanceUsdt };
 }
 
 async function notifyAdminsLowFloat(api: Api<RawApi>, err: InsufficientFloatError): Promise<void> {
-  await notifyAdminsLowFloatFromResult(api, err.provider, err.balanceUsdt);
+  let balance = err.balanceUsdt;
+  let providers: ResellerBalanceSubProvider[] | undefined;
+  if (balance === undefined) {
+    try {
+      const provider = getResellerProvider();
+      if (provider) {
+        const live = await provider.getBalance();
+        balance = live.balanceUsdt;
+        providers = live.providers;
+      }
+    } catch (balanceErr) {
+      logger.warn({ err: balanceErr }, 'Failed to query live reseller float balance in notifyAdminsLowFloat');
+    }
+  }
+  await notifyAdminsLowFloatFromResult(api, err.provider, balance, providers);
+}
+
+function formatProviderDisplayName(name: string): string {
+  if (name.toLowerCase() === 'gramix') return 'Gramix';
+  if (name.toLowerCase() === 'istar') return 'iStar';
+  return name;
 }
 
 /** Broadcasts a low-float warning to every configured admin. */
 export async function notifyAdminsLowFloatFromResult(
   api: Api<RawApi>,
-  providerName: string,
-  balanceUsdt: number | undefined
+  providerNameOrResult: string | ResellerBalanceResult,
+  balanceUsdt?: number,
+  subProviders?: ResellerBalanceResult['providers']
 ): Promise<void> {
+  let providerName: string;
+  let resolvedBalance = balanceUsdt;
+  let providers = subProviders;
+
+  if (typeof providerNameOrResult === 'object' && providerNameOrResult !== null) {
+    providerName = providerNameOrResult.provider;
+    if (resolvedBalance === undefined) resolvedBalance = providerNameOrResult.balanceUsdt;
+    if (!providers) providers = providerNameOrResult.providers;
+  } else {
+    providerName = providerNameOrResult;
+  }
+
+  if (resolvedBalance === undefined) {
+    try {
+      const provider = getResellerProvider();
+      if (provider) {
+        const live = await provider.getBalance();
+        resolvedBalance = live.balanceUsdt;
+        if (!providers) providers = live.providers;
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Failed to query live reseller float balance for alert');
+    }
+  }
+
   const config = getConfig();
-  const balanceLine = balanceUsdt !== undefined ? `$${balanceUsdt.toFixed(2)} USDT` : 'unknown';
-  const message =
-    `🚨 <b>Reseller Float Low</b>\n\n` +
-    `• Provider: <b>${escapeHtml(providerName)}</b>\n` +
-    `• Balance: <b>${balanceLine}</b>\n` +
-    `• Alert threshold: $${config.RESELLER_LOW_BALANCE_ALERT_USDT.toFixed(2)}\n\n` +
-    `Premium deliveries will fail until the float is topped up.`;
+  const balanceLine = resolvedBalance !== undefined ? `$${resolvedBalance.toFixed(2)} USDT` : 'unknown';
+  let message: string;
+
+  if (providers && providers.length > 0) {
+    const providerLines = providers.map((p) => {
+      const bal = p.ok ? `$${(p.balanceUsdt ?? p.balance).toFixed(2)}` : '$0.00';
+      let status = 'unavailable';
+      if (p.ok) {
+        status = (p.balanceUsdt ?? p.balance) < config.RESELLER_LOW_BALANCE_ALERT_USDT ? 'low' : 'ok';
+      }
+      return `• ${escapeHtml(formatProviderDisplayName(p.name))}: ${bal} (${status})`;
+    }).join('\n');
+
+    message =
+      `🚨 <b>Reseller Float Low</b>\n\n` +
+      `• Total Float: <b>${balanceLine}</b>\n` +
+      `${providerLines}\n` +
+      `• Alert threshold: $${config.RESELLER_LOW_BALANCE_ALERT_USDT.toFixed(2)}\n\n` +
+      `Premium deliveries will fail until the float is topped up.`;
+  } else {
+    message =
+      `🚨 <b>Reseller Float Low</b>\n\n` +
+      `• Provider: <b>${escapeHtml(providerName)}</b>\n` +
+      `• Balance: <b>${balanceLine}</b>\n` +
+      `• Alert threshold: $${config.RESELLER_LOW_BALANCE_ALERT_USDT.toFixed(2)}\n\n` +
+      `Premium deliveries will fail until the float is topped up.`;
+  }
 
   for (const adminId of config.ADMIN_IDS) {
     try {
@@ -218,3 +297,83 @@ export async function notifyAdminsLowFloatFromResult(
     }
   }
 }
+
+export async function retryFailedResellerDeliveries(api?: Api<RawApi>): Promise<{ retried: number; fulfilled: number; failed: number }> {
+  const provider = getResellerProvider();
+  if (!provider) return { retried: 0, fulfilled: 0, failed: 0 };
+
+  const leaseAcquired = tryAcquireLease('reseller:retry_sweeper', 280_000);
+  if (!leaseAcquired) {
+    logger.debug('Another instance holds the reseller retry sweeper lease');
+    return { retried: 0, fulfilled: 0, failed: 0 };
+  }
+
+  try {
+    const balance = await provider.getBalance();
+    const config = getConfig();
+    const threshold = config.RESELLER_LOW_BALANCE_ALERT_USDT;
+    if (balance.balanceUsdt < threshold) {
+      logger.warn({ provider: balance.provider, balanceUsdt: balance.balanceUsdt, threshold }, 'Reseller retry sweeper skipped: float below threshold');
+      if (api) await notifyAdminsLowFloatFromResult(api, balance.provider, balance.balanceUsdt, balance.providers);
+      return { retried: 0, fulfilled: 0, failed: 0 };
+    }
+
+    const db = getDatabase();
+    const failedOrders = db.prepare(`
+      SELECT * FROM orders
+      WHERE status = 'delivery_failed'
+        AND product_id = 'telegram_premium'
+      ORDER BY created_at ASC
+      LIMIT 25
+    `).all() as Order[];
+
+    let fulfilled = 0;
+    let failed = 0;
+
+    for (const order of failedOrders) {
+      try {
+        const outcome = await deliverWithReseller(order.id, 0, api);
+        if (outcome.delivered) {
+          fulfilled++;
+          if (api) {
+            const target = outcome.order.target_username || outcome.order.username || 'your account';
+            const notifyText = `<b>Payment Confirmed — Order #${order.id}</b>\n\n` +
+              `🎉 Your <b>Telegram Premium</b> has been activated on <b>@${escapeHtml(target)}</b>.\n\n` +
+              `<i>Thank you for choosing Bighabesha Shop!</i>`;
+            await api.sendMessage(order.user_id, notifyText, { parse_mode: 'HTML' }).catch(() => {});
+          }
+        } else {
+          failed++;
+        }
+      } catch (err) {
+        failed++;
+        logger.error({ err, orderId: order.id }, 'Reseller retry sweeper error on order');
+      }
+    }
+
+    logger.info({ retried: failedOrders.length, fulfilled, failed }, 'Reseller retry sweeper cycle completed');
+    return { retried: failedOrders.length, fulfilled, failed };
+  } catch (err) {
+    logger.error({ err }, 'Reseller retry sweeper execution failed');
+    return { retried: 0, fulfilled: 0, failed: 0 };
+  }
+}
+
+let sweeperTimer: NodeJS.Timeout | null = null;
+
+export function startResellerRetrySweeper(api?: any, intervalMs: number = 5 * 60 * 1000): NodeJS.Timeout {
+  if (sweeperTimer) clearInterval(sweeperTimer);
+  sweeperTimer = setInterval(() => {
+    void retryFailedResellerDeliveries(api);
+  }, intervalMs);
+  if (sweeperTimer.unref) sweeperTimer.unref();
+  return sweeperTimer;
+}
+
+export function stopResellerRetrySweeper(): void {
+  if (sweeperTimer) {
+    clearInterval(sweeperTimer);
+    sweeperTimer = null;
+  }
+}
+

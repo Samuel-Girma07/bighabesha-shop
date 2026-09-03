@@ -3,6 +3,7 @@ import { GramixAdapter } from './gramix.js';
 import { IStarAdapter } from './istar.js';
 import { GenericWebhookAdapter } from './generic.js';
 import { MockResellerAdapter } from './mock.js';
+import { CascadeResellerAdapter } from './cascade.js';
 import { ProviderUnavailableError, type IResellerProvider } from './types.js';
 
 /**
@@ -24,10 +25,21 @@ export function createResellerProvider(config: AppConfig): IResellerProvider | n
       return new IStarAdapter(config);
     case 'generic':
       return new GenericWebhookAdapter(config);
+    case 'both':
+    case 'cascade':
+      return new CascadeResellerAdapter(config);
     default:
       throw new ProviderUnavailableError(String(key), `Unknown RESELLER_PROVIDER "${key}"`);
   }
 }
 
-export type { IResellerProvider, ResellerFulfillParams, ResellerFulfillResult, ResellerBalanceResult } from './types.js';
+export { CascadeResellerAdapter };
+
+export type {
+  IResellerProvider,
+  ResellerFulfillParams,
+  ResellerFulfillResult,
+  ResellerBalanceResult,
+  ResellerBalanceSubProvider,
+} from './types.js';
 export { InsufficientFloatError, InvalidTargetUserError, ProviderUnavailableError } from './types.js';

@@ -587,6 +587,24 @@ describe('B2B Telegram Premium Reseller Pipeline', () => {
 
       expect(mockApi.sendMessage).toHaveBeenCalledTimes(2);
     });
+
+    it('queries provider balance if balanceUsdt is undefined in notifyAdminsLowFloatFromResult', async () => {
+      const mockAdapter = new MockResellerAdapter();
+      mockAdapter.customBalanceUsdt = 18.75;
+      setResellerProviderForTest(mockAdapter);
+
+      const sentAlerts: { to: number; text: string }[] = [];
+      const mockApi: any = {
+        sendMessage: async (chatId: number, text: string) => {
+          sentAlerts.push({ to: chatId, text });
+          return { message_id: 1 };
+        },
+      };
+
+      await notifyAdminsLowFloatFromResult(mockApi, 'mock', undefined);
+      expect(sentAlerts.length).toBe(2);
+      expect(sentAlerts[0].text).toContain('$18.75 USDT');
+    });
   });
 
   // =========================================================================
@@ -644,6 +662,170 @@ describe('B2B Telegram Premium Reseller Pipeline', () => {
       expect(isAdmin(ADMIN_1)).toBe(true);
       expect(isAdmin(ADMIN_2)).toBe(true);
       expect(isAdmin(undefined)).toBe(false);
+    });
+  });
+
+  // =========================================================================
+  // 7. Reseller Sweeper & Admin Queue Delivery
+  // =========================================================================
+  describe('7. Reseller Sweeper & Admin Queue Delivery', () => {
+    it('retries delivery_failed orders when float is healthy and fulfills them', async () => {
+      const { retryFailedResellerDeliveries, startResellerRetrySweeper, stopResellerRetrySweeper } = await import('../src/services/reseller.service.js');
+      const mockAdapter = new MockResellerAdapter();
+      mockAdapter.customBalanceUsdt = 100;
+      setResellerProviderForTest(mockAdapter);
+
+      const order = createOrder({
+        userId: BUYER_ID,
+        username: 'buyeruser',
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
+        paymentRail: 'telebirr',
+        status: 'pending_approval',
+        targetUsername: 'sweeper_target',
+      });
+      updateOrderStatus(order.id, 'processing');
+      updateOrderStatus(order.id, 'delivery_failed', { reseller_error: 'Temporary provider glitch' });
+
+      const mockApi: any = {
+        sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      };
+
+      const result = await retryFailedResellerDeliveries(mockApi);
+      expect(result.retried).toBe(1);
+      expect(result.fulfilled).toBe(1);
+      expect(result.failed).toBe(0);
+
+      const updated = getOrderById(order.id);
+      expect(updated?.status).toBe('fulfilled');
+      expect(mockApi.sendMessage).toHaveBeenCalledWith(
+        BUYER_ID,
+        expect.stringContaining('Telegram Premium'),
+        expect.anything()
+      );
+
+      const timer = startResellerRetrySweeper(mockApi, 100000);
+      expect(timer).toBeDefined();
+      stopResellerRetrySweeper();
+    });
+
+    it('skips sweeper retries when float is below alert threshold and alerts admins', async () => {
+      const { retryFailedResellerDeliveries } = await import('../src/services/reseller.service.js');
+      const mockAdapter = new MockResellerAdapter();
+      mockAdapter.customBalanceUsdt = 25; // threshold is 50
+      setResellerProviderForTest(mockAdapter);
+
+      const order = createOrder({
+        userId: BUYER_ID,
+        username: 'buyeruser',
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
+        paymentRail: 'telebirr',
+        status: 'pending_approval',
+        targetUsername: 'sweeper_target_2',
+      });
+      updateOrderStatus(order.id, 'processing');
+      updateOrderStatus(order.id, 'delivery_failed', { reseller_error: 'Insufficient float' });
+
+      const mockApi: any = {
+        sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      };
+
+      const result = await retryFailedResellerDeliveries(mockApi);
+      expect(result.retried).toBe(0);
+      expect(result.fulfilled).toBe(0);
+      expect(mockApi.sendMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it('handleAdminQueueResellerDeliver executes delivery and notifies buyer', async () => {
+      const { handleAdminQueueResellerDeliver } = await import('../src/bot/handlers/admin_queue.js');
+      const mockAdapter = new MockResellerAdapter();
+      setResellerProviderForTest(mockAdapter);
+
+      const order = createOrder({
+        userId: BUYER_ID,
+        username: 'buyeruser',
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
+        paymentRail: 'cbe',
+        status: 'pending_approval',
+        targetUsername: 'admin_queue_target',
+      });
+
+      const sentMessages: { to: number; text: string }[] = [];
+      const editedMessages: string[] = [];
+      const mockCtx: any = {
+        from: { id: ADMIN_1, username: 'adminuser' },
+        api: {
+          sendMessage: vi.fn().mockImplementation(async (to: number, text: string) => {
+            sentMessages.push({ to, text });
+            return { message_id: 1 };
+          }),
+        },
+        reply: vi.fn(),
+        editMessageText: vi.fn().mockImplementation(async (text: string) => {
+          editedMessages.push(text);
+          return true;
+        }),
+        callbackQuery: { message: { text: 'old' } },
+      };
+
+      await handleAdminQueueResellerDeliver(mockCtx, order.id);
+
+      const updated = getOrderById(order.id);
+      expect(updated?.status).toBe('fulfilled');
+      expect(sentMessages.length).toBe(1);
+      expect(sentMessages[0].to).toBe(BUYER_ID);
+      expect(sentMessages[0].text).toContain('admin_queue_target');
+      expect(editedMessages.length).toBe(1);
+      expect(editedMessages[0]).toContain('Reseller Delivery Succeeded');
+    });
+
+    it('admin_queue_reseller_deliver_ callback triggers reseller fulfillment and transitions the order to fulfilled', async () => {
+      const { createBot } = await import('../src/bot/bot.js');
+      const mockAdapter = new MockResellerAdapter();
+      setResellerProviderForTest(mockAdapter);
+
+      const order = createOrder({
+        userId: BUYER_ID,
+        username: 'buyeruser',
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
+        paymentRail: 'cbe',
+        status: 'pending_approval',
+        targetUsername: 'cb_queue_target',
+      });
+
+      const bot = createBot(process.env.BOT_TOKEN!);
+      (bot as any).botInfo = { id: 42, is_bot: true, username: 'test_bot', first_name: 'Test Bot' };
+      bot.api.config.use((async () => {
+        return { ok: true, result: true };
+      }) as any);
+
+      await bot.handleUpdate({
+        update_id: 123456,
+        callback_query: {
+          id: 'cb_queue_reseller_1',
+          from: { id: ADMIN_1, is_bot: false, first_name: 'Admin', username: 'adminuser' },
+          data: `admin_queue_reseller_deliver_${order.id}`,
+          chat_instance: 'ci_1',
+          message: {
+            message_id: 10,
+            date: Math.floor(Date.now() / 1000),
+            chat: { id: ADMIN_1, type: 'private' },
+            text: 'Queue message',
+          },
+        },
+      } as any);
+
+      const updated = getOrderById(order.id);
+      expect(updated?.status).toBe('fulfilled');
+      expect(updated?.reseller_tx_id).toBeTruthy();
+      expect(updated?.fulfillment_payload).toContain('cb_queue_target');
     });
   });
 });

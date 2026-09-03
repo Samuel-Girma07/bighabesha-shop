@@ -18,13 +18,21 @@ function getProductByIdSafe(productId: string) {
 import { getAvailableStockCount } from '../services/stock.service.js';
 import { getPublicSettings } from '../services/settings.service.js';
 import { fetchCoinGeckoPrices } from '../services/rate_engine.service.js';
-import { createOrder, getOrdersByUserId, getOrderById, getOrderEvents, submitReceipt, approveReceipt, updateOrderStatus, PaymentRail } from '../services/orders.service.js';
+import {
+  createOrder,
+  getOrdersByUserId,
+  getOrderById,
+  getOrderEvents,
+  submitReceipt,
+  approveReceipt,
+  updateOrderStatus,
+  PaymentRail,
+  ActivePaymentRail,
+  ACTIVE_PAYMENT_RAILS,
+  TELEGRAM_USERNAME_RE,
+} from '../services/orders.service.js';
 import { resolveOrderPrice, PricingError } from '../services/pricing.service.js';
 import { saveReceiptImage, ReceiptValidationError } from '../services/receipts.service.js';
-import { getWalletPayAdapter, verifyWalletPayWebhookSignature, isWebhookTimestampFresh, startWalletPayReconciliation } from '../services/payments/index.js';
-import { verifyChapaSignature, chapaInitialize, isChapaEnabled } from '../services/payments/chapa.js';
-import { verifyTonPayment, isTonConnectEnabled } from '../services/payments/ton.service.js';
-import { calculateCryptoQuote } from '../services/rate_engine.service.js';
 import { recordAudit } from '../services/audit.service.js';
 import { getUserStats } from '../services/loyalty.service.js';
 import { getReferralSummary } from '../services/referral.service.js';
@@ -36,7 +44,6 @@ import {
   SUPPORT_MAX_MESSAGE_LENGTH,
 } from '../services/support.service.js';
 import { escapeHtml } from '../utils/html.js';
-import { notifyBuyerOfAutoApproval as notifyBuyerOfAutoApprovalService } from '../services/buyer_notify.js';
 import { isUsernameRequired, hasPublicUsername } from '../bot/handlers/gate.js';
 import { notifyAdminsNewReceipt } from '../bot/handlers/checkout.js';
 import { getDatabase, prepared } from '../db/index.js';
@@ -59,20 +66,6 @@ function captureRawBody(req: any, _res: Response, buf: Buffer): void {
   req.rawBody = buf.toString('utf-8');
 }
 
-/** Converts an ETB payable into the TON quote used for on-chain matching. */
-async function quoteEtbToTon(netAmountEtb: number): Promise<number> {
-  const { tonUsd } = await fetchCoinGeckoPrices();
-  const { cryptoAmount } = calculateCryptoQuote(netAmountEtb, tonUsd);
-  return cryptoAmount;
-}
-
-/**
- * Shared post-approval buyer notification for auto-settled rails
- * (wallet pay webhook, Chapa webhook, TON verification) — implementation
- * lives in services/buyer_notify.ts so the background reconciliation worker
- * reuses the exact same delivery texts.
- */
-const notifyBuyerOfAutoApproval = notifyBuyerOfAutoApprovalService;
 
 /** Express middleware factory: attaches validated Telegram user or 401s. */
 function authenticateTelegramUserMiddleware() {
@@ -662,8 +655,6 @@ function buildCatalogPayload() {
   });
 
   // 5. Create Order
-  const VALID_PAYMENT_RAILS: PaymentRail[] = ['wallet_pay', 'chapa', 'ton_connect', 'telebirr', 'cbe', 'abyssinia'];
-
   app.post('/api/orders', checkoutLimiter, async (req: Request, res: Response): Promise<void> => {
     const user = authenticateTelegramUser(req);
     if (!user) {
@@ -680,13 +671,38 @@ function buildCatalogPayload() {
       return;
     }
 
-    if (!VALID_PAYMENT_RAILS.includes(paymentRail)) {
+    const DEPRECATED_PAYMENT_RAILS = ['chapa', 'wallet_pay', 'ton_connect'];
+    if (DEPRECATED_PAYMENT_RAILS.includes(paymentRail)) {
+      res.status(400).json({ error: 'Payment method discontinued. Please pay via Telebirr, CBE, or Bank of Abyssinia.' });
+      return;
+    }
+
+    if (!ACTIVE_PAYMENT_RAILS.includes(paymentRail as ActivePaymentRail)) {
       res.status(400).json({ error: 'Invalid payment method' });
       return;
     }
 
-    // Username Gate check
-    if (isUsernameRequired(productId) && !hasPublicUsername(user)) {
+    // Extract targetUsername, sanitize, and validate or fallback to buyer username
+    let targetUsername: string | null = null;
+    const rawTargetUsername = req.body.targetUsername;
+    if (typeof rawTargetUsername === 'string' && rawTargetUsername.trim()) {
+      const cleaned = rawTargetUsername.trim().replace(/^@/, '');
+      if (!TELEGRAM_USERNAME_RE.test(cleaned)) {
+        res.status(400).json({
+          error: `Invalid Telegram username: "${rawTargetUsername}". Usernames are 5-32 characters (letters, numbers, underscores).`,
+        });
+        return;
+      }
+      targetUsername = cleaned;
+    } else if (user.username && user.username.trim()) {
+      const cleaned = user.username.trim().replace(/^@/, '');
+      if (TELEGRAM_USERNAME_RE.test(cleaned)) {
+        targetUsername = cleaned;
+      }
+    }
+
+    // Username Gate check: Telegram Premium requires recipient @username
+    if (isUsernameRequired(productId) && !targetUsername && !hasPublicUsername(user)) {
       res.status(403).json({
         error: 'USERNAME_REQUIRED',
         message: 'Telegram public @username is required to purchase Telegram Premium.',
@@ -735,7 +751,7 @@ function buildCatalogPayload() {
       'create_order',
       user.id,
       rawIdempotencyKey,
-      { productId, variantId, paymentRail, promoCode }
+      { productId, variantId, paymentRail, promoCode, targetUsername }
     );
 
     if (!claimed && existingId) {
@@ -758,280 +774,33 @@ function buildCatalogPayload() {
         paymentRail,
         status: 'awaiting_payment',
         promoCode,
+        targetUsername,
       });
     } catch (err: any) {
-      res.status(400).json({ error: err?.message || 'Could not apply promo code' });
+      res.status(400).json({ error: err?.message || 'Could not create order' });
       return;
     }
     const order = created;
     recordIdempotentResult(idempotencyKey, order.id);
 
-    const netAmountEtb = Math.max(order.amount_etb - (order.discount_etb || 0), 1);
-
-    let payUrl: string | undefined;
-
-    if (paymentRail === 'wallet_pay') {
-      const adapter = getWalletPayAdapter();
-      const payment = await adapter.createPayment({
-        orderId: order.id,
-        userId: user.id,
-        amountETB: netAmountEtb,
-        productName: resolved.product.name,
-        currency: 'TON',
-      });
-      payUrl = payment.payUrl;
-
-      // Persist the provider payment reference and the quoted crypto amount
-      // immediately — the reconciliation worker and webhook validator both
-      // depend on these being stored at creation time.
-      updateOrderStatus(order.id, order.status, {
-        payment_ref: payment.paymentRef || null,
-        crypto_amount: payment.cryptoAmount ?? null,
-        crypto_currency: payment.cryptoCurrency ?? null,
-      });
-    } else if (paymentRail === 'chapa') {
-      if (!isChapaEnabled()) {
-        res.status(400).json({ error: 'Chapa payments are not available.' });
-        return;
-      }
-      try {
-        const init = await chapaInitialize({
-          txRef: order.id,
-          amountEtb: netAmountEtb,
-          buyerName: user.first_name,
-          buyerPhone: null,
-          returnUrl: `${config.WEBAPP_URL || ''}/orders`,
-        });
-        payUrl = init.payUrl;
-        updateOrderStatus(order.id, order.status, { payment_ref: init.providerRef });
-      } catch (err: any) {
-        logger.error({ err, orderId: order.id }, 'Chapa initialization failed');
-        res.status(502).json({ error: 'Payment provider unavailable. Please try another method.' });
-        return;
-      }
-    }
-
-    res.status(201).json({ order, payUrl, saleApplied: resolved.saleApplied === true });
+    res.status(201).json({ order, payUrl: undefined, saleApplied: resolved.saleApplied === true });
   });
 
-  // 5b. Chapa webhook — HMAC-SHA256(rawBody) via 'chapa-signature' header.
-  app.post('/api/webhooks/chapa', webhookLimiter, async (req: Request, res: Response): Promise<void> => {
-    const config = getConfig();
-    const secretKey = config.CHAPA_SECRET_KEY;
-    if (!secretKey) {
-      res.status(503).json({ error: 'Chapa not configured' });
-      return;
-    }
-
-    const signature = req.headers['chapa-signature'] as string | undefined;
-    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
-    if (!verifyChapaSignature(secretKey, signature, rawBody)) {
-      logger.warn('Rejected Chapa webhook with invalid signature');
-      res.status(403).json({ error: 'Invalid signature' });
-      return;
-    }
-
-    try {
-      const event = req.body as { event?: string; tx_ref?: string; status?: string; amount?: number | string };
-      const txRef = String(event.tx_ref || '');
-      const order = txRef ? getOrderById(txRef) : undefined;
-      if (!order) {
-        res.status(200).json({ status: 'ignored', reason: 'unknown_order' });
-        return;
-      }
-
-      if (!isFirstDelivery('chapa', txRef)) {
-        res.status(200).json({ status: 'ignored', reason: 'duplicate_event' });
-        return;
-      }
-
-      // Idempotency: only actionable states may transition.
-      const actionable = ['awaiting_payment', 'new', 'pending_approval'].includes(order.status);
-      const paid = event.status === 'success' || event.event === 'CHARGE.SUCCESS';
-      if (!actionable || !paid) {
-        res.status(200).json({ status: 'ignored', reason: 'not_actionable' });
-        return;
-      }
-
-      // Amount verification against net payable (never trust the payload blindly).
-      const expected = order.amount_etb - (order.discount_etb || 0);
-      const paidAmount = Number(event.amount);
-      if (!Number.isFinite(paidAmount) || Math.abs(paidAmount - expected) > 0.99) {
-        logger.warn({ orderId: order.id, expected, received: paidAmount }, 'Chapa webhook amount mismatch — NOT fulfilling');
-        recordAudit({ adminId: 'system:chapa', action: 'order.reject', targetType: 'order', targetId: order.id, changes: { reason: 'webhook_amount_mismatch', expected, received: paidAmount }, ip: req.ip });
-        res.status(200).json({ status: 'ignored', reason: 'amount_mismatch' });
-        return;
-      }
-
-      const { order: updated, autoDeliveredItem } = approveReceipt(order.id, 0);
-      updateOrderStatus(order.id, updated.status, {}, { actorType: 'system', actorId: 'chapa-webhook' });
-      notifyBuyerOfAutoApproval(bot, order, updated, autoDeliveredItem);
-      res.status(200).json({ status: 'ok' });
-    } catch (err) {
-      logger.error({ err }, 'Error processing Chapa webhook');
-      res.status(500).json({ error: 'Processing failed' });
-    }
+  // 5b. Decommissioned Card & Crypto routes — respond with 410 Gone
+  app.all('/api/webhooks/chapa', (_req: Request, res: Response): void => {
+    res.status(410).json({ error: 'Chapa webhook decommissioned' });
   });
 
-  // 5c. TON Connect on-chain verification (buyer's Mini App polls this).
-  app.post('/api/payments/ton/status/:orderId', authenticateTelegramUserMiddleware(), tonStatusLimiter, async (req: Request, res: Response): Promise<void> => {
-    const user = (req as any).tgUser as TelegramUser;
-    const orderId = req.params.orderId as string;
-    const order = getOrderById(orderId);
-
-    if (!order || order.user_id !== user.id) {
-      res.status(404).json({ error: 'Order not found' });
-      return;
-    }
-    if (!['awaiting_payment', 'new'].includes(order.status)) {
-      res.json({ verified: order.status === 'fulfilled', alreadyProcessed: true });
-      return;
-    }
-    if (!isTonConnectEnabled()) {
-      res.status(400).json({ error: 'TON payments are not configured' });
-      return;
-    }
-
-    const netTon = await quoteEtbToTon(Math.max(order.amount_etb - (order.discount_etb || 0), 1));
-    const result = await verifyTonPayment({ memo: order.id, expectedTon: netTon });
-    if (!result.verified) {
-      res.json({ verified: false });
-      return;
-    }
-
-    // TOCTOU re-check: the two awaits above leave a window where a concurrent
-    // poll or an admin approval may have already settled this order. Re-read
-    // from the database and short-circuit cleanly instead of letting
-    // approveReceipt throw a confusing 500.
-    const fresh = getOrderById(orderId);
-    if (!fresh || !['awaiting_payment', 'new'].includes(fresh.status)) {
-      res.json({
-        verified: fresh?.status === 'fulfilled',
-        alreadyProcessed: true,
-        txHash: result.txHash,
-      });
-      return;
-    }
-
-    const { order: updated, autoDeliveredItem } = approveReceipt(orderId, 0);
-    updateOrderStatus(orderId, updated.status, { payment_ref: `ton:${result.txHash}` }, { actorType: 'user', actorId: String(user.id) });
-    notifyBuyerOfAutoApproval(bot, fresh, updated, autoDeliveredItem);
-    res.json({ verified: true, txHash: result.txHash });
+  app.all('/api/wallet-pay/webhook', (_req: Request, res: Response): void => {
+    res.status(410).json({ error: 'Wallet Pay webhook decommissioned' });
   });
 
-  // 6. Submit Receipt — mounted early in the middleware chain (see top of
-  // createExpressApp) so it can use its own larger body parser.
+  app.all('/api/wallet-pay/order/:orderId', (_req: Request, res: Response): void => {
+    res.status(410).json({ error: 'Wallet Pay orders decommissioned' });
+  });
 
-  // 7. Live Wallet Pay Webhook
-  app.post('/api/wallet-pay/webhook', webhookLimiter, async (req: Request, res: Response): Promise<void> => {
-    const config = getConfig();
-    const signature = (req.headers['walletpay-signature'] || req.headers['wpay-signature'] || req.headers['x-wallet-pay-signature']) as string | undefined;
-    const timestamp = (req.headers['walletpay-timestamp'] || req.headers['wpay-timestamp'] || req.headers['x-wallet-pay-timestamp']) as string | undefined;
-
-    if (config.WALLET_PAY_MODE === 'live') {
-      if (!signature || !timestamp) {
-        res.status(401).json({ error: 'Missing Wallet Pay webhook signature headers' });
-        return;
-      }
-
-      const rawBody = (req as any).rawBody || JSON.stringify(req.body);
-      const isValid = verifyWalletPayWebhookSignature(
-        config.WALLET_PAY_API_KEY,
-        signature,
-        timestamp,
-        req.method,
-        req.originalUrl || req.url,
-        rawBody
-      );
-
-      if (!isValid) {
-        logger.warn('Invalid Wallet Pay webhook signature');
-        res.status(403).json({ error: 'Invalid webhook signature' });
-        return;
-      }
-    }
-
-    // Replay protection: reject events whose timestamp is stale or in the
-    // future beyond the allowed clock skew (applies in every mode).
-    if (!timestamp || !isWebhookTimestampFresh(timestamp)) {
-      logger.warn({ timestamp }, 'Rejected Wallet Pay webhook with missing or stale timestamp (possible replay)');
-      res.status(400).json({ error: 'Missing or expired webhook timestamp' });
-      return;
-    }
-
-    const events = Array.isArray(req.body) ? req.body : [req.body];
-
-    for (const ev of events) {
-      try {
-        const eventType = ev.event || ev.type;
-        const payload = ev.payload || ev.data || ev;
-        const externalId = payload.externalId || payload.orderId || payload.order_id || payload.customData || payload.id;
-        const eventId = String(ev.id || ev.event_id || payload.id || externalId || `${Date.now()}`);
-
-        if (!isFirstDelivery('wallet_pay', eventId)) {
-          continue;
-        }
-
-        const status = payload.status || (eventType === 'ORDER_PAID' ? 'PAID' : null);
-
-        if (eventType === 'ORDER_PAID' || status === 'PAID' || status === 'SUCCESS') {
-          if (!externalId) continue;
-          const order = getOrderById(String(externalId));
-          if (order && (order.status === 'awaiting_payment' || order.status === 'new' || order.status === 'pending_approval')) {
-
-            // Amount & currency verification: the paid amount must match the
-            // quote stored on the order at payment creation time. Never
-            // fulfil an order for a different amount than was quoted.
-            const rawPaidAmount = payload.amount?.amount ?? payload.amount;
-            const paidCurrency = payload.amount?.currencyCode ?? payload.currency;
-            const parsedPaidAmount = typeof rawPaidAmount === 'string' ? parseFloat(rawPaidAmount) : Number(rawPaidAmount);
-
-            if (
-              order.crypto_amount !== null &&
-              order.crypto_currency !== null
-            ) {
-              if (!paidCurrency || paidCurrency.toUpperCase() !== String(order.crypto_currency).toUpperCase()) {
-                logger.warn(
-                  { orderId: order.id, expected: order.crypto_currency, received: paidCurrency },
-                  'Wallet Pay event currency mismatch — order NOT fulfilled'
-                );
-                continue;
-              }
-              if (!Number.isFinite(parsedPaidAmount) || Math.abs(parsedPaidAmount - order.crypto_amount) > 0.0001) {
-                logger.warn(
-                  { orderId: order.id, expected: order.crypto_amount, received: parsedPaidAmount },
-                  'Wallet Pay event amount mismatch — order NOT fulfilled'
-                );
-                continue;
-              }
-            } else if (!Number.isFinite(parsedPaidAmount)) {
-              // No stored quote and no verifiable amount in the event:
-              // fail-closed rather than fulfilling an unverifiable payment.
-              logger.warn(
-                { orderId: order.id },
-                'Wallet Pay event lacks verifiable amount and order has no stored quote — order NOT fulfilled'
-              );
-              continue;
-            }
-
-            const paymentRef = payload.id ? String(payload.id) : undefined;
-            const { order: updated, autoDeliveredItem } = approveReceipt(order.id, 0);
-            if (paymentRef) {
-              updateOrderStatus(order.id, updated.status, { payment_ref: paymentRef });
-            }
-
-            if (bot) {
-              notifyBuyerOfAutoApproval(bot, order, updated, autoDeliveredItem);
-            }
-            logger.info({ orderId: order.id, status: updated.status }, 'Wallet Pay webhook successfully processed order');
-          }
-        }
-      } catch (err) {
-        logger.error({ err, ev }, 'Error processing Wallet Pay webhook event');
-      }
-    }
-
-    res.status(200).json({ status: 'ok' });
+  app.all('/api/payments/ton/status/:orderId', (_req: Request, res: Response): void => {
+    res.status(410).json({ error: 'TON payments decommissioned' });
   });
 
   // 8. Mount Web Admin Dashboard API Routes (with auth brute-force limits)
@@ -1057,7 +826,6 @@ export function createApiServer(bot: Bot): http.Server {
 
 export function startApiServer(bot: Bot, port: number = 3000): http.Server {
   const server = createApiServer(bot);
-  startWalletPayReconciliation(bot, 60000);
   server.listen(port, () => {
     logger.info({ port }, `Mini App REST API listening on http://localhost:${port}`);
   });

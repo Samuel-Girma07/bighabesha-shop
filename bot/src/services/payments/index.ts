@@ -2,14 +2,7 @@ import { getConfig } from '../../config/env.js';
 import { PaymentAdapter } from './types.js';
 import { MockWalletPayAdapter } from './mock_wallet_pay.js';
 import { LiveWalletPayAdapter } from './live_wallet_pay.js';
-import { chapaQueryStatus, isChapaEnabled } from './chapa.js';
-import { verifyTonPayment, isTonConnectEnabled } from './ton.service.js';
-import { fetchCoinGeckoPrices, calculateCryptoQuote } from '../rate_engine.service.js';
-import { notifyBuyerOfAutoApproval } from '../buyer_notify.js';
-import { prepared } from '../../db/index.js';
 import { logger } from '../../logger/index.js';
-import type { Bot } from 'grammy';
-import { Order, approveReceipt } from '../orders.service.js';
 
 let adapterInstance: PaymentAdapter | null = null;
 
@@ -29,148 +22,32 @@ export function resetWalletPayAdapter(): void {
   adapterInstance = null;
 }
 
-import { tryAcquireLease } from '../../db/lease.js';
-
-const SWEEP_BATCH = 25;
-const SWEEP_BUDGET_MS = 45_000;
-let sweepInFlight = false;
-let stopRequested = false;
-
 /**
- * Unified stuck-payment reconciliation sweep (runs every 60s).
- *
- * Catches orders whose webhook/poll never arrived across ALL auto-settled
- * rails:
- *  - wallet_pay:  provider API verifyPayment()
- *  - chapa:       gateway status query by tx_ref (= our order id)
- *  - ton_connect: on-chain verification against the treasury feed
- *
- * This is the safety net for the "buyer paid but closed the Mini App before
- * the poll succeeded" edge case. Mock adapters are hard-refused in production.
+ * Automated payment rails are decommissioned.
+ * Reconciling stuck payments is a safe no-op that returns immediately.
  */
-export async function reconcileStuckPayments(botInstance?: any): Promise<number> {
-  if (sweepInFlight) {
-    logger.debug('Reconciliation sweep already in progress; skipping');
-    return 0;
-  }
-
-  const leaseAcquired = tryAcquireLease('payments:reconcile', 55_000);
-  if (!leaseAcquired) {
-    logger.debug('Another node holds the reconciliation lease');
-    return 0;
-  }
-
-  sweepInFlight = true;
-  const started = Date.now();
-
-  try {
-    const stuckOrders = prepared(`
-      SELECT * FROM orders
-      WHERE status = 'awaiting_payment'
-        AND payment_rail IN ('wallet_pay', 'chapa', 'ton_connect')
-        AND created_at <= datetime('now', '-5 minutes')
-      ORDER BY created_at ASC
-      LIMIT ?
-    `).all(SWEEP_BATCH) as Order[];
-
-    if (stuckOrders.length === 0) return 0;
-
-    const config = getConfig();
-    const walletAdapter = getWalletPayAdapter();
-
-    // Defense-in-depth: the mock adapter must never fulfil real orders.
-    // (Production boots with mock mode are already blocked by env validation.)
-    if (config.NODE_ENV === 'production' && walletAdapter instanceof MockWalletPayAdapter) {
-      logger.error(
-        { stuckCount: stuckOrders.length },
-        'Refusing to reconcile payments through the mock adapter in production'
-      );
-      return 0;
-    }
-
-    let reconciledCount = 0;
-
-    for (const order of stuckOrders) {
-      if (stopRequested || Date.now() - started > SWEEP_BUDGET_MS) {
-        logger.warn({ reconciledCount, budgetMs: SWEEP_BUDGET_MS }, 'Reconciliation sweep reached time/stop budget');
-        break;
-      }
-
-      try {
-        let isPaid = false;
-
-        if (order.payment_rail === 'chapa') {
-          if (isChapaEnabled()) {
-            const status = await chapaQueryStatus(order.id);
-            isPaid = status === 'success';
-          }
-        } else if (order.payment_rail === 'ton_connect') {
-          if (isTonConnectEnabled()) {
-            const { tonUsd } = await fetchCoinGeckoPrices();
-            const netEtb = Math.max(order.amount_etb - (order.discount_etb || 0), 1);
-            const { cryptoAmount } = calculateCryptoQuote(netEtb, tonUsd);
-            const result = await verifyTonPayment({ memo: order.id, expectedTon: cryptoAmount });
-            isPaid = result.verified;
-          }
-        } else {
-          const ref = order.payment_ref || order.id;
-          isPaid = await walletAdapter.verifyPayment(ref);
-        }
-
-        if (!isPaid) continue;
-
-        const { order: updated, autoDeliveredItem } = approveReceipt(order.id, 0);
-        reconciledCount++;
-        logger.info(
-          { orderId: order.id, rail: order.payment_rail, status: updated.status },
-          'Stuck payment order reconciled via polling'
-        );
-
-        if (botInstance) {
-          notifyBuyerOfAutoApproval(botInstance as Bot, order, updated, autoDeliveredItem);
-        }
-      } catch (err) {
-        logger.error({ err, orderId: order.id }, 'Error reconciling individual stuck payment order');
-      }
-    }
-
-    return reconciledCount;
-  } catch (err) {
-    logger.error({ err }, 'Failed to reconcile stuck payment orders');
-    return 0;
-  } finally {
-    sweepInFlight = false;
-  }
+export async function reconcileStuckPayments(_botInstance?: any): Promise<number> {
+  logger.debug('reconcileStuckPayments: automated payment rails are decommissioned; skipping sweep');
+  return 0;
 }
 
 /** Back-compat alias for earlier call sites and tests. */
 export const reconcileStuckWalletPayOrders = reconcileStuckPayments;
 
-export async function drainReconciliation(maxWaitMs = 10_000): Promise<void> {
-  stopRequested = true;
-  const start = Date.now();
-  while (sweepInFlight && Date.now() - start < maxWaitMs) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
+export async function drainReconciliation(_maxWaitMs = 10_000): Promise<void> {
+  // Safe no-op
 }
 
 let reconciliationTimer: NodeJS.Timeout | null = null;
 
-export function startWalletPayReconciliation(botInstance?: any, intervalMs: number = 60000): NodeJS.Timeout {
+export function startWalletPayReconciliation(_botInstance?: any, _intervalMs: number = 60000): NodeJS.Timeout {
   if (reconciliationTimer) {
     clearInterval(reconciliationTimer);
   }
-
-  reconciliationTimer = setInterval(() => {
-    reconcileStuckPayments(botInstance).catch((err) => {
-      logger.error({ err }, 'Error in periodic payment reconciliation cycle');
-    });
-  }, intervalMs);
-
+  reconciliationTimer = setTimeout(() => {}, 2147483647);
   if (reconciliationTimer.unref) {
     reconciliationTimer.unref();
   }
-
   return reconciliationTimer;
 }
 

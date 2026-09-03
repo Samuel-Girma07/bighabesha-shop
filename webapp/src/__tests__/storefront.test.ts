@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { computeStarsTotal, formatEtb, translationKeyPaths } from '../utils.js';
 import { translations } from '../i18n.js';
+import { createOrderApi } from '../api.js';
 
 describe('computeStarsTotal (client mirror of server pricing)', () => {
   it('rounds up fractional totals like the server', () => {
@@ -59,3 +60,74 @@ describe('i18n translation completeness', () => {
     }
   });
 });
+
+describe('createOrderApi TMA gifting and payment rails', () => {
+  it('sends targetUsername and selected payment rail in JSON payload', async () => {
+    let capturedUrl = '';
+    let capturedOptions: any = null;
+
+    const mockFetch = vi.fn().mockImplementation(async (url: string, options: any) => {
+      capturedUrl = url;
+      capturedOptions = options;
+      return {
+        ok: true,
+        json: async () => ({
+          order: {
+            id: 'ord_test123',
+            product_id: 'telegram_premium',
+            variant_id: 'tg_prem_3m',
+            payment_rail: 'cbe',
+            target_username: 'friend_username',
+            status: 'awaiting_payment',
+          },
+        }),
+      };
+    });
+
+    vi.stubGlobal('fetch', mockFetch);
+
+    const res = await createOrderApi({
+      productId: 'telegram_premium',
+      variantId: 'tg_prem_3m',
+      paymentRail: 'cbe',
+      targetUsername: 'friend_username',
+    });
+
+    expect(capturedUrl).toContain('/api/orders');
+    expect(capturedOptions.method).toBe('POST');
+    const parsedBody = JSON.parse(capturedOptions.body);
+    expect(parsedBody.productId).toBe('telegram_premium');
+    expect(parsedBody.variantId).toBe('tg_prem_3m');
+    expect(parsedBody.paymentRail).toBe('cbe');
+    expect(parsedBody.targetUsername).toBe('friend_username');
+    expect(res.order.id).toBe('ord_test123');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('omits targetUsername from payload when undefined or empty', async () => {
+    let capturedBody: any = null;
+    const mockFetch = vi.fn().mockImplementation(async (_url: string, options: any) => {
+      capturedBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        json: async () => ({ order: { id: 'ord_stock456' } }),
+      };
+    });
+
+    vi.stubGlobal('fetch', mockFetch);
+
+    await createOrderApi({
+      productId: 'gemini_pro_18m',
+      variantId: 'gemini_pro_18m_default',
+      paymentRail: 'abyssinia',
+    });
+
+    expect(capturedBody.productId).toBe('gemini_pro_18m');
+    expect(capturedBody.paymentRail).toBe('abyssinia');
+    expect(capturedBody.targetUsername).toBeUndefined();
+
+    vi.unstubAllGlobals();
+  });
+});
+

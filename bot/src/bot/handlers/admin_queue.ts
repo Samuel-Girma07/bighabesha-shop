@@ -6,6 +6,7 @@ import { getSetting } from '../../services/settings.service.js';
 import { setPendingAction } from '../session.js';
 import { escapeHtml } from '../../utils/html.js';
 import { logger } from '../../logger/index.js';
+import { isResellerEligible, deliverWithReseller } from '../../services/reseller.service.js';
 
 export async function renderAdminOrdersQueue(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
@@ -80,11 +81,20 @@ export async function renderAdminQueueOrderDetail(ctx: Context, orderId: string)
     `• <b>Current Status:</b> <code>${order.status.toUpperCase()}</code>\n\n` +
     `<i>Complete fulfillment to @${escapeHtml(target)}, then choose an action below:</i>`;
 
-  const keyboard = new InlineKeyboard()
-    .text('📸 Upload Proof Screenshot & Fulfill', `queue_proof_prompt_${order.id}`)
-    .row()
-    .text('✅ Instant Fulfill (No Proof)', `queue_fulfill_direct_${order.id}`)
-    .row()
+  const eligible = isResellerEligible(order);
+  const keyboard = new InlineKeyboard();
+
+  if (eligible) {
+    keyboard.text('⚡ Deliver via Reseller', `admin_queue_reseller_deliver_${order.id}`).row();
+  }
+
+  keyboard.text('📸 Upload Proof Screenshot & Fulfill', `queue_proof_prompt_${order.id}`).row();
+
+  if (!eligible) {
+    keyboard.text('✅ Instant Fulfill (No Proof)', `queue_fulfill_direct_${order.id}`).row();
+  }
+
+  keyboard
     .text('↩️ Refund Order', `queue_refund_prompt_${order.id}`)
     .text('❌ Reject Order', `admin_reject_${order.id}`)
     .row()
@@ -166,7 +176,7 @@ export async function promptQueueRefund(ctx: Context, orderId: string): Promise<
   if (!isAdmin(adminId) || !adminId) return;
 
   setPendingAction(adminId, {
-    type: 'admin_reject_reason', // reused
+    type: 'admin_refund_reason',
     data: { action: 'refund_order', orderId },
   });
 
@@ -182,4 +192,86 @@ export async function promptQueueRefund(ctx: Context, orderId: string): Promise<
     await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
   }
 }
+
+export async function handleAdminQueueResellerDeliver(ctx: Context, orderId: string): Promise<void> {
+  const adminId = ctx.from?.id;
+  if (!adminId || !isAdmin(adminId)) {
+    logger.warn({ adminId, orderId }, 'Unauthorized reseller deliver attempt');
+    return;
+  }
+
+  const order = getOrderById(orderId);
+  if (!order) {
+    await ctx.reply('Order not found in database.');
+    return;
+  }
+
+  if (!isResellerEligible(order)) {
+    await ctx.reply('⚠️ Order is not eligible for reseller fulfillment.');
+    return;
+  }
+
+  const adminUsername = ctx.from?.username ? `@${escapeHtml(ctx.from.username)}` : `Admin (${adminId})`;
+
+  try {
+    const outcome = await deliverWithReseller(order.id, adminId, ctx.api);
+
+    if (outcome.delivered) {
+      const targetUsername = outcome.order.target_username || outcome.order.username || 'your account';
+      const successText = `⚡ <b>Reseller Delivery Succeeded!</b>\n\n` +
+        `• <b>Order:</b> <code>${order.id}</code>\n` +
+        `• <b>Status:</b> FULFILLED\n` +
+        `• <b>Target:</b> @${escapeHtml(targetUsername)}\n` +
+        `• <b>Provider:</b> <b>${escapeHtml(outcome.order.reseller_provider || 'reseller')}</b>` +
+        (outcome.order.reseller_tx_id ? `\n• <b>Provider Tx:</b> <code>${escapeHtml(outcome.order.reseller_tx_id)}</code>` : '') +
+        `\n• <b>Delivered by:</b> ${adminUsername}`;
+
+      const notifyText = `<b>Payment Confirmed — Order #${order.id}</b>\n\n` +
+        `🎉 Your <b>Telegram Premium</b> has been activated on <b>@${escapeHtml(targetUsername)}</b>.\n\n` +
+        `<i>Thank you for choosing Bighabesha Shop!</i>`;
+
+      await ctx.api.sendMessage(order.user_id, notifyText, { parse_mode: 'HTML' }).catch((err) => {
+        logger.error({ err, userId: order.user_id }, 'Failed to notify buyer of reseller delivery');
+      });
+
+      const keyboard = new InlineKeyboard().text('« Back to Queue', 'admin_orders_queue');
+      if (ctx.callbackQuery?.message) {
+        await ctx.editMessageText(successText, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => {});
+      } else {
+        await ctx.reply(successText, { parse_mode: 'HTML', reply_markup: keyboard });
+      }
+    } else {
+      const failText = `❌ <b>Reseller Delivery Failed</b>\n\n` +
+        `• <b>Order:</b> <code>${order.id}</code>\n` +
+        `• <b>Status:</b> DELIVERY_FAILED\n` +
+        `• <b>Error:</b> ${escapeHtml(outcome.error || 'Unknown error')}\n\n` +
+        `<i>The order remains queued under DELIVERY_FAILED status. You may retry or refund.</i>`;
+
+      const notifyBuyer = `<b>Payment Verified for Order #${order.id}</b>\n\n` +
+        `Your order has been approved but delivery encountered a temporary issue.\n` +
+        `Our team is resolving it — you will receive an update shortly.`;
+
+      await ctx.api.sendMessage(order.user_id, notifyBuyer, { parse_mode: 'HTML' }).catch(() => {});
+
+      const keyboard = new InlineKeyboard()
+        .text('⚡ Retry via Reseller', `admin_queue_reseller_deliver_${order.id}`)
+        .row()
+        .text('📸 Upload Proof Screenshot & Fulfill', `queue_proof_prompt_${order.id}`)
+        .row()
+        .text('↩️ Refund Order', `queue_refund_prompt_${order.id}`)
+        .row()
+        .text('« Back to Queue', 'admin_orders_queue');
+
+      if (ctx.callbackQuery?.message) {
+        await ctx.editMessageText(failText, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => {});
+      } else {
+        await ctx.reply(failText, { parse_mode: 'HTML', reply_markup: keyboard });
+      }
+    }
+  } catch (err: any) {
+    logger.error({ err, orderId }, 'Unexpected exception during reseller delivery');
+    await ctx.reply(`❌ Reseller delivery exception: ${escapeHtml(err.message)}`);
+  }
+}
+
 

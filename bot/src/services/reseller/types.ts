@@ -34,6 +34,8 @@ export interface ResellerFulfillParams {
 
 export interface ResellerFulfillResult {
   success: boolean;
+  /** Actual provider that fulfilled the order (e.g. 'gramix' or 'istar' when using cascade). */
+  provider?: string;
   /** Provider-side transaction/order identifier, stored in orders.reseller_tx_id. */
   providerTxId?: string;
   /** Cost charged by the provider in USDT (margin analytics). */
@@ -42,10 +44,27 @@ export interface ResellerFulfillResult {
   rawResponse?: unknown;
 }
 
+export interface ResellerBalanceSubProvider {
+  name: string;
+  balance: number;
+  balanceUsdt?: number;
+  currency: string;
+  ok: boolean;
+  error?: string;
+}
+
 export interface ResellerBalanceResult {
   balanceUsdt: number;
   currency: string;
   provider: string;
+  providers?: Array<{
+    name: string;
+    balance: number;
+    balanceUsdt?: number;
+    currency: string;
+    ok: boolean;
+    error?: string;
+  }>;
 }
 
 /** Provider float is below the cost of this order — delivery must not proceed. */

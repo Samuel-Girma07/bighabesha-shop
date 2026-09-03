@@ -26,6 +26,7 @@ import {
   promptQueueProof,
   executeDirectFulfill,
   promptQueueRefund,
+  handleAdminQueueResellerDeliver,
 } from './handlers/admin_queue.js';
 import {
   renderBroadcastTargetSelection,
@@ -34,15 +35,12 @@ import {
 } from './handlers/broadcast.js';
 import {
   initiateCheckout,
-  handleWalletPay,
   handleManualRail,
   promptReceiptUpload,
   performAdminApprove,
   promptAdminReject,
   handleRetryDelivery,
   renderPaymentRailSelection,
-  handleChapaPayment,
-  handleTonConnect,
 } from './handlers/checkout.js';
 import { isUsernameRequired, hasPublicUsername, renderUsernameGate, handleGateRecheck, renderRecipientSelection, handleRecipientSelf, handleRecipientGift } from './handlers/gate.js';
 import { renderMyOrders, renderOrderDetail, renderLanguageMenu, handleSetLanguage } from './handlers/orders.js';
@@ -451,12 +449,26 @@ export function createBot(token: string): Bot {
         const product = getProductById(order.product_id);
         await renderPaymentRailSelection(ctx, order, product ? product.name : 'Subscription');
       }
-    } else if (data.startsWith('pay_chapa_')) {
-      const orderId = data.replace('pay_chapa_', '');
-      await handleChapaPayment(ctx, orderId);
-    } else if (data.startsWith('pay_ton_')) {
-      const orderId = data.replace('pay_ton_', '');
-      await handleTonConnect(ctx, orderId);
+    } else if (
+      data.startsWith('rail_chapa') ||
+      data.startsWith('pay_chapa_') ||
+      data.startsWith('rail_wallet_pay') ||
+      data.startsWith('pay_wp_') ||
+      data.startsWith('rail_ton_connect') ||
+      data.startsWith('pay_ton_')
+    ) {
+      await ctx.answerCallbackQuery({
+        text: 'This payment method has been discontinued. Please choose Telebirr, CBE Bank, or Bank of Abyssinia.',
+        show_alert: true,
+      });
+      const orderId = data.split('_').pop();
+      if (orderId && orderId.startsWith('ORD-')) {
+        const order = getOrderById(orderId);
+        if (order) {
+          const product = getProductById(order.product_id);
+          await renderPaymentRailSelection(ctx, order, product ? product.name : 'Subscription');
+        }
+      }
     } else if (data.startsWith('promo_prompt_')) {
       const orderId = data.replace('promo_prompt_', '');
       const userId = ctx.from?.id;
@@ -478,9 +490,6 @@ export function createBot(token: string): Bot {
           { parse_mode: 'HTML' }
         );
       }
-    } else if (data.startsWith('pay_wp_')) {
-      const orderId = data.replace('pay_wp_', '');
-      await handleWalletPay(ctx, orderId);
     } else if (data.startsWith('pay_manual_telebirr_')) {
       const orderId = data.replace('pay_manual_telebirr_', '');
       await handleManualRail(ctx, 'telebirr', orderId);
@@ -514,6 +523,12 @@ export function createBot(token: string): Bot {
     } else if (data.startsWith('admin_queue_detail_')) {
       const orderId = data.replace('admin_queue_detail_', '');
       await renderAdminQueueOrderDetail(ctx, orderId);
+    } else if (data.startsWith('admin_queue_reseller_deliver_')) {
+      const orderId = data.replace('admin_queue_reseller_deliver_', '');
+      await handleAdminQueueResellerDeliver(ctx, orderId);
+    } else if (data.startsWith('admin_reseller_deliver_')) {
+      const orderId = data.replace('admin_reseller_deliver_', '');
+      await handleAdminQueueResellerDeliver(ctx, orderId);
     } else if (data.startsWith('queue_proof_prompt_')) {
       const orderId = data.replace('queue_proof_prompt_', '');
       await promptQueueProof(ctx, orderId);

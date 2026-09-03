@@ -4,6 +4,7 @@ export interface PendingAction {
   type:
     | 'user_receipt_upload'
     | 'admin_reject_reason'
+    | 'admin_refund_reason'
     | 'admin_edit_variant_price'
     | 'admin_stock_single_paste'
     | 'admin_stock_csv_paste'

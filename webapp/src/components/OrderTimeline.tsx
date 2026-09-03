@@ -51,7 +51,10 @@ export const OrderTimeline: React.FC<{ order: OrderItem; events?: OrderEvent[] }
         const isCurrent = !isFailed && i === currentIdx;
         const failedHere = order.status === 'rejected' && step.status === 'pending_approval';
         const ts = tsFor(step.status);
-        const evNote = [...events].reverse().find((e) => e.to_status === step.status)?.note;
+        const rawNote = [...events].reverse().find((e) => e.to_status === step.status)?.note;
+        const evNote = rawNote || (step.status === 'fulfilled' && order.reseller_provider
+          ? `Delivered via ${order.reseller_provider.toLowerCase() === 'gramix' ? 'Gramix' : order.reseller_provider.toLowerCase() === 'istar' ? 'iStar' : order.reseller_provider}`
+          : undefined);
 
         return (
           <div key={step.status} role="listitem" className={`tl-step ${reached ? 'reached' : ''} ${isCurrent ? 'current' : ''} ${failedHere ? 'failed' : ''}`}>

@@ -121,10 +121,23 @@ export const EnvSchema = z
      * unset the Premium pipeline falls back to the manual 'pending_fulfillment'
      * queue (pre-010 behavior); when set, admin approval drives the provider.
      * 'mock' is dev/test only and auto-succeeds.
+     * 'both' / 'cascade' enables dual-provider cascading failover (Gramix primary -> iStar fallback).
      */
-    RESELLER_PROVIDER: z.enum(['mock', 'gramix', 'istar', 'generic']).optional(),
+    RESELLER_PROVIDER: z.enum(['mock', 'gramix', 'istar', 'generic', 'both', 'cascade']).optional(),
     RESELLER_API_KEY: z.string().optional().default(''),
     RESELLER_API_URL: z
+      .string()
+      .optional()
+      .or(z.literal(''))
+      .transform((v) => v || undefined),
+    GRAMIX_API_KEY: z.string().optional().default(''),
+    ISTAR_API_KEY: z.string().optional().default(''),
+    GRAMIX_API_URL: z
+      .string()
+      .optional()
+      .or(z.literal(''))
+      .transform((v) => v || undefined),
+    ISTAR_API_URL: z
       .string()
       .optional()
       .or(z.literal(''))

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import crypto from 'crypto';
 import http from 'http';
 import fs from 'fs';
@@ -25,6 +25,7 @@ import { generateSvgBanner } from '../src/services/banner_generator.service.js';
 import { promptReceiptUpload, performAdminApprove } from '../src/bot/handlers/checkout.js';
 import { handleTextInput } from '../src/bot/handlers/input.js';
 import { setPendingAction, getPendingAction } from '../src/bot/session.js';
+import { resetResellerProviderCache } from '../src/services/reseller.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -243,56 +244,55 @@ describe('Fix 1b: Webhook endpoint validation & amount verification', () => {
     });
   }
 
-  it('rejects events without a timestamp header (replay guard)', async () => {
+  it('rejects events without a timestamp header on decommissioned endpoint with 410', async () => {
     const order = walletOrderWithQuote(3.21);
     const res = await postWebhook({ event: 'ORDER_PAID', payload: { externalId: order.id, status: 'PAID', amount: { currencyCode: 'TON', amount: '3.21' } } });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
     expect(getOrderById(order.id)?.status).toBe('awaiting_payment');
   });
 
-  it('rejects replayed events older than the freshness window even with otherwise-valid content', async () => {
+  it('rejects replayed events older than the freshness window with 410 on decommissioned endpoint', async () => {
     const order = walletOrderWithQuote(3.21);
     const staleTs = Math.floor(Date.now() / 1000) - WEBHOOK_TIMESTAMP_MAX_SKEW_SECONDS - 30;
     const res = await postWebhook(
       { event: 'ORDER_PAID', payload: { externalId: order.id, status: 'PAID', amount: { currencyCode: 'TON', amount: '3.21' } } },
       { 'x-wallet-pay-timestamp': String(staleTs) }
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
     expect(getOrderById(order.id)?.status).toBe('awaiting_payment');
   });
 
-  it('rejects timestamps far in the future', async () => {
+  it('rejects timestamps far in the future with 410 on decommissioned endpoint', async () => {
     const order = walletOrderWithQuote(3.21);
     const futureTs = Math.floor(Date.now() / 1000) + WEBHOOK_TIMESTAMP_MAX_SKEW_SECONDS * 10;
     const res = await postWebhook(
       { event: 'ORDER_PAID', payload: { externalId: order.id, status: 'PAID', amount: { currencyCode: 'TON', amount: '3.21' } } },
       { 'x-wallet-pay-timestamp': String(futureTs) }
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
   });
 
-  it('does NOT fulfil an order when the paid amount mismatches the stored quote', async () => {
+  it('returns 410 and does NOT fulfil an order when the paid amount mismatches the stored quote', async () => {
     const order = walletOrderWithQuote(3.21);
     const res = await postWebhook(
       { event: 'ORDER_PAID', payload: { externalId: order.id, status: 'PAID', amount: { currencyCode: 'TON', amount: '0.01' } } },
       { 'x-wallet-pay-timestamp': String(Math.floor(Date.now() / 1000)) }
     );
-    expect(res.status).toBe(200); // accepted but ignored
+    expect(res.status).toBe(410);
     expect(getOrderById(order.id)?.status).toBe('awaiting_payment');
   });
 
-  it('does NOT fulfil an order when the currency mismatches the stored quote', async () => {
+  it('returns 410 and does NOT fulfil an order when the currency mismatches the stored quote', async () => {
     const order = walletOrderWithQuote(3.21, 'TON');
     const res = await postWebhook(
       { event: 'ORDER_PAID', payload: { externalId: order.id, status: 'PAID', amount: { currencyCode: 'USDT', amount: '3.21' } } },
       { 'x-wallet-pay-timestamp': String(Math.floor(Date.now() / 1000)) }
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(410);
     expect(getOrderById(order.id)?.status).toBe('awaiting_payment');
   });
 
-  it('fails closed when neither the order nor the event carries a verifiable amount', async () => {
-    // Order created directly without quote metadata (legacy/simulated row)
+  it('returns 410 and fails closed when neither the order nor the event carries a verifiable amount', async () => {
     const order = createOrder({
       userId: 444001,
       username: 'legacy_wp',
@@ -305,11 +305,11 @@ describe('Fix 1b: Webhook endpoint validation & amount verification', () => {
       { event: 'ORDER_PAID', payload: { externalId: order.id, status: 'PAID' } },
       { 'x-wallet-pay-timestamp': String(Math.floor(Date.now() / 1000)) }
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(410);
     expect(getOrderById(order.id)?.status).toBe('awaiting_payment');
   });
 
-  it('fulfils when amount AND currency match the stored quote', async () => {
+  it('returns 410 on decommissioned webhook even when amount AND currency match without fulfilling', async () => {
     addStockLink('gemini_pro_18m', 'https://g.co/gemini/wp-matched-link-1');
     const order = createOrder({
       userId: 444002,
@@ -332,17 +332,15 @@ describe('Fix 1b: Webhook endpoint validation & amount verification', () => {
           externalId: order.id,
           status: 'PAID',
           id: 'provider-event-id-9',
-          amount: { currencyCode: 'TON', amount: '4.50' }, // string form, equal value
+          amount: { currencyCode: 'TON', amount: '4.50' },
         },
       },
       { 'x-wallet-pay-timestamp': String(Math.floor(Date.now() / 1000)) }
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(410);
     const updated = getOrderById(order.id);
-    expect(updated?.status).toBe('fulfilled');
-    expect(updated?.fulfillment_payload).toBe('https://g.co/gemini/wp-matched-link-1');
-    expect(updated?.payment_ref).toBe('provider-event-id-9');
+    expect(updated?.status).toBe('awaiting_payment');
   });
 });
 
@@ -397,16 +395,16 @@ describe('Fix 1c: Live-mode webhook requires strict signature', () => {
     return order;
   }
 
-  it('returns 401 for unsigned requests', async () => {
+  it('returns 410 for unsigned requests on decommissioned endpoint', async () => {
     const res = await fetch(`http://localhost:${port}/api/wallet-pay/webhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ event: 'ORDER_PAID' }),
     });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(410);
   });
 
-  it('returns 403 for an invalid signature', async () => {
+  it('returns 410 for an invalid signature on decommissioned endpoint', async () => {
     const order = seedPaidOrder();
     const body = JSON.stringify({ event: 'ORDER_PAID', payload: { externalId: order.id, status: 'PAID', amount: { currencyCode: 'TON', amount: '4.5' } } });
     const ts = String(Math.floor(Date.now() / 1000));
@@ -415,11 +413,11 @@ describe('Fix 1c: Live-mode webhook requires strict signature', () => {
       headers: { 'Content-Type': 'application/json', 'x-wallet-pay-signature': 'deadbeef'.repeat(8), 'x-wallet-pay-timestamp': ts },
       body,
     });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(410);
     expect(getOrderById(order.id)?.status).toBe('awaiting_payment');
   });
 
-  it('rejects a REPLAYED event whose signature is valid but timestamp is stale', async () => {
+  it('returns 410 for stale timestamp on decommissioned endpoint', async () => {
     const order = seedPaidOrder();
     const body = JSON.stringify({ event: 'ORDER_PAID', payload: { externalId: order.id, status: 'PAID', amount: { currencyCode: 'TON', amount: '4.5' } } });
     const staleTs = Math.floor(Date.now() / 1000) - WEBHOOK_TIMESTAMP_MAX_SKEW_SECONDS - 60;
@@ -430,11 +428,11 @@ describe('Fix 1c: Live-mode webhook requires strict signature', () => {
       headers: { 'Content-Type': 'application/json', 'x-wallet-pay-signature': sig, 'x-wallet-pay-timestamp': String(staleTs) },
       body,
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
     expect(getOrderById(order.id)?.status).toBe('awaiting_payment');
   });
 
-  it('fulfils a correctly signed, fresh, amount-matching live event', async () => {
+  it('returns 410 for signed live event on decommissioned endpoint without fulfilling', async () => {
     const order = seedPaidOrder();
     const body = JSON.stringify({ event: 'ORDER_PAID', payload: { externalId: order.id, status: 'PAID', id: 'evt-live-1', amount: { currencyCode: 'TON', amount: '4.5' } } });
     const ts = String(Math.floor(Date.now() / 1000));
@@ -445,8 +443,8 @@ describe('Fix 1c: Live-mode webhook requires strict signature', () => {
       headers: { 'Content-Type': 'application/json', 'x-wallet-pay-signature': sig, 'x-wallet-pay-timestamp': ts },
       body,
     });
-    expect(res.status).toBe(200);
-    expect(getOrderById(order.id)?.status).toBe('fulfilled');
+    expect(res.status).toBe(410);
+    expect(getOrderById(order.id)?.status).toBe('awaiting_payment');
   });
 });
 
@@ -480,7 +478,7 @@ describe('Fix 2: payment_ref persistence & reconciliation wiring', () => {
     resetWalletPayAdapter();
   });
 
-  it('persists payment_ref and crypto quote immediately when creating a Wallet Pay payment via the API', async () => {
+  it('rejects creating order on decommissioned Wallet Pay rail with 400 Bad Request', async () => {
     addStockLink('gemini_pro_18m', 'https://g.co/high-sev/wp-ref-stock');
     // Inline initData generator (same HMAC scheme as the other suites)
     const userObj = { id: 466000, first_name: 'WP', username: 'wp_api_buyer' };
@@ -504,38 +502,21 @@ describe('Fix 2: payment_ref persistence & reconciliation wiring', () => {
       body: JSON.stringify({ productId: 'gemini_pro_18m', variantId: 'gemini_pro_18m_default', paymentRail: 'wallet_pay' }),
     });
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(400);
     const data = await res.json();
-    const stored = getOrderById(data.order.id);
-    expect(stored?.payment_ref).toBeTruthy();
-    expect(String(stored?.payment_ref)).toMatch(/^MOCK-WP-/);
-    expect(stored?.crypto_amount).toBeGreaterThan(0);
-    expect(stored?.crypto_currency).toBe('TON');
+    expect(data.error).toMatch(/discontinued|invalid/i);
   });
 
-  it('reconciliation queries Wallet Pay using the stored payment_ref (not the internal order id)', async () => {
+  it('reconciliation is a safe no-op returning 0 on decommissioned automated rails', async () => {
     seedUser(db, 466100, 'stuck_ref_user');
     db.prepare(`
       INSERT INTO orders (id, user_id, username, product_id, amount_etb, payment_rail, payment_ref, status, created_at)
       VALUES ('ORD-REF-STUCK-1', 466100, 'stuck_ref_user', 'telegram_premium', 1100, 'wallet_pay', 'wp-provider-ref-XYZ', 'awaiting_payment', datetime('now', '-6 minutes'))
     `).run();
 
-    const original = MockWalletPayAdapter.prototype.verifyPayment;
-    let capturedRef: string | null = null;
-    (MockWalletPayAdapter.prototype as any).verifyPayment = async function (ref: string) {
-      capturedRef = ref;
-      return true;
-    };
-
-    try {
-      const reconciled = await reconcileStuckWalletPayOrders(undefined);
-      expect(reconciled).toBe(1);
-      expect(capturedRef).toBe('wp-provider-ref-XYZ');
-    } finally {
-      (MockWalletPayAdapter.prototype as any).verifyPayment = original;
-    }
-
-    expect(getOrderById('ORD-REF-STUCK-1')?.status).toBe('pending_fulfillment');
+    const reconciled = await reconcileStuckWalletPayOrders(undefined);
+    expect(reconciled).toBe(0);
+    expect(getOrderById('ORD-REF-STUCK-1')?.status).toBe('awaiting_payment');
   });
 });
 
@@ -553,7 +534,9 @@ describe('Fix 3: Authorization & ownership guards on order actions', () => {
     process.env.ADMIN_PASSWORD = ADMIN_PASSWORD;
     process.env.WALLET_PAY_MODE = 'mock';
     process.env.NODE_ENV = 'development';
+    delete process.env.RESELLER_PROVIDER;
     resetConfigCache();
+    resetResellerProviderCache();
     db = initDatabase(':memory:', MIGRATIONS_DIR);
     bot = makeBotWithInfo(TOKEN);
     interceptApi(bot);
@@ -562,6 +545,7 @@ describe('Fix 3: Authorization & ownership guards on order actions', () => {
   afterEach(() => {
     closeDatabase();
     resetConfigCache();
+    resetResellerProviderCache();
   });
 
   function makeCtx(userId: number) {
@@ -662,6 +646,43 @@ describe('Fix 3: Authorization & ownership guards on order actions', () => {
     await handleTextInput(ctx);
 
     expect(getOrderById(order.id)?.status).toBe('awaiting_payment');
+  });
+
+  it('entering a refund reason transitions the order to refunded via refundOrder and does NOT call rejectReceipt', async () => {
+    const adminId = 111111111;
+    seedUser(db, 477010, 'buyer10');
+    const order = createOrder({
+      userId: 477010,
+      username: 'buyer10',
+      productId: 'gemini_pro_18m',
+      amountETB: 1500,
+      paymentRail: 'cbe',
+      status: 'pending_approval',
+    });
+
+    const ordersService = await import('../src/services/orders.service.js');
+    const refundSpy = vi.spyOn(ordersService, 'refundOrder');
+    const rejectSpy = vi.spyOn(ordersService, 'rejectReceipt');
+
+    setPendingAction(adminId, {
+      type: 'admin_refund_reason',
+      data: { orderId: order.id },
+    } as any);
+
+    const ctx = makeCtx(adminId);
+    ctx.message = { text: 'Refunded via CBE bank transfer' };
+    const handled = await handleTextInput(ctx);
+
+    expect(handled).toBe(true);
+    expect(refundSpy).toHaveBeenCalledWith(order.id, adminId, 'Refunded via CBE bank transfer');
+    expect(rejectSpy).not.toHaveBeenCalled();
+
+    const updated = getOrderById(order.id);
+    expect(updated?.status).toBe('refunded');
+    expect(updated?.admin_notes).toContain('Refunded via CBE bank transfer');
+
+    refundSpy.mockRestore();
+    rejectSpy.mockRestore();
   });
 });
 
