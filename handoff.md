@@ -1,109 +1,236 @@
-# Project Handoff: Telegram Premium B2B Reseller Pipeline
+# Project Handoff: Production B2B Reseller, Domestic Payment Rails & AI Subagent Pipeline
 
-**Date:** September 1, 2026  
-**Session ID:** `356a7cf1-8cfa-4465-bbda-82e1db8766cf`  
-**Repository:** `Samuel-Girma07/bighabesha-shop` (`c:\Users\KATANA\Documents\Intern\Bot`)
-
----
-
-## 1. Context & Objective
-
-The Telegram Premium fulfillment engine was upgraded from a manual Fragment.com queue / static gift link model to a **Hybrid Manual-Approval + Modular Third-Party B2B Reseller API Pipeline** (supporting Gramix, iStar, Generic Webhook, and Mock adapters).
-
-The previous Claude Code session completed **Tasks 1 through 7** (Architecture, DB Migrations, Reseller Adapters, Buyer Recipient Selection Flow, Admin Approval/Retry wiring, Balance Monitoring, and Env config). The session was interrupted by an API token limit while beginning the cleanup and test suite creation.
-
-All existing 18 test files (304 tests) pass with zero errors.
+**Date:** September 4, 2026  
+**Repository:** `Samuel-Girma07/bighabesha-shop` (`C:\Users\KATANA\Documents\Intern\Bot`)  
+**Active Branch:** `master` (Synchronized with `origin/master`)  
+**Latest Verification:** 377 automated tests passing (100%), 0 build errors, 0 SAST/SCA vulnerabilities  
 
 ---
 
-## 2. Completed Work & File Inventory
+## 1. Executive Summary & Core Architectural Invariants
 
-### A. Database Migration
-- **[010_b2b_reseller.sql](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/db/migrations/010_b2b_reseller.sql)**
-  - Rebuilt `orders` table to extend `status` CHECK constraint with `'processing'` and `'delivery_failed'`.
-  - Added columns: `target_username`, `reseller_provider`, `reseller_tx_id`, `reseller_error`.
-  - Added index `idx_orders_delivery_failed`.
-  - Backfilled existing unpaid/pending orders with `target_username = username`.
+This repository implements **Bighabesha Shop**, a high-scale e-commerce Telegram platform designed for the Ethiopian digital software market. It consists of:
+1. **Telegram Bot (`bot/`):** Built with Grammy 1.35+, TypeScript 5.7, and `better-sqlite3` in WAL mode.
+2. **Telegram Mini App & Web Admin Dashboard (`webapp/`):** Built with React 19, Vite 6, and `@telegram-apps/sdk-react`.
 
-### B. Modular Reseller Service Architecture
-- **[types.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller/types.ts)**: Defined `IResellerProvider`, `ResellerFulfillParams`, `ResellerFulfillResult`, `ResellerBalanceResult`, and error hierarchy (`InsufficientFloatError`, `InvalidTargetUserError`, `ProviderUnavailableError`).
-- **[http-base.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller/http-base.ts)**: Robust HTTP client base with timeouts, retries, and error mapping.
-- **[mock.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller/mock.ts)**: `MockResellerAdapter` for local development and unit tests (supports deterministic success and failure triggering).
-- **[gramix.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller/gramix.ts)**: `GramixAdapter` for Gramix API.
-- **[istar.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller/istar.ts)**: `IStarAdapter` for iStar API.
-- **[generic.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller/generic.ts)**: `GenericWebhookAdapter` for custom REST webhooks.
-- **[index.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller/index.ts)**: Provider factory `createResellerProvider(config)`.
-- **[reseller.service.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/reseller.service.ts)**: High-level orchestration facade:
-  - `deliverWithReseller(orderId, adminId, api)`: Coordinates `pending_approval` → `processing` → Provider API call → `fulfilled` | `delivery_failed`.
-  - `checkBalanceAndAlert(api)` / `notifyAdminsLowFloatFromResult(...)`: Queries float balance and alerts admins if below `RESELLER_LOW_BALANCE_ALERT_USDT`.
-  - `deliveryFailedKeyboard(orderId)`: Inline keyboard with `[🔁 Retry Delivery]`, `[↩️ Refund]`, and `[❌ Reject]`.
-
-### C. Buyer Recipient Username Selection Flow
-- **[gate.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/bot/handlers/gate.ts)**: Added `renderRecipientSelection(ctx, productId, variantId)` and `isValidTelegramUsername(username)`.
-- **[session.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/bot/session.ts)**: Added `recipient_username_entry` session state for capturing custom target `@username`.
-- **[input.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/bot/handlers/input.ts)**: Added input handler for validating and storing custom target `@username`.
-- **[orders.service.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/services/orders.service.ts)**:
-  - Extended `ALLOWED_TRANSITIONS` with `processing` and `delivery_failed`.
-  - Updated `CreateOrderInput` and `createOrder()` to accept and persist `targetUsername`.
-
-### D. Admin Approval & Reseller Triggering
-- **[checkout.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/bot/handlers/checkout.ts)**:
-  - Updated `notifyAdminsNewReceipt()` to display target `@username` and render `[✅ Approve & Deliver]`.
-  - Updated `performAdminApprove()`: for `telegram_premium`, automatically invokes `deliverWithReseller()`.
-  - Added `handleAdminRetryDelivery()` to re-attempt failed deliveries.
-- **[admin.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/bot/handlers/admin.ts)**: Added `renderAdminResellerBalance(ctx)` displaying active provider, float balance in USDT, and threshold status.
-- **[bot.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/bot/bot.ts)**: Registered callback query routes:
-  - `recipient_self_...`, `recipient_custom_...`
-  - `admin_retry_delivery_...`, `admin_reseller_balance`
-
-### E. Environment Configuration
-- **[env.ts](file:///c:/Users/KATANA/Documents/Intern/Bot/bot/src/config/env.ts)** & **[.env.example](file:///c:/Users/KATANA/Documents/Intern/Bot/.env.example)**:
-  - `RESELLER_PROVIDER`: `'mock' | 'gramix' | 'istar' | 'generic'` (default: `'mock'`)
-  - `RESELLER_API_KEY`: string (default: `''`)
-  - `RESELLER_API_URL`: string (default: `''`)
-  - `RESELLER_LOW_BALANCE_ALERT_USDT`: number (default: `20`)
+### Critical Business Logic Invariants
+1. **Customer Payment Rails (Domestic Only):**
+   - Active payment rails are strictly:
+     - 📱 **Telebirr** (`rail_telebirr`)
+     - 🏦 **Commercial Bank of Ethiopia (CBE)** (`rail_cbe`)
+     - 🏛️ **Bank of Abyssinia** (`rail_abyssinia`)
+   - Customers pay via bank transfer and upload a screenshot transfer slip.
+   - **Legacy rails are permanently decommissioned:** Card (Chapa), Telegram Wallet Pay, and TON Connect have been stripped from active UI and their API webhooks respond with `410 Gone`. Rate engine CoinGecko polling has been disabled to save resources.
+2. **Wallet Mental Model ("Connect Wallet" vs Outbound Fulfillment):**
+   - The bot does **NOT** custody private keys, seed phrases, or interact directly with Fragment smart contracts.
+   - "Connecting a wallet" in this bot's configuration is strictly an **inbound** receiving mechanism.
+   - Outbound Telegram Premium activation is handled via a **third-party B2B Reseller API** (Gramix and iStar).
+3. **Dual-Provider Cascading Failover (`CascadeResellerAdapter`):**
+   - **Primary:** Gramix (`api.gramix.io`)
+   - **Fallback / Secondary:** iStar (`istar.tg` / `v1.fragmentapi.com`)
+   - When an order is approved, the bot calls Gramix first. If Gramix returns an insufficient balance (HTTP 403), network timeout, or 5xx outage, the bot **automatically fails over to iStar**.
+   - If both providers fail, the order enters `delivery_failed`, the admin is alerted with a breakdown of both balances, and the customer is notified of a temporary queue delay.
+4. **Universal Lowercase Username Normalization:**
+   - Gramix API strictly rejects uppercase letters with `400 Invalid username`.
+   - Usernames like `@sysRQA` are automatically normalized to `sysrqa` across all 7 layers (bot gate, input, checkout, Mini App, API server, order sanitizer, and reseller dispatcher).
+   - Purely numeric Telegram user IDs (e.g. `123456789`) are rejected by regex `/^(?![0-9]+$)[a-zA-Z0-9_]{5,32}$/`.
+5. **30-Minute Low-Float Alert Cooldown & Waiting Orders Gate:**
+   - The 5-minute background sweeper (`retryFailedResellerDeliveries`) checks SQLite before alerting admins:
+     - **If 0 orders are waiting:** Silently skips. Admins are **never spammed** when the store is idle.
+     - **If 1+ orders are waiting:** Enforces a **30-minute cooldown** (`LOW_FLOAT_ALERT_COOLDOWN_MS = 30 * 60 * 1000`). Alerts are sent at most once every 30 minutes, displaying the exact count of waiting orders.
+6. **Order Delivery Concurrency Lease:**
+   - `deliverWithReseller()` acquires an atomic invocation-scoped lease (`tryAcquireLease('reseller:order:' + orderId, 60_000, invocationUUID)`). Rapid double-taps by admins or duplicate callbacks cannot cause double-fulfillment or float double-spending.
 
 ---
 
-## 3. Verification & Quality Assurance (Completed)
+## 2. Real Gramix API v1 Protocol Contract
 
-### Step 1: Reseller Test Suite (`bot/tests/reseller.test.ts`) — COMPLETE
-Created comprehensive 23-test suite in [`bot/tests/reseller.test.ts`](file:///C:/Users/KATANA/Documents/Intern/Bot/bot/tests/reseller.test.ts) covering:
-1. **Order State Machine Transitions**:
-   - Legal paths: `pending_approval` → `processing` → `fulfilled`.
-   - Failure & Recovery paths: `processing` → `delivery_failed` → `processing` → `fulfilled`.
-   - Terminal exits from `delivery_failed`: `rejected` and `refunded`.
-   - Illegal transition guards: strictly enforcing `ALLOWED_TRANSITIONS` (e.g. `awaiting_payment` → `delivery_failed` rejected).
-2. **Target Username Validation**:
-   - Telegram rule validation (`isValidTelegramUsername`).
-   - Normalization via `sanitizeUsername` (strips leading `@`).
-   - Persistence in `orders` table across creation and retrieval.
-3. **End-to-End Fulfillment with Mock Adapter**:
-   - Mock fulfill execution, setting `reseller_tx_id`, clearing `reseller_error`, notifying buyer with HTML activation text.
-4. **Provider Error Handling & Admin Retry**:
-   - Provider errors (`InsufficientFloatError`, `InvalidTargetUserError`, `ProviderUnavailableError`) gracefully transition order to `delivery_failed` and store sanitized error reason.
-   - Admin retry (`handleAdminRetryDelivery`) recovers once provider recovers and delivers.
-   - Unauthorized retry attempts by non-admins are strictly rejected.
-5. **Float Balance Monitoring & Alerts**:
-   - Balance query returns USDT balance.
-   - Low float triggers alerts to all configured admins.
-   - Provider balance API failure resilience without crashing bot background routines.
-6. **Security Audit (Target Usernames, Credential Safety & Admin Authorization)**:
-   - SQL injection & XSS attempts in target usernames are safely stored without executing or corrupting SQLite DB.
-   - Credentials (`RESELLER_API_KEY`) and bearer tokens are never leaked into `reseller_error` or audit log payloads.
-   - Non-admin callers attempting admin balance endpoints or manual retry are rejected.
+*Previous sessions used an outdated contract (`POST /v1/premium/orders` with `Bearer` auth). That was replaced with the official Gramix v1 API specifications:*
 
-### Step 2: Quality & Hygiene Verification — ALL GREEN
-- **Full Bot Test Suite**: **19 test files passed (327 passed, 5 skipped)**.
-- **TypeScript Compilation**: `pnpm --filter bot build` compiles with 0 errors.
-- **Knowledge Graph Parity**: Graphify updated with parity across all new and updated symbols.
+- **Base URL:** `https://api.gramix.io/api/v1`
+- **Authentication Header:** `x-api-key: <GRAMIX_API_KEY>`
+- **Idempotency Header:** `idempotency-key: <orderId>`
+- **Check Balance:**
+  - `GET /api/v1/wallets/balance`
+  - Returns: `{ "statusCode": 200, "data": { "gram": "0.0000", "usdt": "0.0000" } }`
+- **Purchase Telegram Premium:**
+  - `POST /api/v1/purchase/premium/{duration}` (where `{duration}` is `3`, `6`, or `12`)
+  - Body:
+    ```json
+    {
+      "recipientName": "username_in_lowercase",
+      "paymentCurrency": "usdt"
+    }
+    ```
+  - Success Response (HTTP 201):
+    ```json
+    {
+      "statusCode": 201,
+      "data": {
+        "orderId": "gramix_uuid",
+        "status": "processing",
+        "idempotencyKey": "order_id"
+      }
+    }
+    ```
+- **Error Mapping in `bot/src/services/reseller/gramix.ts`:**
+  - HTTP `403` or `"Insufficient balance"` &rarr; `InsufficientFloatError` (triggers Telegram low-float alert).
+  - HTTP `400` with `"Invalid username"` &rarr; `InvalidTargetUserError`.
+  - HTTP `404` &rarr; `ProviderUnavailableError` (**NEVER** map 404 route errors to `InvalidTargetUserError`, as that breaks cascade failover).
 
 ---
 
-## 4. Key Architectural Rules Maintained
+## 3. Mandatory AI Subagent Pipeline Workflow
 
-1. **Strict State Transitions:** Order status mutations always go through `updateOrderStatus()` in `orders.service.ts`.
-2. **Fail-Closed Reseller Calls:** Outbound provider requests are bracketed by `processing` before calling the network, and reliably land in either `fulfilled` or `delivery_failed`.
-3. **Credential Safety:** Secrets (`RESELLER_API_KEY`) and authorization headers are fully redacted in error logs and customer/admin outputs.
-4. **Decoupled Architecture:** Telegram Premium fulfillment is fully modularized and decoupled from Fragment smart contracts, supporting pluggable adapters (`mock`, `gramix`, `istar`, `generic`).
+Whenever you are instructed by the user to develop, refactor, audit, or deploy changes to this codebase, **YOU MUST USE THE FOLLOWING 7-AGENT PIPELINE IN THIS EXACT SEQUENCE:**
 
+```
+1. project-architecture-planner
+              │
+              ▼
+2. api-architect
+              │
+              ▼
+3. software-engineer-agent-v1
+              │
+              ▼
+4. wg-code-alchemist
+              │
+              ▼
+5. quality-playbook
+              │
+              ▼
+6. sast-sca-security-analyzer
+              │
+              ▼
+7. devops-expert
+```
+
+### Agent Definitions & Tool Requirements
+
+#### Agent 1: `project-architecture-planner`
+- **Role:** Analyzes requirements, checks existing database/code invariants, and writes the architectural blueprint artifact.
+- **Tools:** Read/write tools (creates specification in `.gemini/.../blueprint.md`), MCP tools.
+- **Responsibilities:**
+  - Maps affected files, schemas, and state machine transitions.
+  - Ensures fail-closed design and zero breaking regressions.
+  - Defines exact function signatures, interfaces, and directives for subsequent agents.
+
+#### Agent 2: `api-architect`
+- **Role:** Designs and implements backend REST endpoints, validation schemas, and client contracts.
+- **Tools:** Write tools, MCP tools.
+- **Responsibilities:**
+  - Updates Zod schemas in `bot/src/config/env.ts`.
+  - Enforces route parameters, deprecations (410 Gone), and input sanitization in `bot/src/api/server.ts` and `bot/src/api/admin.ts`.
+  - Keeps TypeScript interfaces in `webapp/src/api.ts` strictly typed with backend models.
+
+#### Agent 3: `software-engineer-agent-v1`
+- **Role:** Implements core backend logic, Telegram bot handlers, domain state machines, and cron sweepers.
+- **Tools:** Write tools, command execution (`run_command`), MCP tools.
+- **Responsibilities:**
+  - Implements bot keyboards in `bot/src/bot/handlers/checkout.ts`, `admin_queue.ts`, `input.ts`, and `gate.ts`.
+  - Implements reseller adapters and services in `bot/src/services/reseller/` and `reseller.service.ts`.
+  - Enforces atomic state transitions in `bot/src/services/orders.service.ts`.
+
+#### Agent 4: `wg-code-alchemist`
+- **Role:** Frontend UI/UX engineer specializing in React 19, Telegram Mini Apps, and Web Admin Dashboard.
+- **Tools:** Write tools, command execution (`run_command`), MCP tools.
+- **Responsibilities:**
+  - Builds responsive mobile components in `webapp/src/App.tsx` and `webapp/src/components/`.
+  - Develops admin analytics, order tables, and provider badges in `webapp/src/admin/`.
+  - Ensures seamless theme support, clipboard utilities, and receipt upload forms.
+
+#### Agent 5: `quality-playbook`
+- **Role:** Quality assurance engineer responsible for test suites and regression safety.
+- **Tools:** Write tools, command execution (`run_command`), MCP tools.
+- **Responsibilities:**
+  - Runs and maintains Vitest suites in `bot/tests/` and `webapp/src/__tests__/`.
+  - Writes comprehensive unit and integration tests for every new feature or bug fix.
+  - Guarantees 100% pass rate before code reaches security or DevOps.
+
+#### Agent 6: `sast-sca-security-analyzer`
+- **Role:** Static Application Security Testing (SAST) and Software Composition Analysis (SCA) expert.
+- **Tools:** Read tools, command execution (`run_command`), MCP tools.
+- **Responsibilities:**
+  - Audits code against OWASP Top 10, ReDoS, SQL injection, and path traversal.
+  - Verifies credential redaction (ensuring API keys are masked in Pino logs and never serialized in API outputs).
+  - Validates RBAC permissions and session tokens on admin routes.
+  - Grants final security sign-off before deployment.
+
+#### Agent 7: `devops-expert`
+- **Role:** Deployment, environment verification, knowledge graph synchronization, and git release engineer.
+- **Tools:** Write tools, command execution (`run_command`), MCP tools.
+- **Responsibilities:**
+  - Verifies production builds (`pnpm --filter bot build` and `pnpm --filter webapp build`).
+  - Ensures `.env` is gitignored and `.env.example` is fully documented.
+  - **Executes Knowledge Graph AST update:** `graphify update .` to maintain parity across `graphify-out/`.
+  - Creates structured git commits and pushes cleanly to `origin/master`.
+
+---
+
+## 4. Environment Variables & Production Configuration
+
+The server environment file (`.env`) is configured as follows:
+
+```env
+# ===================================================
+# Active Payment Rails (Domestic Ethiopian Only)
+# ===================================================
+# Customer payments are strictly: telebirr, cbe, abyssinia
+# Admin receiving account numbers are managed via /admin or settings table
+
+# ===================================================
+# Telegram Bot & Admin Configuration
+# ===================================================
+BOT_TOKEN=your_telegram_bot_token
+ADMIN_IDS=123456789,987654321
+ADMIN_PASSWORD=your_admin_master_password
+NODE_ENV=production
+PORT=3000
+
+# ===================================================
+# Telegram Premium B2B Reseller (Dual-Provider Failover)
+# ===================================================
+RESELLER_PROVIDER=both
+GRAMIX_API_KEY=your_live_gramix_key
+ISTAR_API_KEY=your_live_istar_key
+RESELLER_LOW_BALANCE_ALERT_USDT=50
+```
+
+---
+
+## 5. Standard Runbook & Developer Commands
+
+### Running Tests
+```bash
+# Bot test suite (20 files, 361+ tests)
+pnpm --filter bot test
+
+# Webapp test suite (2 files, 16 tests)
+pnpm --filter webapp test
+```
+
+### Production Build
+```bash
+# Compile bot TypeScript & copy assets
+pnpm --filter bot build
+
+# Bundle React 19 Mini App & Admin Dashboard via Vite
+pnpm --filter webapp build
+```
+
+### Updating the Knowledge Graph (Mandatory after edits)
+```bash
+graphify update .
+```
+
+### Deploying & Restarting the Server
+```bash
+git pull origin master
+pnpm install
+pnpm --filter bot build
+pm2 restart bighabesha-bot
+```
+
+---
+*Maintained with strict architectural integrity for Bighabesha Shop.*
