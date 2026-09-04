@@ -6,7 +6,7 @@ import { getProductById } from './catalog.service.js';
 import { assertPositiveIntegerETB, PricingError } from './pricing.service.js';
 import { getNumericSetting } from './settings.service.js';
 import { adjustUserStats } from './loyalty.service.js';
-import { redeemPromoInTx } from './promo.service.js';
+import { redeemPromoInTx, releasePromoRedemption } from './promo.service.js';
 
 export type ActivePaymentRail = 'telebirr' | 'cbe' | 'abyssinia';
 export type PaymentRail = ActivePaymentRail | 'chapa' | 'wallet_pay' | 'ton_connect';
@@ -119,12 +119,19 @@ export const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   processing: ['processing', 'fulfilled', 'delivery_failed'],
   delivery_failed: ['delivery_failed', 'processing', 'rejected', 'refunded'],
   fulfilled: ['fulfilled', 'refunded'],
-  rejected: ['rejected', 'pending_approval', 'refunded'],
+  rejected: ['rejected', 'pending_approval', 'refunded', 'cancelled'],
   refunded: ['refunded'],
   cancelled: ['cancelled'],
   // manual/stock path (Gemini Pro + hand-fulfilled orders) — not a reseller status.
   pending_fulfillment: ['pending_fulfillment', 'processing', 'fulfilled', 'refunded', 'rejected'],
 };
+
+export class OutOfStockError extends Error {
+  constructor(message: string = 'This product is currently out of stock.') {
+    super(message);
+    this.name = 'OutOfStockError';
+  }
+}
 
 export class InvalidOrderTransitionError extends Error {
   constructor(orderId: string, from: OrderStatus, to: OrderStatus) {
@@ -438,6 +445,8 @@ function runFulfillmentHooks(before: Order, toStatus: OrderStatus, orderId: stri
       creditReferralCommissions(before);
     } else if (unfulfilledViaRefund) {
       adjustUserStats(before.user_id, -before.amount_etb, -1);
+    } else if (toStatus === 'cancelled') {
+      releasePromoRedemption(orderId);
     }
   } catch (err) {
     logger.error({ err, orderId }, 'Post-transition hook failure');
@@ -565,7 +574,7 @@ export function approveReceipt(
     }
   }
 
-  // Telegram Premium or Stars (semi-automated queue)
+  // Telegram Premium, Stars, or stock item awaiting key restock (semi-automated queue)
   const updated = updateOrderStatus(order.id, 'pending_fulfillment', {
     admin_notes: `Approved by Admin ${adminId}`,
   });
@@ -626,10 +635,36 @@ export function refundOrder(orderId: string, adminId: number, reason?: string): 
     throw new Error(`Order ${orderId} not found`);
   }
 
-  return updateOrderStatus(orderId, 'refunded', {
-    rejection_reason: reason || 'Refunded by administrator',
-    admin_notes: `Refunded by Admin ${adminId}: ${reason || 'Manual refund'}`,
-  });
+  const db = getDatabase();
+
+  return db.transaction(() => {
+    // If this order had an allocated stock item, restore it to 'available'
+    db.prepare(`
+      UPDATE stock_items
+      SET status = 'available', order_id = NULL, allocated_at = NULL
+      WHERE order_id = ?
+    `).run(orderId);
+
+    // If referral commissions were credited for this order, debit them back
+    const referralCredits = db.prepare(`
+      SELECT user_id, amount_etb FROM ledger_entries
+      WHERE ref_order_id = ? AND direction = 'credit' AND type = 'commission'
+    `).all(orderId) as { user_id: number; amount_etb: number }[];
+
+    for (const credit of referralCredits) {
+      const revKey = `ref:rev:${orderId}:${credit.user_id}`;
+      db.prepare(`
+        INSERT INTO ledger_entries (user_id, direction, amount_etb, type, ref_order_id, idempotency_key, note)
+        VALUES (?, 'debit', ?, 'payout', ?, ?, 'Referral commission reversed due to order refund')
+        ON CONFLICT(idempotency_key) DO NOTHING
+      `).run(credit.user_id, credit.amount_etb, orderId, revKey);
+    }
+
+    return updateOrderStatus(orderId, 'refunded', {
+      rejection_reason: reason || 'Refunded by administrator',
+      admin_notes: `Refunded by Admin ${adminId}: ${reason || 'Manual refund'}`,
+    });
+  })();
 }
 
 export function rejectReceipt(orderId: string, adminId: number, reason: string): Order {

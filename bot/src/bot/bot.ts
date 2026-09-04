@@ -514,8 +514,11 @@ export function createBot(token: string): Bot {
     } else if (data.startsWith('admin_refund_')) {
       const orderId = data.replace('admin_refund_', '');
       await promptQueueRefund(ctx, orderId);
-    } else if (data === 'action_sold_out') {
-      await ctx.reply('🚨 <b>Sold Out</b>: This product is currently unavailable. Please check back soon or contact support.', { parse_mode: 'HTML' });
+    } else if (data === 'action_sold_out' || data.startsWith('sold_out_')) {
+      await ctx.answerCallbackQuery({
+        text: '⚠️ Sold Out: This product is currently unavailable. Please check back soon!',
+        show_alert: true,
+      }).catch(() => {});
     } else if (data === 'admin_menu') {
       await renderAdminMenu(ctx);
     } else if (data === 'admin_orders_queue') {

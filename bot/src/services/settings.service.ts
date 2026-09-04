@@ -75,6 +75,7 @@ const PUBLIC_SETTING_KEYS = new Set([
   'tier_discount_silver_pct',
   'tier_discount_gold_pct',
   'referral_l1_pct',
+  'support_username',
 ]);
 
 export function getPublicSettings(): Record<string, string> {
@@ -111,6 +112,7 @@ export const KNOWN_SETTING_KEYS: ReadonlySet<string> = new Set([
   // Operations
   'low_stock_threshold',
   'gemini_instructions',
+  'support_username',
   // Growth / loyalty / lifecycle
   'referral_l1_pct',
   'referral_l2_pct',

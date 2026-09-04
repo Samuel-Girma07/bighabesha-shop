@@ -36,6 +36,7 @@ export interface BootstrapData {
 }
 
 export type PaymentRail = 'telebirr' | 'cbe' | 'abyssinia';
+export type ActivePaymentRail = PaymentRail;
 
 export interface CreateOrderResponse {
   order: OrderItem;
@@ -273,3 +274,25 @@ export async function getOrderEventsApi(orderId: string): Promise<{ order: Order
   if (!res.ok) throw new Error(data.error || 'Failed to load order');
   return { order: data.order, events: data.events ?? [] };
 }
+
+export async function requestPayoutApi(params: {
+  amountEtb: number;
+  method: ActivePaymentRail;
+  destination: string;
+}): Promise<{ success: boolean; message: string }> {
+  const headers = getAuthHeader();
+  const res = await fetch(`${API_BASE}/api/user/payout-request`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...headers,
+    },
+    body: JSON.stringify(params),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || data.message || 'Failed to submit payout request');
+  }
+  return data;
+}
+

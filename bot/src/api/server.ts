@@ -37,7 +37,7 @@ import { resolveOrderPrice, PricingError } from '../services/pricing.service.js'
 import { saveReceiptImage, ReceiptValidationError } from '../services/receipts.service.js';
 import { recordAudit } from '../services/audit.service.js';
 import { getUserStats } from '../services/loyalty.service.js';
-import { getReferralSummary } from '../services/referral.service.js';
+import { getReferralSummary, getLedgerBalance } from '../services/referral.service.js';
 import {
   getOrCreateThread,
   insertSupportMessage,
@@ -46,7 +46,7 @@ import {
   SUPPORT_MAX_MESSAGE_LENGTH,
 } from '../services/support.service.js';
 import { escapeHtml } from '../utils/html.js';
-import { isUsernameRequired, hasPublicUsername } from '../bot/handlers/gate.js';
+import { isUsernameRequired } from '../bot/handlers/gate.js';
 import { notifyAdminsNewReceipt } from '../bot/handlers/checkout.js';
 import { getDatabase, prepared } from '../db/index.js';
 import { cachedSync } from '../services/cache.service.js';
@@ -108,6 +108,12 @@ function handleReceiptUpload(bot: Bot) {
     const order = getOrderById(orderId);
     if (!order || order.user_id !== user.id) {
       res.status(404).json({ error: 'Order not found' });
+      return;
+    }
+
+    const ALLOWED_RECEIPT_STATUSES = ['awaiting_payment', 'pending_approval', 'rejected', 'new'];
+    if (!ALLOWED_RECEIPT_STATUSES.includes(order.status)) {
+      res.status(400).json({ error: `Cannot upload receipt for order in "${order.status}" status.` });
       return;
     }
 
@@ -369,6 +375,15 @@ function buildCatalogPayload() {
     handler: jsonRateLimitHandler('Too many receipt uploads. Please slow down.'),
   });
 
+  const payoutLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: telegramUserKey,
+    handler: jsonRateLimitHandler('Too many payout requests. Please try again later.'),
+  });
+
   const globalApiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 1000,
@@ -552,6 +567,64 @@ function buildCatalogPayload() {
     });
   });
 
+  // 2d. User Affiliate Payout Request
+  app.post('/api/user/payout-request', authenticateTelegramUserMiddleware(), payoutLimiter, async (req: Request, res: Response): Promise<void> => {
+    const user = (req as any).tgUser as TelegramUser;
+    const { amountEtb, method, destination } = req.body;
+    if (amountEtb === undefined || method === undefined || destination === undefined) {
+      res.status(400).json({ error: 'amountEtb, method, and destination are required.' });
+      return;
+    }
+    const amt = Number(amountEtb);
+    if (!Number.isInteger(amt) || amt < 100) {
+      res.status(400).json({ error: 'Minimum payout amount is 100 ETB (whole numbers only).' });
+      return;
+    }
+    const allowedMethods = ['telebirr', 'cbe', 'abyssinia'];
+    if (typeof method !== 'string' || !allowedMethods.includes(method)) {
+      res.status(400).json({ error: 'Invalid payout method. Supported methods: telebirr, cbe, abyssinia.' });
+      return;
+    }
+    const dest = typeof destination === 'string' ? destination.trim() : '';
+    const destRegex = /^[a-zA-Z0-9_\-+@. ]{5,64}$/;
+    if (!dest || dest.length < 5 || dest.length > 64 || !destRegex.test(dest)) {
+      res.status(400).json({ error: 'Invalid destination. Must be 5 to 64 characters.' });
+      return;
+    }
+
+    const db = getDatabase();
+    try {
+      db.transaction(() => {
+        const balance = getLedgerBalance(user.id);
+        if (balance < amt) {
+          const err: any = new Error(`Insufficient balance. Available: ${balance.toLocaleString()} ETB.`);
+          err.statusCode = 400;
+          throw err;
+        }
+        const pending = db.prepare("SELECT id FROM payout_requests WHERE user_id = ? AND status = 'pending'").get(user.id);
+        if (pending) {
+          const err: any = new Error('You already have a pending payout request.');
+          err.statusCode = 409;
+          throw err;
+        }
+        db.prepare(`
+          INSERT INTO payout_requests (user_id, amount_etb, method, destination, status)
+          VALUES (?, ?, ?, ?, 'pending')
+        `).run(user.id, amt, method, dest);
+      })();
+    } catch (err: any) {
+      if (err.statusCode) {
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+      }
+      logger.error({ err, userId: user.id }, 'Failed to submit payout request');
+      res.status(500).json({ error: 'Internal server error processing payout request.' });
+      return;
+    }
+
+    res.json({ success: true, message: 'Payout request submitted successfully.' });
+  });
+
   // 2c. In-app support bridge (Mini App live chat ↔ admin forum topics)
   const supportLimiter = rateLimit({
     windowMs: 5 * 60 * 1000,
@@ -701,11 +774,11 @@ function buildCatalogPayload() {
       }
     }
 
-    // Username Gate check: Telegram Premium requires recipient @username
-    if (isUsernameRequired(productId) && !targetUsername && !hasPublicUsername(user)) {
+    // Username Gate check: Telegram Premium requires a valid recipient @username
+    if (isUsernameRequired(productId) && !targetUsername) {
       res.status(403).json({
         error: 'USERNAME_REQUIRED',
-        message: 'Telegram public @username is required to purchase Telegram Premium.',
+        message: 'A valid Telegram public @username (5-32 alphanumeric characters) is required to purchase Telegram Premium.',
       });
       return;
     }

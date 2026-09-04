@@ -131,6 +131,13 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
     }
 
     if (!match.matched) {
+      if (match.reason === 'reference_already_used') {
+        await ctx.reply(
+          `⚠️ <b>Transaction Reference Already Used</b>\n\nThis payment reference has already been matched to a previous order. If you believe this is an error, please contact support.`,
+          { parse_mode: 'HTML' }
+        );
+        return true;
+      }
       const reason = match.reason === 'ambiguous' ? 'multiple orders match this amount.' : 'no open order matches this amount.';
       await ctx.reply(
         `⚠️ SMS received but ${reason}\n\nPlease double-check the amount, or upload your receipt screenshot for manual review.`,

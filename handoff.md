@@ -1,9 +1,9 @@
-# Project Handoff: Production B2B Reseller, Domestic Payment Rails & AI Subagent Pipeline
+# Project Handoff: Production B2B Reseller, Domestic Payment Rails, Defect Remediation & AI Subagent Pipeline
 
 **Date:** September 4, 2026  
 **Repository:** `Samuel-Girma07/bighabesha-shop` (`C:\Users\KATANA\Documents\Intern\Bot`)  
 **Active Branch:** `master` (Synchronized with `origin/master`)  
-**Latest Verification:** 377 automated tests passing (100%), 0 build errors, 0 SAST/SCA vulnerabilities  
+**Latest Verification:** 394 automated tests passing (100% pass rate: 378 bot tests across 21 files, 16 webapp tests across 2 files), 0 build errors, 0 SAST/SCA vulnerabilities  
 
 ---
 
@@ -30,22 +30,41 @@ This repository implements **Bighabesha Shop**, a high-scale e-commerce Telegram
    - **Fallback / Secondary:** iStar (`istar.tg` / `v1.fragmentapi.com`)
    - When an order is approved, the bot calls Gramix first. If Gramix returns an insufficient balance (HTTP 403), network timeout, or 5xx outage, the bot **automatically fails over to iStar**.
    - If both providers fail, the order enters `delivery_failed`, the admin is alerted with a breakdown of both balances, and the customer is notified of a temporary queue delay.
-4. **Universal Lowercase Username Normalization:**
+4. **Universal Lowercase Username Normalization & Validation Gate:**
    - Gramix API strictly rejects uppercase letters with `400 Invalid username`.
    - Usernames like `@sysRQA` are automatically normalized to `sysrqa` across all 7 layers (bot gate, input, checkout, Mini App, API server, order sanitizer, and reseller dispatcher).
    - Purely numeric Telegram user IDs (e.g. `123456789`) are rejected by regex `/^(?![0-9]+$)[a-zA-Z0-9_]{5,32}$/`.
-5. **30-Minute Low-Float Alert Cooldown & Waiting Orders Gate:**
-   - The 5-minute background sweeper (`retryFailedResellerDeliveries`) checks SQLite before alerting admins:
-     - **If 0 orders are waiting:** Silently skips. Admins are **never spammed** when the store is idle.
-     - **If 1+ orders are waiting:** Enforces a **30-minute cooldown** (`LOW_FLOAT_ALERT_COOLDOWN_MS = 30 * 60 * 1000`). Alerts are sent at most once every 30 minutes, displaying the exact count of waiting orders.
-6. **Order Delivery Concurrency Lease:**
-   - `deliverWithReseller()` acquires an atomic invocation-scoped lease (`tryAcquireLease('reseller:order:' + orderId, 60_000, invocationUUID)`). Rapid double-taps by admins or duplicate callbacks cannot cause double-fulfillment or float double-spending.
+   - `POST /api/orders` enforces public handle requirement for Telegram Premium: if the buyer account lacks a public `@username` and no valid `targetUsername` is specified, the endpoint responds with HTTP 403 `USERNAME_REQUIRED`.
+5. **Out-of-Stock Gate & Fail-Closed Stock Verification (Gemini Pro 18M):**
+   - **Mini App:** Bootstrap fallback stock defaults to `0`; when stock is `<= 0`, product cards render a red `SOLD OUT` badge, dim opacity, block drawer opening with an alert popup, and the order action button is disabled with "Out of Stock".
+   - **Bot Catalog & Checkout:** Inline buttons display `🚫 Sold Out` and bind `sold_out_${prod.id}` with `answerCallbackQuery(show_alert: true)`; `initiateCheckout` verifies `getAvailableStockCount(productId) > 0` before presenting payment rails.
+   - **Order Creation API:** `POST /api/orders` validates stock products with `getAvailableStockCount(productId)` and returns HTTP 409 `OUT_OF_STOCK` if depleted.
+6. **Gross vs Net Payment Pricing Invariant:**
+   - Orders with promo discounts calculate net payable amount as `Math.max(order.amount_etb - (order.discount_etb || 0), 1)`.
+   - Both the Telegram Bot manual transfer message and Mini App Payment Step 2 prominently instruct users to send the exact net amount, accompanied by original price and discount breakdowns.
+7. **Order Refund Invariants (Stock Key Restoration & Affiliate Debit):**
+   - `refundOrder()` restores allocated stock keys in `stock_items` associated with `order_id` back to `status = 'available'` with `order_id = NULL`.
+   - `refundOrder()` identifies all commission credits in `ledger_entries` for the order and posts debit reversal entries (`type = 'payout'`, `note = 'Referral commission reversed due to order refund'`), eliminating phantom affiliate earnings.
+8. **Promo Code Redemption Lifecycle Invariant:**
+   - Order cancellations (`updateOrderStatus` transition to `cancelled`) execute `releasePromoRedemption(orderId)`, decrementing the code's `used_count` and purging redemption rows from `promo_redemptions`.
+9. **Receipt Upload Guards on Finalized Orders:**
+   - `POST /api/receipt` rejects receipt uploads with HTTP 400 Bad Request if the target order is already in `fulfilled`, `cancelled`, or `refunded` status.
+10. **SMS Reference Replay & Duplicate Match Prevention:**
+    - `matchSmsToOrders` inspects `receipt_evidence` for existing matched records (`WHERE reference = ? AND matched = 1`) and rejects duplicate attempts with `{ matched: false, reason: 'reference_already_used' }`.
+11. **Affiliate Payout Request Invariant (100 ETB Minimum):**
+    - `POST /api/user/payout-request` validates that withdrawals are $\ge 100\text{ ETB}$, verifies available balance in `getLedgerBalance()`, checks against existing `pending` requests in `payout_requests` (HTTP 409 Conflict), and records withdrawal records for admin review.
+12. **30-Minute Low-Float Alert Cooldown & Waiting Orders Gate:**
+    - The 5-minute background sweeper (`retryFailedResellerDeliveries`) checks SQLite before alerting admins:
+      - **If 0 orders are waiting:** Silently skips. Admins are **never spammed** when the store is idle.
+      - **If 1+ orders are waiting:** Enforces a **30-minute cooldown** (`LOW_FLOAT_ALERT_COOLDOWN_MS = 30 * 60 * 1000`). Alerts are sent at most once every 30 minutes, displaying the exact count of waiting orders.
+13. **Order Delivery Concurrency Lease:**
+    - `deliverWithReseller()` acquires an atomic invocation-scoped lease (`tryAcquireLease('reseller:order:' + orderId, 60_000, invocationUUID)`). Rapid double-taps by admins or duplicate callbacks cannot cause double-fulfillment or float double-spending.
 
 ---
 
 ## 2. Real Gramix API v1 Protocol Contract
 
-*Previous sessions used an outdated contract (`POST /v1/premium/orders` with `Bearer` auth). That was replaced with the official Gramix v1 API specifications:*
+*Official Gramix v1 API specifications implemented in `bot/src/services/reseller/gramix.ts`:*
 
 - **Base URL:** `https://api.gramix.io/api/v1`
 - **Authentication Header:** `x-api-key: <GRAMIX_API_KEY>`
@@ -110,7 +129,7 @@ Whenever you are instructed by the user to develop, refactor, audit, or deploy c
 
 #### Agent 1: `project-architecture-planner`
 - **Role:** Analyzes requirements, checks existing database/code invariants, and writes the architectural blueprint artifact.
-- **Tools:** Read/write tools (creates specification in `.gemini/.../blueprint.md`), MCP tools.
+- **Tools:** Read/write tools (creates specification in `.gemini/.../blueprint.md` or `implementation_plan.md`), MCP tools.
 - **Responsibilities:**
   - Maps affected files, schemas, and state machine transitions.
   - Ensures fail-closed design and zero breaking regressions.
@@ -128,9 +147,9 @@ Whenever you are instructed by the user to develop, refactor, audit, or deploy c
 - **Role:** Implements core backend logic, Telegram bot handlers, domain state machines, and cron sweepers.
 - **Tools:** Write tools, command execution (`run_command`), MCP tools.
 - **Responsibilities:**
-  - Implements bot keyboards in `bot/src/bot/handlers/checkout.ts`, `admin_queue.ts`, `input.ts`, and `gate.ts`.
+  - Implements bot keyboards in `bot/src/bot/handlers/checkout.ts`, `shop.ts`, `admin_queue.ts`, `input.ts`, and `gate.ts`.
   - Implements reseller adapters and services in `bot/src/services/reseller/` and `reseller.service.ts`.
-  - Enforces atomic state transitions in `bot/src/services/orders.service.ts`.
+  - Enforces atomic state transitions and fulfillment hooks in `bot/src/services/orders.service.ts`.
 
 #### Agent 4: `wg-code-alchemist`
 - **Role:** Frontend UI/UX engineer specializing in React 19, Telegram Mini Apps, and Web Admin Dashboard.
@@ -145,7 +164,7 @@ Whenever you are instructed by the user to develop, refactor, audit, or deploy c
 - **Tools:** Write tools, command execution (`run_command`), MCP tools.
 - **Responsibilities:**
   - Runs and maintains Vitest suites in `bot/tests/` and `webapp/src/__tests__/`.
-  - Writes comprehensive unit and integration tests for every new feature or bug fix.
+  - Writes comprehensive unit and integration tests for every new feature or bug fix (e.g. `bot/tests/defect_remediation.test.ts`).
   - Guarantees 100% pass rate before code reaches security or DevOps.
 
 #### Agent 6: `sast-sca-security-analyzer`
@@ -203,7 +222,7 @@ RESELLER_LOW_BALANCE_ALERT_USDT=50
 
 ### Running Tests
 ```bash
-# Bot test suite (20 files, 361+ tests)
+# Bot test suite (21 files, 378+ tests)
 pnpm --filter bot test
 
 # Webapp test suite (2 files, 16 tests)

@@ -164,6 +164,28 @@ function getOrderAfter(orderId: string): any {
   return getDatabase().prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
 }
 
+/**
+ * Reverses a promo redemption if an order is cancelled, rolling back
+ * the used_count on the promo code and removing the redemption record.
+ */
+export function releasePromoRedemption(orderId: string): boolean {
+  const db = getDatabase();
+
+  const releasedPromoId = db.transaction(() => {
+    const row = db.prepare('SELECT promo_id FROM promo_redemptions WHERE order_id = ?').get(orderId) as { promo_id: number } | undefined;
+    if (!row) return null;
+
+    db.prepare('DELETE FROM promo_redemptions WHERE order_id = ?').run(orderId);
+    db.prepare('UPDATE promo_codes SET used_count = MAX(0, used_count - 1) WHERE id = ?').run(row.promo_id);
+    return row.promo_id;
+  })();
+
+  if (releasedPromoId === null) return false;
+
+  logger.info({ orderId, promoId: releasedPromoId }, 'Promo redemption released');
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Admin CRUD helpers (used by dashboard endpoints)
 // ---------------------------------------------------------------------------

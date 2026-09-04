@@ -107,6 +107,15 @@ export function matchSmsToOrders(
   windowMinutes: number = 120,
   nowMs: number = Date.now()
 ): SmsMatchResult {
+  if (parsed.reference) {
+    const existingMatched = db.prepare(`
+      SELECT id FROM receipt_evidence WHERE UPPER(TRIM(reference)) = UPPER(TRIM(?)) AND matched = 1
+    `).get(parsed.reference);
+    if (existingMatched) {
+      return { matched: false, reason: 'reference_already_used' };
+    }
+  }
+
   const candidates = db.prepare(`
     SELECT id, amount_etb, discount_etb FROM orders
     WHERE user_id = ?

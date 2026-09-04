@@ -30,11 +30,20 @@ export async function renderCatalog(ctx: Context): Promise<void> {
 
       text += `• 🤖 <b>${prod.name}</b>\n` +
         `   └ 💰 <code>${formatPriceETB(price)}</code> · ${stockBadge}\n\n`;
-      addStyledInlineButton(keyboard, {
-        text: `✦ ${prod.name} • ${stock > 0 ? formatPriceETB(price) : 'Sold Out'}`,
-        callback_data: `prod_${prod.id}`,
-        style: 'success',
-      }).row();
+
+      if (stock > 0) {
+        addStyledInlineButton(keyboard, {
+          text: `✦ ${prod.name} • ${formatPriceETB(price)}`,
+          callback_data: `prod_${prod.id}`,
+          style: 'success',
+        }).row();
+      } else {
+        addStyledInlineButton(keyboard, {
+          text: `🚫 ${prod.name} • Sold Out`,
+          callback_data: `sold_out_${prod.id}`,
+          style: 'danger',
+        }).row();
+      }
     } else if (prod.id === 'telegram_premium') {
       const fromLabel = premiumFromPrice > 0 ? formatPriceETB(premiumFromPrice) : 'price on request';
       text += `• ⭐ <b>${prod.name}</b>\n` +
@@ -127,7 +136,7 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
     } else {
       addStyledInlineButton(keyboard, {
         text: '🚫 Currently Sold Out',
-        callback_data: 'action_sold_out',
+        callback_data: `sold_out_${product.id}`,
         style: 'danger',
       }).row();
     }

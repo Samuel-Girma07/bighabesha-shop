@@ -11,6 +11,7 @@ import {
   fetchSupportMessages,
   fetchReferralsApi,
   getOrderEventsApi,
+  requestPayoutApi,
   type ReferralSummary,
   type PaymentRail,
 } from './api.ts';
@@ -79,7 +80,7 @@ const DEFAULT_BOOTSTRAP: BootstrapData = {
       variants: [
         { id: 'gemini_pro_18m_default', product_id: 'gemini_pro_18m', name: '18 Months Access', price_etb: 1500, is_active: 1, sort_order: 1 },
       ],
-      availableStock: 5,
+      availableStock: 0,
     },
   ],
   settings: {
@@ -241,6 +242,11 @@ const StoreFront: React.FC = () => {
   const [supportMsgs, setSupportMsgs] = useState<{ id: number; sender_role: string; body: string }[]>([]);
   const [supportInput, setSupportInput] = useState('');
   const [referralInfo, setReferralInfo] = useState<ReferralSummary | null>(null);
+  const [payoutOpen, setPayoutOpen] = useState<boolean>(false);
+  const [payoutAmount, setPayoutAmount] = useState<string>('');
+  const [payoutMethod, setPayoutMethod] = useState<PaymentRail>('telebirr');
+  const [payoutDestination, setPayoutDestination] = useState<string>('');
+  const [submittingPayout, setSubmittingPayout] = useState<boolean>(false);
 
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -303,6 +309,14 @@ const StoreFront: React.FC = () => {
       .then((res) => setSupportMsgs(res.messages || []))
       .catch(() => {});
 
+    const orderPollInterval = setInterval(() => {
+      fetchOrders()
+        .then((ords) => {
+          if (ords?.orders) setOrders(ords.orders);
+        })
+        .catch(() => {});
+    }, 10000);
+
     const handleOnline = () => {
       setIsOnline(true);
       haptic.success();
@@ -315,6 +329,7 @@ const StoreFront: React.FC = () => {
     window.addEventListener('offline', handleOffline);
 
     return () => {
+      clearInterval(orderPollInterval);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
@@ -323,7 +338,8 @@ const StoreFront: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (selectedDetailOrder) setSelectedDetailOrder(null);
+        if (payoutOpen) setPayoutOpen(false);
+        else if (selectedDetailOrder) setSelectedDetailOrder(null);
         else if (paymentModalOpen) setPaymentModalOpen(false);
         else if (selectedProductDrawer) setSelectedProductDrawer(null);
         else if (referralDrawerOpen) setReferralDrawerOpen(false);
@@ -333,7 +349,7 @@ const StoreFront: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedDetailOrder, paymentModalOpen, selectedProductDrawer, referralDrawerOpen, supportDrawerOpen, gateOpen]);
+  }, [payoutOpen, selectedDetailOrder, paymentModalOpen, selectedProductDrawer, referralDrawerOpen, supportDrawerOpen, gateOpen]);
 
   const hasUsername = Boolean(data?.user?.username && data.user.username.trim().length > 0);
 
@@ -347,6 +363,14 @@ const StoreFront: React.FC = () => {
   // Open Product Drawer
   const openProductModal = (productId: 'telegram_premium' | 'gemini_pro_18m') => {
     haptic.tap();
+    if (productId === 'gemini_pro_18m') {
+      const gProd = data.products.find((p) => p.id === 'gemini_pro_18m');
+      if (gProd && gProd.availableStock !== null && gProd.availableStock <= 0) {
+        haptic.error();
+        alert('Gemini Pro (18 Months) is currently out of stock. Please check back later!');
+        return;
+      }
+    }
     if (productId === 'telegram_premium' && !hasUsername && !recipientUsername) {
       setGateOpen(true);
       return;
@@ -366,6 +390,26 @@ const StoreFront: React.FC = () => {
 
     const prod = data.products.find((p) => p.id === selectedProductDrawer);
     if (!prod) return;
+
+    if (prod.type === 'stock' && prod.availableStock !== null && prod.availableStock <= 0) {
+      haptic.error();
+      alert(`${prod.name} is currently out of stock.`);
+      return;
+    }
+
+    if (selectedProductDrawer === 'telegram_premium') {
+      const recipientCandidate = (recipientUsername || data?.user?.username || '').trim();
+      const cleanTarget = recipientCandidate
+        .replace(/^https?:\/\/t\.me\//i, '')
+        .replace(/^t\.me\//i, '')
+        .replace(/^@+/, '')
+        .trim();
+      if (!cleanTarget || !/^[a-zA-Z0-9_]{5,32}$/.test(cleanTarget)) {
+        haptic.error();
+        setGateOpen(true);
+        return;
+      }
+    }
 
     const variant = prod.variants.find((v) => v.id === selectedVariantId) || prod.variants[0];
     const amount = variant?.price_etb || (selectedProductDrawer === 'gemini_pro_18m' ? 1500 : 1100);
@@ -462,6 +506,10 @@ const StoreFront: React.FC = () => {
     setSelectedDetailOrder(ord);
     try {
       const ev = await getOrderEventsApi(ord.id);
+      if (ev.order) {
+        setSelectedDetailOrder(ev.order);
+        setOrders((prev) => prev.map((o) => (o.id === ev.order.id ? ev.order : o)));
+      }
       setDetailEvents(ev.events || []);
     } catch {
       setDetailEvents([]);
@@ -481,6 +529,50 @@ const StoreFront: React.FC = () => {
     } catch (err: any) {
       haptic.error();
       alert(err.message || 'Support message dispatch failed.');
+    }
+  };
+
+  const handleRequestPayout = async () => {
+    if (submittingPayout) return;
+
+    const amt = Number(payoutAmount);
+    if (!Number.isInteger(amt) || amt < 100) {
+      haptic.error();
+      alert('Minimum payout amount is 100 ETB (whole numbers only).');
+      return;
+    }
+    if (amt > (referralInfo?.balanceEtb || 0)) {
+      haptic.error();
+      alert('Amount exceeds your earned affiliate balance.');
+      return;
+    }
+    const dest = payoutDestination.trim();
+    if (!dest || dest.length < 5 || dest.length > 64) {
+      haptic.error();
+      alert('Please enter a valid account or phone number (5 to 64 characters).');
+      return;
+    }
+
+    setSubmittingPayout(true);
+    haptic.tap();
+    try {
+      const res = await requestPayoutApi({
+        amountEtb: amt,
+        method: payoutMethod,
+        destination: dest,
+      });
+      haptic.success();
+      alert(res.message || 'Payout request submitted successfully! An administrator will process it shortly.');
+      setPayoutOpen(false);
+      setPayoutAmount('');
+      setPayoutDestination('');
+      const updatedRef = await fetchReferralsApi();
+      setReferralInfo(updatedRef);
+    } catch (err: any) {
+      haptic.error();
+      alert(err.message || 'Failed to submit payout request.');
+    } finally {
+      setSubmittingPayout(false);
     }
   };
 
@@ -616,17 +708,29 @@ const StoreFront: React.FC = () => {
                 <div className="section-category-header">AI & CLOUD SERVICES</div>
                 <div className="hulupay-card-deck">
                   {geminiProd && (
-                    <div className="hulupay-product-card" onClick={() => openProductModal('gemini_pro_18m')}>
+                    <div
+                      className={`hulupay-product-card ${geminiProd.availableStock !== null && geminiProd.availableStock <= 0 ? 'sold-out' : ''}`}
+                      onClick={() => openProductModal('gemini_pro_18m')}
+                      style={geminiProd.availableStock !== null && geminiProd.availableStock <= 0 ? { opacity: 0.65, cursor: 'not-allowed' } : undefined}
+                    >
                       <div className="hulupay-card-icon-wrap">
                         <GeminiPro3DIcon size={48} />
                       </div>
                       <div className="hulupay-card-content">
                         <div className="hulupay-card-title-row">
                           <span className="hulupay-card-title">Gemini Pro (18 Months)</span>
-                          <span className="hulupay-badge purple">2TB STORAGE</span>
+                          {geminiProd.availableStock !== null && geminiProd.availableStock <= 0 ? (
+                            <span className="hulupay-badge red" style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#EF4444', border: '1px solid rgba(239, 68, 68, 0.4)' }}>
+                              SOLD OUT
+                            </span>
+                          ) : (
+                            <span className="hulupay-badge purple">2TB STORAGE</span>
+                          )}
                         </div>
                         <p className="hulupay-card-desc">
-                          Google Advanced AI Suite + 2TB Google Cloud Storage. One-click instant activation link.
+                          {geminiProd.availableStock !== null && geminiProd.availableStock <= 0
+                            ? 'Currently out of stock. Instant activation links will return once restocked.'
+                            : 'Google Advanced AI Suite + 2TB Google Cloud Storage. One-click instant activation link.'}
                         </p>
                       </div>
                       <ChevronRightIcon size={16} color="#64748B" />
@@ -1016,9 +1120,16 @@ const StoreFront: React.FC = () => {
                 >
                   <div className="hulupay-variant-left">
                     <span className="hulupay-variant-name">For 18 Months</span>
-                    <span className="hulupay-badge purple" style={{ width: 'fit-content' }}>
-                      2TB CLOUD STORAGE
-                    </span>
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
+                      <span className="hulupay-badge purple" style={{ width: 'fit-content' }}>
+                        2TB CLOUD STORAGE
+                      </span>
+                      {geminiProd && geminiProd.availableStock !== null && geminiProd.availableStock <= 0 && (
+                        <span className="hulupay-badge red" style={{ width: 'fit-content', background: 'rgba(239, 68, 68, 0.2)', color: '#EF4444' }}>
+                          SOLD OUT
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="hulupay-variant-right">
                     <span className="hulupay-variant-price">{fmt(1500)}</span>
@@ -1051,9 +1162,22 @@ const StoreFront: React.FC = () => {
             </div>
 
             {/* Order Action Button */}
-            <button className="hulupay-btn-action" onClick={handleProceedToPayment}>
+            <button
+              className="hulupay-btn-action"
+              onClick={handleProceedToPayment}
+              disabled={selectedProductDrawer === 'gemini_pro_18m' && (geminiProd?.availableStock ?? 0) <= 0}
+              style={
+                selectedProductDrawer === 'gemini_pro_18m' && (geminiProd?.availableStock ?? 0) <= 0
+                  ? { opacity: 0.5, cursor: 'not-allowed', background: '#334155' }
+                  : undefined
+              }
+            >
               <span>
-                {selectedProductDrawer === 'telegram_premium' ? 'Order Telegram Premium' : 'Order Gemini Pro (18M)'}
+                {selectedProductDrawer === 'telegram_premium'
+                  ? 'Order Telegram Premium'
+                  : (geminiProd?.availableStock ?? 0) <= 0
+                  ? 'Out of Stock'
+                  : 'Order Gemini Pro (18M)'}
               </span>
             </button>
           </div>
@@ -1194,9 +1318,23 @@ const StoreFront: React.FC = () => {
                     {copiedKey === 'acc' ? <><CheckIcon size={14} /> Copied</> : <><CopyIcon size={14} /> Copy Account Number</>}
                   </button>
 
-                  <div style={{ fontSize: '13px', color: '#10B981', fontWeight: 800, textAlign: 'center' }}>
-                    Exact Amount to Send: {checkoutOrder.amount_etb?.toLocaleString()} ETB
-                  </div>
+                  {checkoutOrder.discount_etb && checkoutOrder.discount_etb > 0 ? (
+                    <div style={{ textAlign: 'center', margin: '6px 0 2px 0' }}>
+                      <div style={{ fontSize: '11.5px', color: '#94A3B8', textDecoration: 'line-through' }}>
+                        Original Price: {checkoutOrder.amount_etb?.toLocaleString()} ETB
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#38BDF8', fontWeight: 700 }}>
+                        Promo Applied: -{checkoutOrder.discount_etb.toLocaleString()} ETB
+                      </div>
+                      <div style={{ fontSize: '13.5px', color: '#10B981', fontWeight: 800, marginTop: '2px' }}>
+                        Exact Amount to Send: {Math.max(checkoutOrder.amount_etb - checkoutOrder.discount_etb, 1).toLocaleString()} ETB
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '13px', color: '#10B981', fontWeight: 800, textAlign: 'center' }}>
+                      Exact Amount to Send: {checkoutOrder.amount_etb?.toLocaleString()} ETB
+                    </div>
+                  )}
                   {(checkoutOrder.target_username || (pendingCheckoutItem.productId === 'telegram_premium' && pendingCheckoutItem.recipient && pendingCheckoutItem.recipient !== 'Telegram User')) && (
                     <div style={{ fontSize: '12px', color: '#A855F7', fontWeight: 600, textAlign: 'center', marginTop: '6px' }}>
                       Gift Recipient: @{checkoutOrder.target_username || pendingCheckoutItem.recipient.replace(/^@/, '')}
@@ -1338,6 +1476,128 @@ const StoreFront: React.FC = () => {
                     <span style={{ fontSize: '11px', color: '#64748B' }}>EARNED BALANCE</span>
                     <div style={{ fontSize: '16px', fontWeight: 900, color: '#10B981' }}>{referralInfo.balanceEtb?.toLocaleString()} ETB</div>
                   </div>
+                </div>
+
+                <div style={{ marginTop: '14px' }}>
+                  {!payoutOpen ? (
+                    <button
+                      className="hulupay-btn-action"
+                      style={{
+                        height: '42px',
+                        minHeight: '42px',
+                        fontSize: '13px',
+                        background: (referralInfo.balanceEtb || 0) >= 100 ? 'linear-gradient(135deg, #10B981 0%, #059669 100%)' : '#1E293B',
+                        opacity: (referralInfo.balanceEtb || 0) >= 100 ? 1 : 0.6,
+                        cursor: (referralInfo.balanceEtb || 0) >= 100 ? 'pointer' : 'not-allowed',
+                      }}
+                      disabled={(referralInfo.balanceEtb || 0) < 100}
+                      onClick={() => {
+                        setPayoutAmount(String(referralInfo.balanceEtb || 100));
+                        setPayoutOpen(true);
+                      }}
+                    >
+                      {(referralInfo.balanceEtb || 0) >= 100
+                        ? 'Withdraw Earnings'
+                        : `Minimum Payout: 100 ETB (${(referralInfo.balanceEtb || 0).toLocaleString()} ETB current)`}
+                    </button>
+                  ) : (
+                    <div style={{ background: '#0E1622', padding: '14px', borderRadius: '14px', marginTop: '10px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: '#FFFFFF', marginBottom: '10px' }}>
+                        Withdraw to Ethiopian Account
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                        {(['telebirr', 'cbe', 'abyssinia'] as PaymentRail[]).map((rail) => (
+                          <button
+                            key={rail}
+                            type="button"
+                            onClick={() => setPayoutMethod(rail)}
+                            style={{
+                              flex: 1,
+                              padding: '8px 4px',
+                              borderRadius: '8px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              border: payoutMethod === rail ? '1px solid #10B981' : '1px solid rgba(255,255,255,0.1)',
+                              background: payoutMethod === rail ? 'rgba(16, 185, 129, 0.15)' : '#16202E',
+                              color: payoutMethod === rail ? '#10B981' : '#94A3B8',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {rail}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ marginBottom: '10px' }}>
+                        <label style={{ fontSize: '11px', color: '#64748B', display: 'block', marginBottom: '4px' }}>
+                          Payout Amount (ETB, Min 100)
+                        </label>
+                        <input
+                          type="number"
+                          min="100"
+                          max={referralInfo.balanceEtb}
+                          value={payoutAmount}
+                          onChange={(e) => setPayoutAmount(e.target.value)}
+                          style={{
+                            width: '100%',
+                            background: '#16202E',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            borderRadius: '8px',
+                            padding: '8px 10px',
+                            color: '#FFFFFF',
+                            fontSize: '13px',
+                            boxSizing: 'border-box',
+                          }}
+                        />
+                      </div>
+                      <div style={{ marginBottom: '12px' }}>
+                        <label style={{ fontSize: '11px', color: '#64748B', display: 'block', marginBottom: '4px' }}>
+                          Account / Phone Number
+                        </label>
+                        <input
+                          type="text"
+                          placeholder={payoutMethod === 'telebirr' ? 'e.g. 0912345678' : 'Account number'}
+                          value={payoutDestination}
+                          onChange={(e) => setPayoutDestination(e.target.value)}
+                          style={{
+                            width: '100%',
+                            background: '#16202E',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            borderRadius: '8px',
+                            padding: '8px 10px',
+                            color: '#FFFFFF',
+                            fontSize: '13px',
+                            boxSizing: 'border-box',
+                          }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          className="hulupay-btn-action"
+                          style={{ flex: 1, height: '38px', minHeight: '38px', fontSize: '12px' }}
+                          onClick={handleRequestPayout}
+                          disabled={submittingPayout}
+                        >
+                          {submittingPayout ? 'Submitting...' : 'Submit Request'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPayoutOpen(false)}
+                          style={{
+                            padding: '0 12px',
+                            background: '#1E293B',
+                            color: '#94A3B8',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (

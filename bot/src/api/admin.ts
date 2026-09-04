@@ -12,6 +12,7 @@ import {
   approveReceipt,
   rejectReceipt,
   fulfillOrderWithProof,
+  OutOfStockError,
 } from '../services/orders.service.js';
 import {
   addStockLink,
@@ -650,6 +651,10 @@ adminRouter.post('/orders/:id/approve', requireAdminAuth, requirePermission('ord
 
     res.json({ success: true, order: finalOrder, autoDeliveredItem });
   } catch (err: any) {
+    if (err instanceof OutOfStockError) {
+      res.status(409).json({ error: err.message });
+      return;
+    }
     res.status(400).json({ error: err.message });
   }
 });

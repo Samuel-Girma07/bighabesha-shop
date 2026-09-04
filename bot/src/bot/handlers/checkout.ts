@@ -1,5 +1,6 @@
 import { Context, InlineKeyboard, InputFile } from 'grammy';
 import { getProductById, formatPriceETB } from '../../services/catalog.service.js';
+import { getAvailableStockCount } from '../../services/stock.service.js';
 import { resolveStoredReceiptPath } from '../../services/receipts.service.js';
 import { createOrder, getOrderById, updateOrderMeta, updateOrderStatus, approveReceipt, PaymentRail, Order } from '../../services/orders.service.js';
 import { isResellerEligible, deliverWithReseller, deliveryFailedKeyboard } from '../../services/reseller.service.js';
@@ -64,6 +65,23 @@ export async function initiateCheckout(
   const userId = ctx.from?.id;
   const username = ctx.from?.username || null;
   if (!userId) return;
+
+  // Stock availability check: never begin checkout for sold-out stock products
+  const product = getProductById(productId);
+  if (product && product.type === 'stock') {
+    const stock = getAvailableStockCount(productId);
+    if (stock <= 0) {
+      if (ctx.callbackQuery) {
+        await ctx.answerCallbackQuery({
+          text: `⚠️ Sold Out: ${product.name} is currently out of stock.`,
+          show_alert: true,
+        }).catch(() => {});
+      } else {
+        await ctx.reply(`⚠️ <b>Sold Out:</b> <b>${escapeHtml(product.name)}</b> is currently out of stock. Please check back soon!`, { parse_mode: 'HTML' });
+      }
+      return;
+    }
+  }
 
   let amountETB = 0;
   let productName = '';
@@ -221,9 +239,13 @@ export async function handleManualRail(ctx: Context, rail: 'telebirr' | 'cbe' | 
     accountName = getSetting('abyssinia_name', 'Bighabesha Shop');
   }
 
+  const discount = order.discount_etb || 0;
+  const netAmount = Math.max(order.amount_etb - discount, 1);
+
   const text = `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
     `🏦 <b>Payment via ${escapeHtml(railTitle)}</b>\n\n` +
-    `Please transfer exactly <b>${formatPriceETB(order.amount_etb)}</b> to:\n\n` +
+    `Please transfer exactly <b>${formatPriceETB(netAmount)}</b> to:\n\n` +
+    (discount > 0 ? `• 🏷️ <b>Applied Discount:</b> −${formatPriceETB(discount)} <i>(Original: <s>${formatPriceETB(order.amount_etb)}</s>)</i>\n` : '') +
     `• <b>Account / Phone:</b> <code>${escapeHtml(accountNum)}</code> <i>(Tap to copy)</i>\n` +
     `• <b>Account Name:</b> <b>${escapeHtml(accountName)}</b>\n` +
     `• <b>Payment Reference:</b> <code>${order.id}</code>\n\n` +
