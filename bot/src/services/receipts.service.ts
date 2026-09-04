@@ -1,7 +1,7 @@
 import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
-import { getConfig } from '../config/env.js';
+import { getConfig, resolveDatabasePath, resolveRepoRoot } from '../config/env.js';
 import { logger } from '../logger/index.js';
 
 export class ReceiptValidationError extends Error {
@@ -47,8 +47,11 @@ export function resolveReceiptsDir(databasePath?: string): string {
   if (config.RECEIPTS_DIR) {
     return path.resolve(config.RECEIPTS_DIR);
   }
-  const dbFile = path.resolve(databasePath || config.DATABASE_PATH);
-  return path.join(path.dirname(dbFile), 'receipts');
+  const dbPath = resolveDatabasePath(databasePath || config.DATABASE_PATH);
+  if (dbPath === ':memory:') {
+    return path.resolve(resolveRepoRoot(), 'data/receipts');
+  }
+  return path.join(path.dirname(dbPath), 'receipts');
 }
 
 export interface SavedReceipt {

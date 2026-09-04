@@ -750,9 +750,9 @@
     "semantic_hash": ""
   },
   "bot/src/bot/handlers/orders.ts": {
-    "mtime": 1788374471.9067469,
-    "seen": 1788374859.122589,
-    "ast_hash": "370318ae78e41da3c353b163a8e2635d",
+    "mtime": 1788520138.0925906,
+    "seen": 1788521839.1078417,
+    "ast_hash": "76328a77915003664ce26868d03b02c8",
     "semantic_hash": ""
   },
   "bot/src/bot/handlers/profile.ts": {
@@ -798,15 +798,15 @@
     "semantic_hash": ""
   },
   "bot/src/config/env.ts": {
-    "mtime": 1788452800.993884,
-    "seen": 1788454430.3404071,
-    "ast_hash": "09bf09a687599204c4524c6e21ebd742",
+    "mtime": 1788519221.821025,
+    "seen": 1788521839.1110184,
+    "ast_hash": "60cab0b1e9bd4544fbf98f877e3fbe15",
     "semantic_hash": ""
   },
   "bot/src/db/index.ts": {
-    "mtime": 1787847134.5710049,
-    "seen": 1787941904.5039139,
-    "ast_hash": "01e3783433fc4effb331afa666946394",
+    "mtime": 1788520107.842798,
+    "seen": 1788521839.1110227,
+    "ast_hash": "0bac0ea5a7d93e4f59107d64233a9251",
     "semantic_hash": ""
   },
   "bot/src/db/lease.ts": {
@@ -1002,9 +1002,9 @@
     "semantic_hash": ""
   },
   "bot/src/services/receipts.service.ts": {
-    "mtime": 1787846211.2005632,
-    "seen": 1787941904.5039804,
-    "ast_hash": "18e2fe61d067580c7bdf5fa7fdeb5f62",
+    "mtime": 1788519234.329569,
+    "seen": 1788521839.1267693,
+    "ast_hash": "146825675df08f6e5fd4ad09452419cc",
     "semantic_hash": ""
   },
   "bot/src/services/referral.service.ts": {
@@ -1686,9 +1686,9 @@
     "semantic_hash": ""
   },
   "handoff.md": {
-    "mtime": 1788517530.4333992,
-    "seen": 1788517612.6238787,
-    "ast_hash": "ed1eff60526effabdfad79ba668b2dcf",
+    "mtime": 1788521766.75964,
+    "seen": 1788521839.1914113,
+    "ast_hash": "a965ad227f0c46edc39b0be1249c7036",
     "semantic_hash": ""
   },
   "pnpm-workspace.yaml": {
@@ -1923,6 +1923,12 @@
     "mtime": 1788516106.2522154,
     "seen": 1788516294.0503135,
     "ast_hash": "bcd82d67c335ba30eab40c6c82abdd7d",
+    "semantic_hash": ""
+  },
+  "bot/tests/database_canonicalization.test.ts": {
+    "mtime": 1788520601.7015698,
+    "seen": 1788521839.1370342,
+    "ast_hash": "5d059177fdbfebf7603b7c6a667966bb",
     "semantic_hash": ""
   }
 }

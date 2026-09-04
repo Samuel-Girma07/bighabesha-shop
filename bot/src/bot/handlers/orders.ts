@@ -2,8 +2,9 @@ import { Context, InlineKeyboard } from 'grammy';
 import { getOrdersByUserId, getOrderById } from '../../services/orders.service.js';
 import { getProductById, formatPriceETB } from '../../services/catalog.service.js';
 import { getSetting } from '../../services/settings.service.js';
-import { getDatabase } from '../../db/index.js';
+import { getUserById, saveUserLanguage } from '../../services/users.service.js';
 import { getConfig } from '../../config/env.js';
+import { logger } from '../../logger/index.js';
 import { escapeHtml } from '../../utils/html.js';
 import { addStyledInlineButton } from '../keyboards/menu.js';
 
@@ -209,25 +210,34 @@ export async function renderOrderDetail(ctx: Context, orderId: string): Promise<
 }
 
 export async function renderLanguageMenu(ctx: Context): Promise<void> {
-  const text =
-    '<b>🌐 Language Settings / የቋንቋ ምርጫ</b>\n\n' +
-    '<blockquote>Choose your preferred language for the store interface:</blockquote>\n\n' +
-    '• 🇬🇧 <b>English</b> (Active Default)\n' +
-    '• 🇪🇹 <b>አማርኛ (Amharic)</b>';
+  const userId = ctx.from?.id;
+  const user = userId ? getUserById(userId) : null;
+  const currentLang = user?.language_code || 'en';
+  const isAmharic = currentLang === 'am';
+
+  const text = isAmharic
+    ? '<b>🌐 የቋንቋ ምርጫ / Language Settings</b>\n\n' +
+      '<blockquote>ለመተግበሪያው የሚፈልጉትን ቋንቋ ይምረጡ:</blockquote>\n\n' +
+      '• 🇪🇹 <b>አማርኛ</b> (አሁን እየሰራ ያለ)\n' +
+      '• 🇬🇧 <b>English</b>'
+    : '<b>🌐 Language Settings / የቋንቋ ምርጫ</b>\n\n' +
+      '<blockquote>Choose your preferred language for the store interface:</blockquote>\n\n' +
+      '• 🇬🇧 <b>English</b> (Active Default)\n' +
+      '• 🇪🇹 <b>አማርኛ (Amharic)</b>';
 
   const keyboard = new InlineKeyboard();
   addStyledInlineButton(keyboard, {
-    text: '🇬🇧 English (Active)',
+    text: isAmharic ? '🇬🇧 English' : '🇬🇧 English (Active)',
     callback_data: 'set_lang_en',
-    style: 'success',
+    style: isAmharic ? 'primary' : 'success',
   }).row();
   addStyledInlineButton(keyboard, {
-    text: '🇪🇹 አማርኛ (Amharic)',
+    text: isAmharic ? '🇪🇹 አማርኛ (አክቲቭ)' : '🇪🇹 አማርኛ (Amharic)',
     callback_data: 'set_lang_am',
-    style: 'primary',
+    style: isAmharic ? 'success' : 'primary',
   }).row();
   addStyledInlineButton(keyboard, {
-    text: '🏠 Main Menu',
+    text: isAmharic ? '🏠 ዋና ማውጫ' : '🏠 Main Menu',
     callback_data: 'nav_home',
     style: 'primary',
   });
@@ -243,24 +253,23 @@ export async function handleSetLanguage(ctx: Context, langCode: string): Promise
   const userId = ctx.from?.id;
   if (!userId) return;
 
-  if (langCode === 'am') {
-    await ctx.answerCallbackQuery({
-      text: 'አማርኛ ተመርጧል',
-      show_alert: true,
-    });
-    return;
-  }
+  const validLang = langCode === 'am' ? 'am' : 'en';
 
   try {
-    const db = getDatabase();
-    db.prepare('UPDATE users SET language_code = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(
-      'en',
-      userId
-    );
+    saveUserLanguage(userId, validLang);
   } catch (err) {
-    // ignore
+    logger.error({ err, userId, langCode }, 'Failed to persist user language selection');
   }
 
-  await ctx.answerCallbackQuery({ text: 'Language set to English.' });
+  const feedbackText =
+    validLang === 'am'
+      ? '✅ ቋንቋው በተሳካ ሁኔታ ወደ አማርኛ ተቀይሯል።'
+      : '✅ Language successfully set to English.';
+
+  await ctx.answerCallbackQuery({
+    text: feedbackText,
+    show_alert: false,
+  }).catch(() => {});
+
   await renderLanguageMenu(ctx);
 }

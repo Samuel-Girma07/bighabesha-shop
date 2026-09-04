@@ -3,7 +3,7 @@
 **Date:** September 4, 2026  
 **Repository:** `Samuel-Girma07/bighabesha-shop` (`C:\Users\KATANA\Documents\Intern\Bot`)  
 **Active Branch:** `master` (Synchronized with `origin/master`)  
-**Latest Verification:** 394 automated tests passing (100% pass rate: 378 bot tests across 21 files, 16 webapp tests across 2 files), 0 build errors, 0 SAST/SCA vulnerabilities  
+**Latest Verification:** 412 automated tests passing (100% pass rate: 396 bot tests across 22 files, 16 webapp tests across 2 files), 0 build errors, 0 SAST/SCA vulnerabilities  
 
 ---
 
@@ -59,6 +59,12 @@ This repository implements **Bighabesha Shop**, a high-scale e-commerce Telegram
       - **If 1+ orders are waiting:** Enforces a **30-minute cooldown** (`LOW_FLOAT_ALERT_COOLDOWN_MS = 30 * 60 * 1000`). Alerts are sent at most once every 30 minutes, displaying the exact count of waiting orders.
 13. **Order Delivery Concurrency Lease:**
     - `deliverWithReseller()` acquires an atomic invocation-scoped lease (`tryAcquireLease('reseller:order:' + orderId, 60_000, invocationUUID)`). Rapid double-taps by admins or duplicate callbacks cannot cause double-fulfillment or float double-spending.
+14. **Deterministic Canonical Database Path (`<project_root>/data/shop.db`):**
+    - `resolveDatabasePath()` and `resolveRepoRoot()` ensure the SQLite database always resolves to `<project_root>/data/shop.db` and customer receipts to `<project_root>/data/receipts/`, eliminating launch-directory split-brain behavior across PM2, Docker, root commands, and `bot/` directory executions.
+    - All 7 registered users (including real buyers/admins), 12 orders, 4 stock items, and 300 receipts reside in the canonical store.
+15. **User Registration & Language Preference Retention:**
+    - Once a user shares their phone number (`is_registered = 1`), bot restarts NEVER re-prompt for phone registration or language.
+    - Amharic selection (`langCode === 'am'`) atomically updates `users.language_code` in SQLite via `saveUserLanguage()` and dynamically renders the settings menu.
 
 ---
 
@@ -222,7 +228,7 @@ RESELLER_LOW_BALANCE_ALERT_USDT=50
 
 ### Running Tests
 ```bash
-# Bot test suite (21 files, 378+ tests)
+# Bot test suite (22 files, 396+ tests)
 pnpm --filter bot test
 
 # Webapp test suite (2 files, 16 tests)

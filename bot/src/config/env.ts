@@ -8,11 +8,55 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
+ * Deterministically resolves the monorepo root directory, independent of process.cwd().
+ */
+export function resolveRepoRoot(moduleDir: string = __dirname): string {
+  if (process.env.REPO_ROOT) {
+    return path.resolve(process.env.REPO_ROOT);
+  }
+  let curr = path.resolve(moduleDir);
+  while (curr !== path.dirname(curr)) {
+    if (
+      fs.existsSync(path.join(curr, 'pnpm-workspace.yaml')) ||
+      (fs.existsSync(path.join(curr, 'package.json')) &&
+        !fs.existsSync(path.join(curr, 'src')) &&
+        fs.existsSync(path.join(curr, 'bot')))
+    ) {
+      return curr;
+    }
+    curr = path.dirname(curr);
+  }
+  return path.resolve(moduleDir, '../../..');
+}
+
+/**
+ * Resolves the canonical SQLite database path.
+ * - ':memory:' is preserved as-is.
+ * - Absolute paths are preserved as-is.
+ * - Relative paths (e.g. './data/shop.db') are resolved relative to the monorepo root.
+ */
+export function resolveDatabasePath(customPath?: string): string {
+  const target = (customPath && customPath.trim().length > 0)
+    ? customPath.trim()
+    : (process.env.DATABASE_PATH && process.env.DATABASE_PATH.trim().length > 0)
+      ? process.env.DATABASE_PATH.trim()
+      : './data/shop.db';
+  if (target === ':memory:') {
+    return ':memory:';
+  }
+  if (path.isAbsolute(target)) {
+    return path.resolve(target);
+  }
+  return path.resolve(resolveRepoRoot(), target);
+}
+
+/**
  * Deterministic .env candidate paths, independent of the process working
  * directory. Priority order:
  *   1. Explicit override via DOTENV_PATH env var
- *   2. Monorepo root (bot/../.env) — the single source of truth
+ *   2. Monorepo root (.env) — the single source of truth
  *   3. bot/ local directory (legacy convenience during development)
+ *   4. Current working directory (last resort)
  *
  * The FIRST existing file wins; no merging. This eliminates the previous
  * launch-directory-dependent behavior where running from `bot/` vs the repo
@@ -23,10 +67,12 @@ export function resolveEnvCandidates(moduleDir: string = __dirname): string[] {
   if (process.env.DOTENV_PATH) {
     candidates.push(path.resolve(process.env.DOTENV_PATH));
   }
+  const root = resolveRepoRoot(moduleDir);
   candidates.push(
-    path.resolve(moduleDir, '../../..', '.env'), // bot/dist or bot/src -> repo root
-    path.resolve(moduleDir, '../..', '.env'),    // fallback two levels up
-    path.resolve(process.cwd(), '.env')          // last resort: current dir
+    path.resolve(root, '.env'),
+    path.resolve(moduleDir, '../../..', '.env'),
+    path.resolve(moduleDir, '../..', '.env'),
+    path.resolve(process.cwd(), '.env')
   );
   return [...new Set(candidates)];
 }

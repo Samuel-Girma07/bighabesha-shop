@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { logger } from '../logger/index.js';
+import { resolveDatabasePath } from '../config/env.js';
 import { runMigrations } from './migrator.js';
 import { seedDatabase } from './seed.js';
 
@@ -10,15 +11,16 @@ let dbInstance: Database.Database | null = null;
 const stmtCache = new Map<string, Database.Statement>();
 
 export function initDatabase(dbPath: string = './data/shop.db', migrationsDir?: string): Database.Database {
-  if (dbPath !== ':memory:') {
-    const dir = path.dirname(dbPath);
+  const resolvedPath = resolveDatabasePath(dbPath);
+  if (resolvedPath !== ':memory:') {
+    const dir = path.dirname(resolvedPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
   }
 
-  logger.info({ dbPath }, 'Initializing SQLite database...');
-  const db = new Database(dbPath);
+  logger.info({ dbPath: resolvedPath }, 'Initializing SQLite database...');
+  const db = new Database(resolvedPath);
 
   // Performance and safety pragmas
   db.pragma('journal_mode = WAL');
