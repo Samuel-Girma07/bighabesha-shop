@@ -10,6 +10,7 @@ import { setPendingAction } from '../session.js';
 import { isAdmin } from './admin.js';
 import { getConfig } from '../../config/env.js';
 import { getDatabase } from '../../db/index.js';
+import { getUserById } from '../../services/users.service.js';
 import { escapeHtml } from '../../utils/html.js';
 import { logger } from '../../logger/index.js';
 
@@ -66,6 +67,10 @@ export async function initiateCheckout(
   const username = ctx.from?.username || null;
   if (!userId) return;
 
+  const user = userId ? getUserById(userId) : null;
+  const lang = user?.language_code || (ctx.from?.language_code?.startsWith('am') ? 'am' : 'en');
+  const isAmharic = lang === 'am';
+
   // Stock availability check: never begin checkout for sold-out stock products
   const product = getProductById(productId);
   if (product && product.type === 'stock') {
@@ -73,11 +78,16 @@ export async function initiateCheckout(
     if (stock <= 0) {
       if (ctx.callbackQuery) {
         await ctx.answerCallbackQuery({
-          text: `⚠️ Sold Out: ${product.name} is currently out of stock.`,
+          text: isAmharic ? `⚠️ አልቋል፦ ${product.name} በአሁኑ ጊዜ በክምችት ውስጥ የለም።` : `⚠️ Sold Out: ${product.name} is currently out of stock.`,
           show_alert: true,
         }).catch(() => {});
       } else {
-        await ctx.reply(`⚠️ <b>Sold Out:</b> <b>${escapeHtml(product.name)}</b> is currently out of stock. Please check back soon!`, { parse_mode: 'HTML' });
+        await ctx.reply(
+          isAmharic
+            ? `⚠️ <b>አልቋል፦</b> <b>${escapeHtml(product.name)}</b> በአሁኑ ጊዜ አልቋል። እባክዎ በቅርቡ ተመልሰው ይመልከቱ!`
+            : `⚠️ <b>Sold Out:</b> <b>${escapeHtml(product.name)}</b> is currently out of stock. Please check back soon!`,
+          { parse_mode: 'HTML' }
+        );
       }
       return;
     }
@@ -100,7 +110,7 @@ export async function initiateCheckout(
       await ctx.reply(`❌ ${escapeHtml(err.message)}`);
     } else {
       logger.error({ err, productId }, 'Unexpected error while resolving order price');
-      await ctx.reply('❌ Could not start checkout. Please try again or contact support.');
+      await ctx.reply(isAmharic ? '❌ ክፍያ መጀመር አልተቻለም። እባክዎ እንደገና ይሞክሩ ወይም ድጋፍ ያነጋግሩ።' : '❌ Could not start checkout. Please try again or contact support.');
     }
     return;
   }
@@ -149,26 +159,38 @@ export async function initiateCheckout(
 }
 
 export async function renderPaymentRailSelection(ctx: Context, order: Order, productName: string): Promise<void> {
+  const userId = ctx.from?.id;
+  const user = userId ? getUserById(userId) : null;
+  const lang = user?.language_code || (ctx.from?.language_code?.startsWith('am') ? 'am' : 'en');
+  const isAmharic = lang === 'am';
+
   const discount = order.discount_etb || 0;
   const netAmount = Math.max(order.amount_etb - discount, 1);
 
-  const text =
-    `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
-    `🛍 <b>Checkout & Payment Confirmation</b>\n\n` +
-    `• 📦 <b>Product:</b> <b>${escapeHtml(productName)}</b>\n` +
-    `• 🧾 <b>Order Ref:</b> <code>${order.id}</code>\n` +
-    (discount > 0 ? `• 🏷️ <b>Original Price:</b> <s>${formatPriceETB(order.amount_etb)}</s>\n• 🎁 <b>Promo (${escapeHtml(order.promo_code || '')}):</b> <b>−${formatPriceETB(discount)}</b>\n` : '') +
-    `• 💰 <b>Total Payable:</b> <code>${formatPriceETB(netAmount)}</code>\n\n` +
-    `<i>👇 Select your preferred payment rail below:</i>`;
+  const text = isAmharic
+    ? `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
+      `🛍 <b>የክፍያ ማረጋገጫ እና ትዕዛዝ ማጠቃለያ</b>\n\n` +
+      `• 📦 <b>ምርት፦</b> <b>${escapeHtml(productName)}</b>\n` +
+      `• 🧾 <b>የትዕዛዝ ቁጥር፦</b> <code>${order.id}</code>\n` +
+      (discount > 0 ? `• 🏷️ <b>ዋና ዋጋ፦</b> <s>${formatPriceETB(order.amount_etb)}</s>\n• 🎁 <b>የቅናሽ ኩፖን (${escapeHtml(order.promo_code || '')})፦</b> <b>−${formatPriceETB(discount)}</b>\n` : '') +
+      `• 💰 <b>የሚከፈል ጠቅላላ፦</b> <code>${formatPriceETB(netAmount)}</code>\n\n` +
+      `<i>👇 የሚመርጡትን የክፍያ ዘዴ ከታች ይምረጡ፡</i>`
+    : `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
+      `🛍 <b>Checkout & Payment Confirmation</b>\n\n` +
+      `• 📦 <b>Product:</b> <b>${escapeHtml(productName)}</b>\n` +
+      `• 🧾 <b>Order Ref:</b> <code>${order.id}</code>\n` +
+      (discount > 0 ? `• 🏷️ <b>Original Price:</b> <s>${formatPriceETB(order.amount_etb)}</s>\n• 🎁 <b>Promo (${escapeHtml(order.promo_code || '')}):</b> <b>−${formatPriceETB(discount)}</b>\n` : '') +
+      `• 💰 <b>Total Payable:</b> <code>${formatPriceETB(netAmount)}</code>\n\n` +
+      `<i>👇 Select your preferred payment rail below:</i>`;
 
   const keyboard = new InlineKeyboard()
-    .text(`📱 Telebirr`, `pay_manual_telebirr_${order.id}`)
-    .text(`🏦 CBE Bank`, `pay_manual_cbe_${order.id}`)
+    .text(isAmharic ? `📱 ቴሌብር` : `📱 Telebirr`, `pay_manual_telebirr_${order.id}`)
+    .text(isAmharic ? `🏦 የኢትዮጵያ ንግድ ባንክ (CBE)` : `🏦 CBE Bank`, `pay_manual_cbe_${order.id}`)
     .row()
-    .text(`🏛 Bank of Abyssinia`, `pay_manual_abyssinia_${order.id}`)
-    .text(`🏷 Promo Code${discount > 0 ? ' ✓' : ''}`, `promo_prompt_${order.id}`)
+    .text(isAmharic ? `🏛 አቢሲኒያ ባንክ` : `🏛 Bank of Abyssinia`, `pay_manual_abyssinia_${order.id}`)
+    .text(isAmharic ? `🏷 የቅናሽ ኮድ${discount > 0 ? ' ✓' : ''}` : `🏷 Promo Code${discount > 0 ? ' ✓' : ''}`, `promo_prompt_${order.id}`)
     .row()
-    .text('« Cancel Order', 'nav_shop');
+    .text(isAmharic ? '« ትዕዛዝ ሰርዝ' : '« Cancel Order', 'nav_shop');
 
   await safeEditMessage(ctx, text, keyboard);
 }
@@ -213,9 +235,14 @@ export async function handleWalletPay(ctx: Context, orderId: string): Promise<vo
 }
 
 export async function handleManualRail(ctx: Context, rail: 'telebirr' | 'cbe' | 'abyssinia', orderId: string): Promise<void> {
+  const userId = ctx.from?.id;
+  const user = userId ? getUserById(userId) : null;
+  const lang = user?.language_code || (ctx.from?.language_code?.startsWith('am') ? 'am' : 'en');
+  const isAmharic = lang === 'am';
+
   const order = getOrderById(orderId);
   if (!order) {
-    await ctx.reply('Order not found.');
+    await ctx.reply(isAmharic ? 'ትዕዛዙ አልተገኘም።' : 'Order not found.');
     return;
   }
 
@@ -225,16 +252,16 @@ export async function handleManualRail(ctx: Context, rail: 'telebirr' | 'cbe' | 
   // Payment account details always come from admin-managed settings.
   // Placeholder defaults make an unconfigured store visibly incomplete
   // instead of silently showing someone else's (or stale) accounts.
-  let railTitle = 'Telebirr';
+  let railTitle = isAmharic ? 'ቴሌብር' : 'Telebirr';
   let accountNum = getSetting('telebirr_account', '0000000000');
   let accountName = getSetting('telebirr_name', 'Bighabesha Shop');
 
   if (rail === 'cbe') {
-    railTitle = 'Commercial Bank of Ethiopia (CBE)';
+    railTitle = isAmharic ? 'የኢትዮጵያ ንግድ ባንክ (CBE)' : 'Commercial Bank of Ethiopia (CBE)';
     accountNum = getSetting('cbe_account', '0000000000000');
     accountName = getSetting('cbe_name', 'Bighabesha Shop');
   } else if (rail === 'abyssinia') {
-    railTitle = 'Bank of Abyssinia';
+    railTitle = isAmharic ? 'አቢሲኒያ ባንክ' : 'Bank of Abyssinia';
     accountNum = getSetting('abyssinia_account', '0000000000000');
     accountName = getSetting('abyssinia_name', 'Bighabesha Shop');
   }
@@ -242,19 +269,28 @@ export async function handleManualRail(ctx: Context, rail: 'telebirr' | 'cbe' | 
   const discount = order.discount_etb || 0;
   const netAmount = Math.max(order.amount_etb - discount, 1);
 
-  const text = `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
-    `🏦 <b>Payment via ${escapeHtml(railTitle)}</b>\n\n` +
-    `Please transfer exactly <b>${formatPriceETB(netAmount)}</b> to:\n\n` +
-    (discount > 0 ? `• 🏷️ <b>Applied Discount:</b> −${formatPriceETB(discount)} <i>(Original: <s>${formatPriceETB(order.amount_etb)}</s>)</i>\n` : '') +
-    `• <b>Account / Phone:</b> <code>${escapeHtml(accountNum)}</code> <i>(Tap to copy)</i>\n` +
-    `• <b>Account Name:</b> <b>${escapeHtml(accountName)}</b>\n` +
-    `• <b>Payment Reference:</b> <code>${order.id}</code>\n\n` +
-    `<blockquote>📸 Take a screenshot of your transfer confirmation, then tap <b>[Upload Transfer Receipt]</b> below.</blockquote>`;
+  const text = isAmharic
+    ? `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
+      `🏦 <b>ክፍያ በ${escapeHtml(railTitle)}</b>\n\n` +
+      `እባክዎ በትክክል <b>${formatPriceETB(netAmount)}</b> ወደሚከተለው ያስተላልፉ፡\n\n` +
+      (discount > 0 ? `• 🏷️ <b>የተደረገ ቅናሽ፦</b> −${formatPriceETB(discount)} <i>(ዋና ዋጋ፦ <s>${formatPriceETB(order.amount_etb)}</s>)</i>\n` : '') +
+      `• <b>የሂሳብ / ስልክ ቁጥር፦</b> <code>${escapeHtml(accountNum)}</code> <i>(ለመቅዳት ይጫኑ)</i>\n` +
+      `• <b>የሂሳብ ስም፦</b> <b>${escapeHtml(accountName)}</b>\n` +
+      `• <b>የትራንስፈር ማስታወሻ (Reason)፦</b> <code>${order.id}</code>\n\n` +
+      `<blockquote>📸 የከፈሉበትን ደረሰኝ ስክሪንሾት በማንሳት ከታች <b>[የክፍያ ደረሰኝ ላክ]</b> የሚለውን ይጫኑ።</blockquote>`
+    : `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
+      `🏦 <b>Payment via ${escapeHtml(railTitle)}</b>\n\n` +
+      `Please transfer exactly <b>${formatPriceETB(netAmount)}</b> to:\n\n` +
+      (discount > 0 ? `• 🏷️ <b>Applied Discount:</b> −${formatPriceETB(discount)} <i>(Original: <s>${formatPriceETB(order.amount_etb)}</s>)</i>\n` : '') +
+      `• <b>Account / Phone:</b> <code>${escapeHtml(accountNum)}</code> <i>(Tap to copy)</i>\n` +
+      `• <b>Account Name:</b> <b>${escapeHtml(accountName)}</b>\n` +
+      `• <b>Payment Reference:</b> <code>${order.id}</code>\n\n` +
+      `<blockquote>📸 Take a screenshot of your transfer confirmation, then tap <b>[Upload Transfer Receipt]</b> below.</blockquote>`;
 
   const keyboard = new InlineKeyboard()
-    .text('📸 Upload Transfer Receipt', `receipt_prompt_${order.id}`)
+    .text(isAmharic ? '📸 የክፍያ ደረሰኝ ላክ' : '📸 Upload Transfer Receipt', `receipt_prompt_${order.id}`)
     .row()
-    .text('« Change Payment Method', `checkout_back_${order.id}`);
+    .text(isAmharic ? '« የክፍያ ዘዴ ቀይር' : '« Change Payment Method', `checkout_back_${order.id}`);
 
   await safeEditMessage(ctx, text, keyboard);
 }
@@ -263,10 +299,14 @@ export async function promptReceiptUpload(ctx: Context, orderId: string): Promis
   const userId = ctx.from?.id;
   if (!userId) return;
 
+  const user = userId ? getUserById(userId) : null;
+  const lang = user?.language_code || (ctx.from?.language_code?.startsWith('am') ? 'am' : 'en');
+  const isAmharic = lang === 'am';
+
   const order = getOrderById(orderId);
   if (!order || order.user_id !== userId) {
     // Ownership check: never reveal or operate on foreign orders.
-    await ctx.reply('Order not found.');
+    await ctx.reply(isAmharic ? 'ትዕዛዙ አልተገኘም።' : 'Order not found.');
     return;
   }
 
@@ -275,12 +315,17 @@ export async function promptReceiptUpload(ctx: Context, orderId: string): Promis
     data: { orderId: order.id },
   });
 
-  const text = `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
-    `📤 <b>Upload Transfer Slip — Order <code>${order.id}</code></b>\n\n` +
-    `Please send a photo / screenshot / document of your transaction confirmation in this chat.\n\n` +
-    `<i>Our automated system and admins will verify your transfer and release your order promptly.</i>`;
+  const text = isAmharic
+    ? `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
+      `📤 <b>የክፍያ ደረሰኝ መላኪያ — ትዕዛዝ <code>${order.id}</code></b>\n\n` +
+      `እባክዎ የተላለፈበትን ማረጋገጫ ፎቶ / ስክሪንሾት / ዶክመንት በዚህ ቻት ውስጥ ይላኩ።\n\n` +
+      `<i>አውቶሜትድ ሲስተማችን እና አድሚኖች ክፍያውን አረጋግጠው ትዕዛዝዎን በፍጥነት ይልካሉ።</i>`
+    : `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
+      `📤 <b>Upload Transfer Slip — Order <code>${order.id}</code></b>\n\n` +
+      `Please send a photo / screenshot / document of your transaction confirmation in this chat.\n\n` +
+      `<i>Our automated system and admins will verify your transfer and release your order promptly.</i>`;
 
-  const keyboard = new InlineKeyboard().text('« Cancel', `pay_manual_${order.payment_rail}_${order.id}`);
+  const keyboard = new InlineKeyboard().text(isAmharic ? '« ተመለስ' : '« Cancel', `pay_manual_${order.payment_rail}_${order.id}`);
 
   await safeEditMessage(ctx, text, keyboard);
 }

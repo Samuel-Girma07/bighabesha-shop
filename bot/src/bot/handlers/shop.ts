@@ -3,8 +3,14 @@ import { getAllProducts, getProductById, getProductVariants, formatPriceETB } fr
 import { getAvailableStockCount } from '../../services/stock.service.js';
 import { getBannerPngPath } from '../../services/banner_generator.service.js';
 import { addStyledInlineButton } from '../keyboards/menu.js';
+import { getUserById } from '../../services/users.service.js';
 
 export async function renderCatalog(ctx: Context): Promise<void> {
+  const userId = ctx.from?.id;
+  const user = userId ? getUserById(userId) : null;
+  const lang = user?.language_code || (ctx.from?.language_code?.startsWith('am') ? 'am' : 'en');
+  const isAmharic = lang === 'am';
+
   const products = getAllProducts();
   const keyboard = new InlineKeyboard();
 
@@ -16,17 +22,22 @@ export async function renderCatalog(ctx: Context): Promise<void> {
   };
   const premiumFromPrice = minVariantPrice('telegram_premium');
 
-  let text =
-    '<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n' +
-    '🛍 <b>Official Catalog & Subscription Services</b>\n\n' +
-    '<blockquote>⚡ <i>Select a service below to view pricing, features, and instant automated delivery options:</i></blockquote>\n\n';
+  let text = isAmharic
+    ? '<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n' +
+      '🛍 <b>ይፋዊ የምርቶች እና የሰብስክሪፕሽን ካታሎግ</b>\n\n' +
+      '<blockquote>⚡ <i>ዋጋዎችን፣ ጥቅሞችን እና ፈጣን አውቶሜትድ ማድረሻ አማራጮችን ለማየት ከታች ይምረጡ፡</i></blockquote>\n\n'
+    : '<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n' +
+      '🛍 <b>Official Catalog & Subscription Services</b>\n\n' +
+      '<blockquote>⚡ <i>Select a service below to view pricing, features, and instant automated delivery options:</i></blockquote>\n\n';
 
   for (const prod of products) {
     if (prod.type === 'stock') {
       const stock = getAvailableStockCount(prod.id);
       const variants = getProductVariants(prod.id);
       const price = variants[0]?.price_etb || 0;
-      const stockBadge = stock > 0 ? `🟢 In Stock (<code>${stock}</code> in vault)` : `🔴 <b>Sold Out</b>`;
+      const stockBadge = isAmharic
+        ? (stock > 0 ? `🟢 በክምችት አለ (<code>${stock}</code> ዝግጁ)` : `🔴 <b>አልቋል</b>`)
+        : (stock > 0 ? `🟢 In Stock (<code>${stock}</code> in vault)` : `🔴 <b>Sold Out</b>`);
 
       text += `• 🤖 <b>${prod.name}</b>\n` +
         `   └ 💰 <code>${formatPriceETB(price)}</code> · ${stockBadge}\n\n`;
@@ -39,17 +50,19 @@ export async function renderCatalog(ctx: Context): Promise<void> {
         }).row();
       } else {
         addStyledInlineButton(keyboard, {
-          text: `🚫 ${prod.name} • Sold Out`,
+          text: isAmharic ? `🚫 ${prod.name} • አልቋል` : `🚫 ${prod.name} • Sold Out`,
           callback_data: `sold_out_${prod.id}`,
           style: 'danger',
         }).row();
       }
     } else if (prod.id === 'telegram_premium') {
-      const fromLabel = premiumFromPrice > 0 ? formatPriceETB(premiumFromPrice) : 'price on request';
+      const fromLabel = premiumFromPrice > 0 ? formatPriceETB(premiumFromPrice) : (isAmharic ? 'በጥያቄ የሚወሰን' : 'price on request');
       text += `• ⭐ <b>${prod.name}</b>\n` +
-        `   └ 💰 from <code>${fromLabel}</code> · ⚡ <i>3, 6, 12M Plans · Direct Gift</i>\n\n`;
+        (isAmharic
+          ? `   └ 💰 ከ <code>${fromLabel}</code> ጀምሮ · ⚡ <i>የ3፣ 6፣ 12 ወራት ዕቅዶች · ቀጥታ ስጦታ</i>\n\n`
+          : `   └ 💰 from <code>${fromLabel}</code> · ⚡ <i>3, 6, 12M Plans · Direct Gift</i>\n\n`);
       addStyledInlineButton(keyboard, {
-        text: `⭐ ${prod.name} • from ${fromLabel}`,
+        text: isAmharic ? `⭐ ${prod.name} • ከ ${fromLabel} ጀምሮ` : `⭐ ${prod.name} • from ${fromLabel}`,
         callback_data: `prod_${prod.id}`,
         style: 'primary',
       }).row();
@@ -63,12 +76,12 @@ export async function renderCatalog(ctx: Context): Promise<void> {
   }
 
   addStyledInlineButton(keyboard, {
-    text: '🏠 Main Menu',
+    text: isAmharic ? '🏠 ዋና ማውጫ' : '🏠 Main Menu',
     callback_data: 'nav_home',
     style: 'primary',
   });
   addStyledInlineButton(keyboard, {
-    text: '📦 My Orders',
+    text: isAmharic ? '📦 የእኔ ትዕዛዞች' : '📦 My Orders',
     callback_data: 'nav_orders',
     style: 'primary',
   }).row();
@@ -101,9 +114,14 @@ export async function renderCatalog(ctx: Context): Promise<void> {
 }
 
 export async function renderProductDetails(ctx: Context, productId: string): Promise<void> {
+  const userId = ctx.from?.id;
+  const user = userId ? getUserById(userId) : null;
+  const lang = user?.language_code || (ctx.from?.language_code?.startsWith('am') ? 'am' : 'en');
+  const isAmharic = lang === 'am';
+
   const product = getProductById(productId);
   if (!product) {
-    await ctx.reply('Product not found.');
+    await ctx.reply(isAmharic ? 'ምርቱ አልተገኘም።' : 'Product not found.');
     return;
   }
 
@@ -117,25 +135,37 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
     const variants = getProductVariants(product.id);
     const variant = variants[0];
     const price = variant?.price_etb || 0;
+    const stockBadge = isAmharic
+      ? (stock > 0 ? `🟢 በክምችት አለ (<code>${stock}</code> ሊንኮች ዝግጁ)` : '🔴 <b>በአሁኑ ሰዓት አልቋል</b>')
+      : (stock > 0 ? `🟢 In Stock (<code>${stock}</code> links ready)` : '🔴 <b>Currently Sold Out</b>');
 
-    text = `<b>🤖 ${product.name}</b>\n\n` +
-      `<blockquote>${product.description}</blockquote>\n\n` +
-      `📊 <b>Product Specifications:</b>\n` +
-      `• 💰 <b>Price:</b> <code>${formatPriceETB(price)}</code> (~83.3 ETB/month)\n` +
-      `• 💾 <b>Storage:</b> <code>2,048 GB (2 TB)</code> Google One\n` +
-      `• 📦 <b>Availability:</b> ${stock > 0 ? `🟢 In Stock (<code>${stock}</code> links ready)` : '🔴 <b>Currently Sold Out</b>'}\n` +
-      `• ⚡ <b>Fulfillment:</b> Instant single-use activation link\n\n` +
-      `<i>🛡️ 100% genuine Google workspace link with 18-month warranty.</i>`;
+    text = isAmharic
+      ? `<b>🤖 ${product.name}</b>\n\n` +
+        `<blockquote>${product.description}</blockquote>\n\n` +
+        `📊 <b>የምርት ዝርዝር መረጃ፦</b>\n` +
+        `• 💰 <b>ዋጋ፦</b> <code>${formatPriceETB(price)}</code> (~83.3 ETB/በወር)\n` +
+        `• 💾 <b>ማከማቻ፦</b> <code>2,048 GB (2 TB)</code> Google One\n` +
+        `• 📦 <b>ክምችት፦</b> ${stockBadge}\n` +
+        `• ⚡ <b>አቀባበል፦</b> ፈጣን የአንድ ጊዜ ማግበሪያ ሊንክ\n\n` +
+        `<i>🛡️ 100% አስተማማኝ የጉግል ሊንክ ከ18 ወራት ዋስትና ጋር።</i>`
+      : `<b>🤖 ${product.name}</b>\n\n` +
+        `<blockquote>${product.description}</blockquote>\n\n` +
+        `📊 <b>Product Specifications:</b>\n` +
+        `• 💰 <b>Price:</b> <code>${formatPriceETB(price)}</code> (~83.3 ETB/month)\n` +
+        `• 💾 <b>Storage:</b> <code>2,048 GB (2 TB)</code> Google One\n` +
+        `• 📦 <b>Availability:</b> ${stockBadge}\n` +
+        `• ⚡ <b>Fulfillment:</b> Instant single-use activation link\n\n` +
+        `<i>🛡️ 100% genuine Google workspace link with 18-month warranty.</i>`;
 
     if (stock > 0 && variant) {
       addStyledInlineButton(keyboard, {
-        text: `⚡ Purchase Plan — ${formatPriceETB(price)}`,
+        text: isAmharic ? `⚡ አሁኑኑ ይግዙ — ${formatPriceETB(price)}` : `⚡ Purchase Plan — ${formatPriceETB(price)}`,
         callback_data: `buy_var_${variant.id}`,
         style: 'success',
       }).row();
     } else {
       addStyledInlineButton(keyboard, {
-        text: '🚫 Currently Sold Out',
+        text: isAmharic ? '🚫 በአሁኑ ሰዓት አልቋል' : '🚫 Currently Sold Out',
         callback_data: `sold_out_${product.id}`,
         style: 'danger',
       }).row();
@@ -144,21 +174,37 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
     bannerType = 'premium';
     const variants = getProductVariants(product.id);
 
-    text = `<b>⭐ ${product.name}</b>\n\n` +
-      `<blockquote>${product.description}</blockquote>\n\n` +
-      `✨ <b>Premium Features Included:</b>\n` +
-      `• 🚀 Double Limits (Channels, Folders, Pinned Chats)\n` +
-      `• 📁 4 GB File Uploads & Ultra-Fast Download Speed\n` +
-      `• 🎙️ Voice-to-Text Audio Transcription\n` +
-      `• 💎 Premium Star Badge & Custom Animated Emoji\n` +
-      `• 🚫 100% Ad-Free Telegram Experience\n\n` +
-      `👇 <b>Select your subscription duration:</b>`;
+    text = isAmharic
+      ? `<b>⭐ ${product.name}</b>\n\n` +
+        `<blockquote>${product.description}</blockquote>\n\n` +
+        `✨ <b>የሚካተቱ የፕሪሚየም ጥቅሞች፦</b>\n` +
+        `• 🚀 እጥፍ ገደቦች (ቻናሎች፣ ፎልደሮች፣ ፒን የተደረጉ ቻቶች)\n` +
+        `• 📁 4 GB ፋይል መጫኛ እና እጅግ ፈጣን ዳውንሎድ\n` +
+        `• 🎙️ የድምጽ ወደ ጽሑፍ መቀየሪያ (Voice-to-Text)\n` +
+        `• 💎 የፕሪሚየም ስታር ባጅ እና ልዩ አኒሜትድ ኢሞጂዎች\n` +
+        `• 🚫 100% ከማስታወቂያ ነጻ የሆነ አጠቃቀም\n\n` +
+        `👇 <b>የሰብስክሪፕሽን የጊዜ ርዝመት ይምረጡ፦</b>`
+      : `<b>⭐ ${product.name}</b>\n\n` +
+        `<blockquote>${product.description}</blockquote>\n\n` +
+        `✨ <b>Premium Features Included:</b>\n` +
+        `• 🚀 Double Limits (Channels, Folders, Pinned Chats)\n` +
+        `• 📁 4 GB File Uploads & Ultra-Fast Download Speed\n` +
+        `• 🎙️ Voice-to-Text Audio Transcription\n` +
+        `• 💎 Premium Star Badge & Custom Animated Emoji\n` +
+        `• 🚫 100% Ad-Free Telegram Experience\n\n` +
+        `👇 <b>Select your subscription duration:</b>`;
 
     for (const v of variants) {
       const isBestValue = v.id.includes('12m');
       const badge = isBestValue ? ' 🔥' : '';
+      let variantName = v.name;
+      if (isAmharic) {
+        if (v.id.includes('3m')) variantName = 'የ3 ወር ፕሪሚየም';
+        else if (v.id.includes('6m')) variantName = 'የ6 ወር ፕሪሚየም';
+        else if (v.id.includes('12m')) variantName = 'የ12 ወር ፕሪሚየም';
+      }
       addStyledInlineButton(keyboard, {
-        text: `⭐ ${v.name} — ${formatPriceETB(v.price_etb)}${badge}`,
+        text: `⭐ ${variantName} — ${formatPriceETB(v.price_etb)}${badge}`,
         callback_data: `buy_var_${v.id}`,
         style: isBestValue ? 'success' : 'primary',
       }).row();
@@ -166,12 +212,12 @@ export async function renderProductDetails(ctx: Context, productId: string): Pro
   }
 
   addStyledInlineButton(keyboard, {
-    text: '« Back to Catalog',
+    text: isAmharic ? '« ወደ ካታሎግ ተመለስ' : '« Back to Catalog',
     callback_data: 'nav_shop',
     style: 'primary',
   });
   addStyledInlineButton(keyboard, {
-    text: '🏠 Main Menu',
+    text: isAmharic ? '🏠 ዋና ማውጫ' : '🏠 Main Menu',
     callback_data: 'nav_home',
     style: 'primary',
   }).row();

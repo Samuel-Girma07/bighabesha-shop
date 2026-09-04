@@ -3,7 +3,7 @@
 **Date:** September 4, 2026  
 **Repository:** `Samuel-Girma07/bighabesha-shop` (`C:\Users\KATANA\Documents\Intern\Bot`)  
 **Active Branch:** `master` (Synchronized with `origin/master`)  
-**Latest Verification:** 412 automated tests passing (100% pass rate: 396 bot tests across 22 files, 16 webapp tests across 2 files), 0 build errors, 0 SAST/SCA vulnerabilities  
+**Latest Verification:** 413 automated tests passing (100% pass rate: 397 bot tests across 22 files, 16 webapp tests across 2 files), 0 build errors, 0 SAST/SCA vulnerabilities  
 
 ---
 
@@ -65,6 +65,10 @@ This repository implements **Bighabesha Shop**, a high-scale e-commerce Telegram
 15. **User Registration & Language Preference Retention:**
     - Once a user shares their phone number (`is_registered = 1`), bot restarts NEVER re-prompt for phone registration or language.
     - Amharic selection (`langCode === 'am'`) atomically updates `users.language_code` in SQLite via `saveUserLanguage()` and dynamically renders the settings menu.
+16. **Bilingual Localization & 100% Dictionary Parity (Amharic / አማርኛ & English):**
+    - Complete Amharic dictionary (`bot/src/i18n/am.json`) packaged alongside `en.json` in `dist/i18n/`.
+    - Telegram Bot inline keyboards, reply bottom bars, catalog, checkout rails, profile, and order tracking render authentic, idiomatic Amharic when `user.language_code === 'am'`.
+    - Telegram Mini App (`webapp`) features 100% translation key parity across all Hero categories, product variants, checkout modals, payout drawers, and timeline steps.
 
 ---
 
@@ -228,7 +232,7 @@ RESELLER_LOW_BALANCE_ALERT_USDT=50
 
 ### Running Tests
 ```bash
-# Bot test suite (22 files, 396+ tests)
+# Bot test suite (22 files, 397+ tests)
 pnpm --filter bot test
 
 # Webapp test suite (2 files, 16 tests)

@@ -2,40 +2,52 @@ import { Context, InlineKeyboard } from 'grammy';
 import { getConfig } from '../../config/env.js';
 import { escapeHtml } from '../../utils/html.js';
 import { addStyledInlineButton } from '../keyboards/menu.js';
+import { getUserById } from '../../services/users.service.js';
 
 export async function renderSupport(ctx: Context): Promise<void> {
   const config = getConfig();
   const supportHandle = config.SUPPORT_USERNAME || 'Vweah';
+  const userId = ctx.from?.id;
+  const user = userId ? getUserById(userId) : null;
+  const lang = user?.language_code || (ctx.from?.language_code?.startsWith('am') ? 'am' : 'en');
+  const isAmharic = lang === 'am';
 
-  const text =
-    '<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n' +
-    '💬 <b>Official Customer Support Desk</b>\n\n' +
-    '<blockquote>Need assistance with activation links, bank receipt verification, or custom requests?</blockquote>\n\n' +
-    `• 👨‍💻 <b>Support Desk:</b> @${escapeHtml(supportHandle)}\n` +
-    `• 💳 <b>Supported Rails:</b> Telebirr, CBE, Abyssinia, Telegram Stars & TON\n` +
-    `• ⏰ <b>Operating Hours:</b> 24/7 Automated Dispatch & Live Agent Review\n\n` +
-    `<i>👇 Tap below to start a direct message with an agent or return to the shop:</i>`;
+  const text = isAmharic
+    ? '<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n' +
+      '💬 <b>ይፋዊ የደንበኞች ድጋፍ አገልግሎት</b>\n\n' +
+      '<blockquote>ስለ ማግበሪያ ሊንክ፣ የባንክ ደረሰኝ ማረጋገጫ ወይም ልዩ ትዕዛዝ ድጋፍ ይፈልጋሉ?</blockquote>\n\n' +
+      `• 👨‍💻 <b>የድጋፍ ዴስክ፦</b> @${escapeHtml(supportHandle)}\n` +
+      `• 💳 <b>ተቀባይነት ያላቸው ክፍያዎች፦</b> ቴሌብር፣ ንግድ ባንክ (CBE)፣ አቢሲኒያ ባንክ፣ ቴሌግራም ስታርስ እና TON\n` +
+      `• ⏰ <b>የስራ ሰዓት፦</b> 24/7 አውቶሜትድ ማስተናገጃ እና የቀጥታ ድጋፍ ሰጪዎች\n\n` +
+      `<i>👇 ከታች ያለውን በመጫን ከድጋፍ ሰጪ ጋር በቀጥታ ይወያዩ ወይም ወደ ሱቁ ይመለሱ፡</i>`
+    : '<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n' +
+      '💬 <b>Official Customer Support Desk</b>\n\n' +
+      '<blockquote>Need assistance with activation links, bank receipt verification, or custom requests?</blockquote>\n\n' +
+      `• 👨‍💻 <b>Support Desk:</b> @${escapeHtml(supportHandle)}\n` +
+      `• 💳 <b>Supported Rails:</b> Telebirr, CBE, Abyssinia, Telegram Stars & TON\n` +
+      `• ⏰ <b>Operating Hours:</b> 24/7 Automated Dispatch & Live Agent Review\n\n` +
+      `<i>👇 Tap below to start a direct message with an agent or return to the shop:</i>`;
 
   const keyboard = new InlineKeyboard();
   addStyledInlineButton(keyboard, {
-    text: `💬 Chat with Support (@${supportHandle})`,
+    text: isAmharic ? `💬 ከድጋፍ ሰጪ ጋር ተወያይ (@${supportHandle})` : `💬 Chat with Support (@${supportHandle})`,
     url: `https://t.me/${supportHandle}`,
     style: 'primary',
   }).row();
 
   addStyledInlineButton(keyboard, {
-    text: '🛍️ Browse Shop',
+    text: isAmharic ? '🛍️ ሱቅ ይጎብኙ' : '🛍️ Browse Shop',
     callback_data: 'nav_shop',
     style: 'success',
   });
   addStyledInlineButton(keyboard, {
-    text: '📦 My Orders',
+    text: isAmharic ? '📦 የእኔ ትዕዛዞች' : '📦 My Orders',
     callback_data: 'nav_orders',
     style: 'primary',
   }).row();
 
   addStyledInlineButton(keyboard, {
-    text: '🏠 Main Menu',
+    text: isAmharic ? '🏠 ዋና ማውጫ' : '🏠 Main Menu',
     callback_data: 'nav_home',
     style: 'primary',
   });

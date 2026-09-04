@@ -20,7 +20,12 @@ describe('i18n Localization Module', () => {
   });
 
   it('falls back to English if the key exists in English but requested language is unknown', () => {
-    expect(t('am', 'menu.orders')).toBe('My Orders');
+    expect(t('fr', 'menu.orders')).toBe('My Orders');
+  });
+
+  it('translates Amharic keys accurately when am is specified', () => {
+    expect(t('am', 'menu.orders')).toBe('የእኔ ትዕዛዞች');
+    expect(t('am', 'health.ok')).toBe('የቢግሐበሻ ሾፕ ቦት በጥሩ ሁኔታ እየሰራ ይገኛል።');
   });
 
   it('returns the raw key if the key is not found in any translation dictionary', () => {

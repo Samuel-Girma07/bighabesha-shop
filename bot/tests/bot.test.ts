@@ -72,6 +72,11 @@ describe('Bot Core & Handlers', () => {
     expect((row[0] as any).style).toBe('success');
     expect(row[1].text).toContain('Main Menu');
     expect((row[1] as any).style).toBe('primary');
+
+    const amKeyboard = getMainMenuKeyboard('am');
+    const amRow = amKeyboard.keyboard[0];
+    expect(amRow[0].text).toContain('👤 የእኔ መረጃ');
+    expect(amRow[1].text).toContain('🏠 ዋና ማውጫ');
   });
 
   it('correctly constructs styled inline buttons with colors', () => {

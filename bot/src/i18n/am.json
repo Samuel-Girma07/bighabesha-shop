@@ -1,0 +1,89 @@
+{
+  "start": {
+    "welcome": "*ወደ ቢግሐበሻ ሾፕ (Bighabesha Shop) እንኳን በደህና መጡ*\n\nየዲጂታል ሰብስክሪፕሽኖች እና ይፋዊ የቴሌግራም አገልግሎቶች በኢትዮጵያ።\n\n*የምርቶች ዝርዝር:*\n• *Gemini Pro (ለ18 ወራት)* — ፈጣን አውቶሜትድ ማድረሻ\n• *Telegram Premium* — የ3፣ 6 ወይም 12 ወራት ዕቅዶች\n• *Telegram Stars* — ጥቅሎች እና የተፈለገ መጠን\n\n*ተቀባይነት ያላቸው የክፍያ አማራጮች:*\n• ቴሌብር፣ የኢትዮጵያ ንግድ ባንክ፣ አቢሲኒያ ባንክ\n• ቴሌግራም ስታርስ (XTR)\n• ዋሌት ፔይ (TON / USDT)\n\nለመቀጠል ከታች ካሉት አንዱን ይምረጡ:",
+    "language_select": "*እባክዎ የሚመርጡትን ቋንቋ ይምረጡ:*"
+  },
+  "menu": {
+    "shop": "ሱቅ ይጎብኙ",
+    "orders": "የእኔ ትዕዛዞች",
+    "language": "ቋንቋ",
+    "support": "የደንበኞች ድጋፍ",
+    "admin": "የአድሚን ፓነል"
+  },
+  "common": {
+    "back": "« ተመለስ",
+    "cancel": "ሰርዝ",
+    "confirm": "አረጋግጥ",
+    "recheck": "በድጋሚ ፈትሽ",
+    "contact_support": "ድጋፍ ሰጪ ያነጋግሩ",
+    "error_occurred": "ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ ወይም ድጋፍ ያነጋግሩ።"
+  },
+  "health": {
+    "ok": "የቢግሐበሻ ሾፕ ቦት በጥሩ ሁኔታ እየሰራ ይገኛል።"
+  },
+  "support": {
+    "text": "*የደንበኞች ድጋፍ*\n\nስለ ማግበሪያ ሊንክ፣ የክፍያ ማረጋገጫ ወይም ልዩ ትዕዛዝ ድጋፍ ይፈልጋሉ?\n\nይፋዊ ድጋፍ፦ @{supportUsername}"
+  },
+  "language": {
+    "current": "አሁን እየሰራ ያለ ቋንቋ፦ *አማርኛ*\n\nከታች የሚመርጡትን ቋንቋ ይምረጡ:",
+    "updated": "የቋንቋ ምርጫዎ በተሳካ ሁኔታ ተቀይሯል።"
+  },
+  "username_gate": {
+    "title": "*የቴሌግራም ዩዘርኔም (@username) ያስፈልጋል*",
+    "message": "ሰብስክሪፕሽን ወይም የከዋክብት ትዕዛዝዎን ለመላክ የቴሌግራም አካውንትዎ ይፋዊ **@username** ሊኖረው ይገባል።\n\n*የማስተካከያ ቅደም ተከተል:*\n1. የቴሌግራም **Settings** ይክፈቱ\n2. **Edit Profile** → **Username** ይጫኑ\n3. ይፋዊ ዩዘርኔም አስገብተው ሴቭ ያድርጉ\n\nሴቭ ካደረጉ በኋላ ከታች **[በድጋሚ ፈትሽ]** የሚለውን ይጫኑ።",
+    "recheck_btn": "በድጋሚ ፈትሽ",
+    "support_btn": "ድጋፍ ሰጪ ያነጋግሩ",
+    "recheck_failed": "ይፋዊ ዩዘርኔም አልተገኘም። እባክዎ በቴሌግራም ሴቲንግ ውስጥ ዩዘርኔም ሴቭ አድርገው በድጋሚ ይፈትሹ።"
+  },
+  "gemini": {
+    "default_instructions": "*የGemini Pro የ18 ወራት ማግበሪያ ዝግጁ ነው*\n\n*የማግበር መመሪያ:*\n1. የቪፒኤን (VPN) ግንኙነት ያብሩ።\n2. ከታች ያለውን ልዩ የማግበሪያ ሊንክ ይክፈቱ:\n{link}\n3. በጉግል (Google) አካውንትዎ ማግበሩን ያጠናቅቁ።\n4. አንዴ ከነቃ በኋላ ቪፒኤንዎን ማጥፋት ይችላሉ።\n\nድጋፍ፦ @{supportUsername}"
+  },
+  "checkout": {
+    "title": "🛍 የክፍያ ማረጋገጫ እና ትዕዛዝ ማጠቃለያ",
+    "product": "ምርት",
+    "order_ref": "የትዕዛዝ ቁጥር",
+    "total_payable": "የሚከፈል ጠቅላላ",
+    "select_rail": "የሚመርጡትን የክፍያ ዘዴ ከታች ይምረጡ፡",
+    "telebirr_btn": "📱 ቴሌብር",
+    "cbe_btn": "🏦 የኢትዮጵያ ንግድ ባንክ (CBE)",
+    "abyssinia_btn": "🏛 አቢሲኒያ ባንክ",
+    "promo_btn": "🏷 የቅናሽ ኮድ",
+    "cancel_btn": "« ትዕዛዝ ሰርዝ",
+    "upload_receipt_btn": "📸 የክፍያ ደረሰኝ ላክ",
+    "change_rail_btn": "« የክፍያ ዘዴ ቀይር",
+    "upload_prompt": "እባክዎ የተላለፈበትን ማረጋገጫ ፎቶ / ስክሪንሾት / ዶክመንት በዚህ ቻት ውስጥ ይላኩ።"
+  },
+  "orders": {
+    "status_delivered": "ደርሷል",
+    "status_review": "በመረጋገጥ ላይ",
+    "status_processing": "በመላክ ላይ",
+    "status_awaiting_payment": "ክፍያ በመጠባበቅ ላይ",
+    "status_rejected": "ውድቅ ተደርጓል",
+    "status_refunded": "ተመላሽ ተደርጓል",
+    "status_cancelled": "ተሰርዟል",
+    "no_orders": "እስካሁን ምንም ትዕዛዝ አልሰጡም።",
+    "browse_shop_btn": "🛍️ ሱቅ ይጎብኙ"
+  },
+  "profile": {
+    "title": "👤 የደንበኛ መረጃ እና የደረጃ ሁኔታ",
+    "full_name": "ሙሉ ስም",
+    "username": "ዩዘርኔም",
+    "user_id": "የተጠቃሚ መለያ (ID)",
+    "verified_mobile": "የተረጋገጠ ስልክ",
+    "total_orders": "ጠቅላላ ትዕዛዞች",
+    "loyalty_level": "የደረጃ ደረጃ",
+    "update_phone_btn": "📱 ስልክ ቁጥር ቀይር",
+    "change_lang_btn": "🌐 ቋንቋ ቀይር"
+  },
+  "registration": {
+    "phone_prompt": "የአካውንትዎን ደህንነት ለመጠበቅ፣ ትዕዛዞችዎን ለመከታተል እና ምርቶችን ወዲያውኑ ለመቀበል እባክዎ ስልክ ቁጥርዎን ያረጋግጡ።",
+    "share_phone_btn": "📱 ስልክ ቁጥር አጋራ",
+    "invalid_phone": "የተሳሳተ የስልክ ቁጥር ቅርጸት። እባክዎ ትክክለኛ የኢትዮጵያ ስልክ ቁጥር ያስገቡ (ለምሳሌ፦ 0911223344 ወይም 0711223344)።"
+  },
+  "catalog": {
+    "in_stock": "በክምችት አለ",
+    "sold_out": "አልቋል",
+    "from_price": "ከ",
+    "back_to_catalog": "« ወደ ካታሎግ ተመለስ"
+  }
+}

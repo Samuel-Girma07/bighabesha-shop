@@ -37,5 +37,53 @@
   },
   "gemini": {
     "default_instructions": "*Gemini Pro 18-Month Activation Ready*\n\n*Activation Instructions:*\n1. Connect your VPN to an eligible region.\n2. Open your personalized activation link below:\n{link}\n3. Complete the activation on your Google account.\n4. Once activated, you may disconnect your VPN.\n\nSupport: @{supportUsername}"
+  },
+  "checkout": {
+    "title": "🛍 Checkout & Payment Confirmation",
+    "product": "Product",
+    "order_ref": "Order Ref",
+    "total_payable": "Total Payable",
+    "select_rail": "Select your preferred payment rail below:",
+    "telebirr_btn": "📱 Telebirr",
+    "cbe_btn": "🏦 CBE Bank",
+    "abyssinia_btn": "🏛 Bank of Abyssinia",
+    "promo_btn": "🏷 Promo Code",
+    "cancel_btn": "« Cancel Order",
+    "upload_receipt_btn": "📸 Upload Transfer Receipt",
+    "change_rail_btn": "« Change Payment Method",
+    "upload_prompt": "Please send a photo / screenshot / document of your transaction confirmation in this chat."
+  },
+  "orders": {
+    "status_delivered": "Delivered",
+    "status_review": "Under Review",
+    "status_processing": "Processing",
+    "status_awaiting_payment": "Awaiting Payment",
+    "status_rejected": "Rejected",
+    "status_refunded": "Refunded",
+    "status_cancelled": "Cancelled",
+    "no_orders": "You have not placed any orders yet.",
+    "browse_shop_btn": "🛍️ Browse Shop"
+  },
+  "profile": {
+    "title": "👤 Customer Profile & Loyalty Status",
+    "full_name": "Full Name",
+    "username": "Username",
+    "user_id": "User ID",
+    "verified_mobile": "Verified Mobile",
+    "total_orders": "Total Lifetime Orders",
+    "loyalty_level": "Loyalty Level",
+    "update_phone_btn": "📱 Update Phone",
+    "change_lang_btn": "🌐 Change Language"
+  },
+  "registration": {
+    "phone_prompt": "To secure your account, track your orders, and enable instant product delivery, please verify your phone number.",
+    "share_phone_btn": "📱 Share Phone Number",
+    "invalid_phone": "Invalid phone number format. Please enter a valid Ethiopian phone number (e.g. 0911223344 or 0711223344)."
+  },
+  "catalog": {
+    "in_stock": "In Stock",
+    "sold_out": "Sold Out",
+    "from_price": "from",
+    "back_to_catalog": "« Back to Catalog"
   }
 }

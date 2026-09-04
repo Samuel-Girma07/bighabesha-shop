@@ -4,6 +4,7 @@ import { getDatabase } from '../../db/index.js';
 import { logger } from '../../logger/index.js';
 import { setPendingAction } from '../session.js';
 import { initiateCheckout, safeEditMessage } from './checkout.js';
+import { getUserById } from '../../services/users.service.js';
 
 import { isValidUsername } from '../../services/orders.service.js';
 
@@ -24,25 +25,37 @@ export async function renderUsernameGate(
   variantId?: string
 ): Promise<void> {
   const config = getConfig();
+  const userId = ctx.from?.id;
+  const user = userId ? getUserById(userId) : null;
+  const lang = user?.language_code || (ctx.from?.language_code?.startsWith('am') ? 'am' : 'en');
+  const isAmharic = lang === 'am';
 
-  const text =
-    `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
-    `👤 <b>Telegram Username Required</b>\n\n` +
-    `<blockquote>To activate your <b>Telegram Premium</b> subscription, the target Telegram account must have a public <b>@username</b>.</blockquote>\n\n` +
-    `📋 <b>Quick Setup Steps:</b>\n` +
-    `1. Open Telegram <b>Settings</b>\n` +
-    `2. Tap <b>Edit Profile</b> (or <b>My Account</b>) → <b>Username</b>\n` +
-    `3. Enter a public username and tap save\n\n` +
-    `<i>👇 Once saved in your Telegram app, tap <b>[🔄 Recheck Profile]</b> below:</i>`;
+  const text = isAmharic
+    ? `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
+      `👤 <b>የቴሌግራም ዩዘርኔም ያስፈልጋል</b>\n\n` +
+      `<blockquote>የ <b>Telegram Premium</b> ሰብስክሪፕሽንን ለማግበር፣ የሚላክለት የቴሌግራም አካውንት ይፋዊ <b>@username</b> ሊኖረው ይገባል።</blockquote>\n\n` +
+      `📋 <b>የማስተካከያ ቅደም ተከተል፦</b>\n` +
+      `1. የቴሌግራም <b>Settings</b> ይክፈቱ\n` +
+      `2. <b>Edit Profile</b> (ወይም <b>My Account</b>) → <b>Username</b> ይጫኑ\n` +
+      `3. ይፋዊ ዩዘርኔም አስገብተው ሴቭ ያድርጉ\n\n` +
+      `<i>👇 በቴሌግራም ሴቭ ካደረጉ በኋላ ከታች <b>[🔄 በድጋሚ ፈትሽ]</b> የሚለውን ይጫኑ፡</i>`
+    : `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
+      `👤 <b>Telegram Username Required</b>\n\n` +
+      `<blockquote>To activate your <b>Telegram Premium</b> subscription, the target Telegram account must have a public <b>@username</b>.</blockquote>\n\n` +
+      `📋 <b>Quick Setup Steps:</b>\n` +
+      `1. Open Telegram <b>Settings</b>\n` +
+      `2. Tap <b>Edit Profile</b> (or <b>My Account</b>) → <b>Username</b>\n` +
+      `3. Enter a public username and tap save\n\n` +
+      `<i>👇 Once saved in your Telegram app, tap <b>[🔄 Recheck Profile]</b> below:</i>`;
 
   const recheckPayload = `gate_recheck_${productId}_${variantId || 'default'}`;
 
   const keyboard = new InlineKeyboard()
-    .text('🔄 Recheck Profile', recheckPayload)
+    .text(isAmharic ? '🔄 በድጋሚ ፈትሽ' : '🔄 Recheck Profile', recheckPayload)
     .row()
-    .url('💬 Contact Support', `https://t.me/${config.SUPPORT_USERNAME}`)
+    .url(isAmharic ? '💬 ድጋፍ ሰጪ ያነጋግሩ' : '💬 Contact Support', `https://t.me/${config.SUPPORT_USERNAME}`)
     .row()
-    .text('« Back to Catalog', 'nav_shop');
+    .text(isAmharic ? '« ወደ ካታሎግ ተመለስ' : '« Back to Catalog', 'nav_shop');
 
   await safeEditMessage(ctx, text, keyboard);
 }
@@ -107,24 +120,31 @@ export async function renderRecipientSelection(
   const userId = ctx.from?.id;
   if (!userId) return;
 
+  const user = getUserById(userId);
+  const lang = user?.language_code || (ctx.from?.language_code?.startsWith('am') ? 'am' : 'en');
+  const isAmharic = lang === 'am';
+
   const ownUsername = ctx.from?.username?.trim().replace(/^@+/, '').toLowerCase() || null;
   const variantSuffix = variantId || 'default';
 
-  const text =
-    `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
-    `🎯 <b>Who is this Premium for?</b>\n\n` +
-    `Choose the account that should receive the <b>Telegram Premium</b> activation.`;
+  const text = isAmharic
+    ? `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
+      `🎯 <b>ይህ ፕሪሚየም ለማን ነው?</b>\n\n` +
+      `የ <b>Telegram Premium</b> ማግበሪያውን የሚቀበለውን አካውንት ይምረጡ።`
+    : `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
+      `🎯 <b>Who is this Premium for?</b>\n\n` +
+      `Choose the account that should receive the <b>Telegram Premium</b> activation.`;
 
   const keyboard = new InlineKeyboard();
   if (ownUsername) {
     keyboard
-      .text(`👤 My Account (@${ownUsername})`, `recipient_self_${productId}_${variantSuffix}`)
+      .text(isAmharic ? `👤 ለራሴ አካውንት (@${ownUsername})` : `👤 My Account (@${ownUsername})`, `recipient_self_${productId}_${variantSuffix}`)
       .row();
   }
   keyboard
-    .text('🎁 Gift to Another User', `recipient_gift_${productId}_${variantSuffix}`)
+    .text(isAmharic ? '🎁 ለሌላ ሰው በስጦታ' : '🎁 Gift to Another User', `recipient_gift_${productId}_${variantSuffix}`)
     .row()
-    .text('« Back to Catalog', 'nav_shop');
+    .text(isAmharic ? '« ወደ ካታሎግ ተመለስ' : '« Back to Catalog', 'nav_shop');
 
   await safeEditMessage(ctx, text, keyboard);
 }

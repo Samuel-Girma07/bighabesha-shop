@@ -185,7 +185,7 @@ export const App: React.FC = () => {
 };
 
 const StoreFront: React.FC = () => {
-  const [lang, setLang] = useState<Language>('en');
+  const [lang, setLang] = useState<Language>(() => (loadPrefsSync().language as Language) || 'en');
   const t = translations[lang];
 
   useEffect(() => {
@@ -276,7 +276,8 @@ const StoreFront: React.FC = () => {
     try {
       const res = await fetchBootstrap();
       setData(res);
-      if (res.user?.languageCode?.startsWith('am')) {
+      const savedLang = loadPrefsSync().language as Language | undefined;
+      if (!savedLang && res.user?.languageCode?.startsWith('am')) {
         setLang('am');
       }
       if (res.user?.username && !recipientUsername) {
@@ -673,17 +674,20 @@ const StoreFront: React.FC = () => {
                   <div>
                     <h1 className="hulupay-hero-title">
                       BigHabesha
-                      <span className="hulupay-shopping-pill">SHOPPING TIME</span>
+                      <span className="hulupay-shopping-pill">{t.shoppingTime}</span>
                     </h1>
                     <p className="hulupay-hero-subtitle">
-                      Buy <span style={{ color: '#38BDF8', fontWeight: 800 }}>#Telegram</span> Premium and{' '}
-                      <span style={{ color: '#A78BFA', fontWeight: 800 }}>#AI</span> Subscriptions
+                      {lang === 'am' ? (
+                        <>የቴሌግራም <span style={{ color: '#38BDF8', fontWeight: 800 }}>#Telegram</span> ፕሪሚየም እና የ<span style={{ color: '#A78BFA', fontWeight: 800 }}>#AI</span> ሰብስክሪፕሽኖችን ይግዙ</>
+                      ) : (
+                        <>Buy <span style={{ color: '#38BDF8', fontWeight: 800 }}>#Telegram</span> Premium and <span style={{ color: '#A78BFA', fontWeight: 800 }}>#AI</span> Subscriptions</>
+                      )}
                     </p>
                   </div>
                 </div>
 
                 {/* ── Category 1: TELEGRAM SERVICES ── */}
-                <div className="section-category-header">TELEGRAM SERVICES</div>
+                <div className="section-category-header">{t.catTelegramServices}</div>
                 <div className="hulupay-card-deck">
                   {premProd && (
                     <div className="hulupay-product-card" onClick={() => openProductModal('telegram_premium')}>
@@ -692,11 +696,11 @@ const StoreFront: React.FC = () => {
                       </div>
                       <div className="hulupay-card-content">
                         <div className="hulupay-card-title-row">
-                          <span className="hulupay-card-title">{premProd.name}</span>
-                          <span className="hulupay-badge blue">GET VERIFIED</span>
+                          <span className="hulupay-card-title">{lang === 'am' ? 'ቴሌግራም ፕሪሚየም' : premProd.name}</span>
+                          <span className="hulupay-badge blue">{t.getVerified}</span>
                         </div>
                         <p className="hulupay-card-desc">
-                          Get a Verified Blue Check badge & upgrade your Telegram experience instantly.
+                          {t.premCardDesc}
                         </p>
                       </div>
                       <ChevronRightIcon size={16} color="#64748B" />
@@ -705,7 +709,7 @@ const StoreFront: React.FC = () => {
                 </div>
 
                 {/* ── Category 2: AI & CLOUD SERVICES ── */}
-                <div className="section-category-header">AI & CLOUD SERVICES</div>
+                <div className="section-category-header">{t.catAiServices}</div>
                 <div className="hulupay-card-deck">
                   {geminiProd && (
                     <div
@@ -718,19 +722,19 @@ const StoreFront: React.FC = () => {
                       </div>
                       <div className="hulupay-card-content">
                         <div className="hulupay-card-title-row">
-                          <span className="hulupay-card-title">Gemini Pro (18 Months)</span>
+                          <span className="hulupay-card-title">{lang === 'am' ? 'ጀሚኒ ፕሮ (18 ወራት)' : 'Gemini Pro (18 Months)'}</span>
                           {geminiProd.availableStock !== null && geminiProd.availableStock <= 0 ? (
                             <span className="hulupay-badge red" style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#EF4444', border: '1px solid rgba(239, 68, 68, 0.4)' }}>
-                              SOLD OUT
+                              {t.outOfStockBadge}
                             </span>
                           ) : (
-                            <span className="hulupay-badge purple">2TB STORAGE</span>
+                            <span className="hulupay-badge purple">{t.storage2tb}</span>
                           )}
                         </div>
                         <p className="hulupay-card-desc">
                           {geminiProd.availableStock !== null && geminiProd.availableStock <= 0
-                            ? 'Currently out of stock. Instant activation links will return once restocked.'
-                            : 'Google Advanced AI Suite + 2TB Google Cloud Storage. One-click instant activation link.'}
+                            ? t.geminiSoldOutDesc
+                            : t.geminiInStockDesc}
                         </p>
                       </div>
                       <ChevronRightIcon size={16} color="#64748B" />
@@ -739,7 +743,7 @@ const StoreFront: React.FC = () => {
                 </div>
 
                 {/* ── Category 3: INSTANT REWARDS ── */}
-                <div className="section-category-header">INSTANT REWARDS</div>
+                <div className="section-category-header">{t.catInstantRewards}</div>
                 <div className="hulupay-card-deck">
                   <div
                     className="hulupay-product-card"
@@ -756,11 +760,11 @@ const StoreFront: React.FC = () => {
                     </div>
                     <div className="hulupay-card-content">
                       <div className="hulupay-card-title-row">
-                        <span className="hulupay-card-title">Refer and Earn Money</span>
-                        <span className="hulupay-badge green">NEW</span>
+                        <span className="hulupay-card-title">{t.referCardTitle}</span>
+                        <span className="hulupay-badge green">{t.newBadge}</span>
                       </div>
                       <p className="hulupay-card-desc">
-                        Earn 5% L1 + 1% L2 commission from every transaction made by your friend.
+                        {t.referCardDesc}
                       </p>
                     </div>
                     <ChevronRightIcon size={16} color="#64748B" />
@@ -768,7 +772,7 @@ const StoreFront: React.FC = () => {
                 </div>
 
                 {/* ── Category 4: GET HELP ── */}
-                <div className="section-category-header">GET HELP</div>
+                <div className="section-category-header">{t.catGetHelp}</div>
                 <div className="hulupay-card-deck">
                   <div
                     className="hulupay-product-card"
@@ -782,11 +786,11 @@ const StoreFront: React.FC = () => {
                     </div>
                     <div className="hulupay-card-content">
                       <div className="hulupay-card-title-row">
-                        <span className="hulupay-card-title">24/7 Live Support</span>
-                        <span className="hulupay-badge blue">ONLINE</span>
+                        <span className="hulupay-card-title">{t.supportCardTitle}</span>
+                        <span className="hulupay-badge blue">{t.onlineBadge}</span>
                       </div>
                       <p className="hulupay-card-desc">
-                        Need assistance with payment verification or orders? Chat with our support team.
+                        {t.supportCardDesc}
                       </p>
                     </div>
                     <ChevronRightIcon size={16} color="#64748B" />
@@ -810,13 +814,13 @@ const StoreFront: React.FC = () => {
                 className={`tg-tab-btn ${txFilter === 'delivered' ? 'active' : ''}`}
                 onClick={() => setTxFilter('delivered')}
               >
-                🟢 Delivered ({orders.filter((o) => o.status === 'fulfilled' || o.status === 'delivered').length})
+                🟢 {t.deliveredOrders} ({orders.filter((o) => o.status === 'fulfilled' || o.status === 'delivered').length})
               </button>
               <button
                 className={`tg-tab-btn ${txFilter === 'pending' ? 'active' : ''}`}
                 onClick={() => setTxFilter('pending')}
               >
-                🟡 Pending ({orders.filter((o) => o.status === 'pending_approval' || o.status === 'awaiting_payment').length})
+                🟡 {t.pendingOrders} ({orders.filter((o) => o.status === 'pending_approval' || o.status === 'awaiting_payment').length})
               </button>
             </div>
 
@@ -857,11 +861,11 @@ const StoreFront: React.FC = () => {
                       <div className="hulupay-card-content">
                         <div className="hulupay-card-title-row">
                           <span className="hulupay-card-title" style={{ fontSize: '14.5px' }}>
-                            {isPrem ? 'Telegram Premium' : 'Gemini Pro 18M'}
+                            {isPrem ? (lang === 'am' ? 'ቴሌግራም ፕሪሚየም' : 'Telegram Premium') : (lang === 'am' ? 'ጀሚኒ ፕሮ 18 ወራት' : 'Gemini Pro 18M')}
                           </span>
-                          {isDelivered && <span className="hulupay-badge green">DELIVERED</span>}
-                          {isReview && <span className="hulupay-badge blue">PENDING APPROVAL</span>}
-                          {isRejected && <span className="hulupay-badge discount">REJECTED</span>}
+                          {isDelivered && <span className="hulupay-badge green">{t.statusDelivered.toUpperCase()}</span>}
+                          {isReview && <span className="hulupay-badge blue">{t.statusPendingApproval.toUpperCase()}</span>}
+                          {isRejected && <span className="hulupay-badge discount">{t.statusRejected.toUpperCase()}</span>}
                           {ord.reseller_provider && (
                             <span
                               className="hulupay-badge blue"
@@ -876,7 +880,7 @@ const StoreFront: React.FC = () => {
                           )}
                         </div>
                         <div style={{ fontSize: '12px', color: '#94A3B8', display: 'flex', justifyContent: 'space-between' }}>
-                          <span>Order #{ord.id}</span>
+                          <span>{lang === 'am' ? `ትዕዛዝ #${ord.id}` : `Order #${ord.id}`}</span>
                           <strong style={{ color: '#38BDF8' }}>{ord.amount_etb?.toLocaleString()} ETB</strong>
                         </div>
                       </div>
@@ -928,7 +932,7 @@ const StoreFront: React.FC = () => {
                       {data?.user?.firstName || 'Telegram User'}
                     </h2>
                     <span style={{ fontSize: '12px', color: '#94A3B8' }}>
-                      {data?.user?.username ? `@${data.user.username}` : 'No username'}
+                      {data?.user?.username ? `@${data.user.username}` : (lang === 'am' ? 'መለያ ስም የለም' : 'No username')}
                     </span>
                   </div>
                 </div>
@@ -965,14 +969,14 @@ const StoreFront: React.FC = () => {
               </div>
 
               <div style={{ fontSize: '12.5px', color: '#94A3B8', marginBottom: '8px' }}>
-                Lifetime Spend: <strong style={{ color: '#FFFFFF' }}>{loyalty.lifetimeSpent.toLocaleString()} ETB</strong>
+                {t.lifetimeSpend}: <strong style={{ color: '#FFFFFF' }}>{loyalty.lifetimeSpent.toLocaleString()} ETB</strong>
               </div>
               <div style={{ background: '#0C121C', height: '6px', borderRadius: '3px', overflow: 'hidden' }}>
                 <div style={{ width: `${loyalty.progressPct}%`, background: '#38BDF8', height: '100%' }} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748B', marginTop: '6px' }}>
-                <span>VIP Progress: {loyalty.progressPct}%</span>
-                <span>Next Tier: {loyalty.nextTier}</span>
+                <span>{t.vipProgress}: {loyalty.progressPct}%</span>
+                <span>{t.nextTier}: {loyalty.nextTier.toUpperCase()}</span>
               </div>
             </div>
 
@@ -982,9 +986,9 @@ const StoreFront: React.FC = () => {
                 <ReferralMoney3DIcon size={44} />
               </div>
               <div className="hulupay-card-content">
-                <span className="hulupay-card-title" style={{ fontSize: '15px' }}>Referral Rewards</span>
+                <span className="hulupay-card-title" style={{ fontSize: '15px' }}>{t.referralRewards}</span>
                 <p className="hulupay-card-desc" style={{ marginTop: '2px' }}>
-                  Share your link with friends and receive 5% cash rewards on every order.
+                  {t.referralDesc}
                 </p>
                 <button
                   className="hulupay-btn-action"
@@ -997,7 +1001,7 @@ const StoreFront: React.FC = () => {
                   }}
                 >
                   <GiftIcon size={14} />
-                  <span>View Referral Code</span>
+                  <span>{t.viewReferralCode}</span>
                 </button>
               </div>
             </div>
@@ -1013,7 +1017,7 @@ const StoreFront: React.FC = () => {
           <div className="hulupay-sheet-container" onClick={(e) => e.stopPropagation()}>
             <div className="hulupay-sheet-header">
               <span className="hulupay-sheet-title">
-                {selectedProductDrawer === 'telegram_premium' ? 'Premium.' : 'Gemini Pro.'}
+                {selectedProductDrawer === 'telegram_premium' ? (lang === 'am' ? 'ፕሪሚየም' : 'Premium.') : (lang === 'am' ? 'ጀሚኒ ፕሮ' : 'Gemini Pro.')}
               </span>
               <button className="hulupay-sheet-close-btn" onClick={() => setSelectedProductDrawer(null)} aria-label="Close">
                 <CloseIcon size={16} />
@@ -1034,7 +1038,7 @@ const StoreFront: React.FC = () => {
                 <input
                   type="text"
                   className="hulupay-recipient-input"
-                  placeholder="Gift to @username"
+                  placeholder={t.giftRecipientPlaceholder}
                   value={recipientUsername}
                   onChange={(e) => setRecipientUsername(e.target.value.replace(/^@/, ''))}
                 />
@@ -1053,9 +1057,9 @@ const StoreFront: React.FC = () => {
                     }}
                   >
                     <div className="hulupay-variant-left">
-                      <span className="hulupay-variant-name">For 3 Months</span>
+                      <span className="hulupay-variant-name">{t.for3Months}</span>
                       <span className="hulupay-badge discount" style={{ width: 'fit-content' }}>
-                        20% off
+                        20% {t.discountOff}
                       </span>
                     </div>
                     <div className="hulupay-variant-right">
@@ -1074,9 +1078,9 @@ const StoreFront: React.FC = () => {
                     }}
                   >
                     <div className="hulupay-variant-left">
-                      <span className="hulupay-variant-name">For 6 Months</span>
+                      <span className="hulupay-variant-name">{t.for6Months}</span>
                       <span className="hulupay-badge discount" style={{ width: 'fit-content' }}>
-                        47% off
+                        47% {t.discountOff}
                       </span>
                     </div>
                     <div className="hulupay-variant-right">
@@ -1095,9 +1099,9 @@ const StoreFront: React.FC = () => {
                     }}
                   >
                     <div className="hulupay-variant-left">
-                      <span className="hulupay-variant-name">For 12 Months</span>
+                      <span className="hulupay-variant-name">{t.for12Months}</span>
                       <span className="hulupay-badge discount" style={{ width: 'fit-content' }}>
-                        51% off
+                        51% {t.discountOff}
                       </span>
                     </div>
                     <div className="hulupay-variant-right">
@@ -1119,14 +1123,14 @@ const StoreFront: React.FC = () => {
                   }}
                 >
                   <div className="hulupay-variant-left">
-                    <span className="hulupay-variant-name">For 18 Months</span>
+                    <span className="hulupay-variant-name">{t.for18Months}</span>
                     <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
                       <span className="hulupay-badge purple" style={{ width: 'fit-content' }}>
-                        2TB CLOUD STORAGE
+                        {t.storage2tb}
                       </span>
                       {geminiProd && geminiProd.availableStock !== null && geminiProd.availableStock <= 0 && (
                         <span className="hulupay-badge red" style={{ width: 'fit-content', background: 'rgba(239, 68, 68, 0.2)', color: '#EF4444' }}>
-                          SOLD OUT
+                          {t.outOfStockBadge}
                         </span>
                       )}
                     </div>
@@ -1174,10 +1178,10 @@ const StoreFront: React.FC = () => {
             >
               <span>
                 {selectedProductDrawer === 'telegram_premium'
-                  ? 'Order Telegram Premium'
+                  ? t.orderTelegramPremium
                   : (geminiProd?.availableStock ?? 0) <= 0
-                  ? 'Out of Stock'
-                  : 'Order Gemini Pro (18M)'}
+                  ? t.outOfStock
+                  : t.orderGeminiPro}
               </span>
             </button>
           </div>
@@ -1192,9 +1196,9 @@ const StoreFront: React.FC = () => {
           <div className="hulupay-sheet-container" onClick={(e) => e.stopPropagation()}>
             <div className="hulupay-sheet-header">
               <div>
-                <span className="hulupay-sheet-title">{paymentStep === 1 ? 'Pay with' : 'Payment Details'}</span>
+                <span className="hulupay-sheet-title">{paymentStep === 1 ? t.payWith : t.paymentDetails}</span>
                 {paymentStep === 1 && (
-                  <div style={{ fontSize: '13px', color: '#94A3B8', marginTop: '2px' }}>Choose your bank transfer method</div>
+                  <div style={{ fontSize: '13px', color: '#94A3B8', marginTop: '2px' }}>{t.chooseBankMethod}</div>
                 )}
               </div>
               <button className="hulupay-sheet-close-btn" onClick={() => setPaymentModalOpen(false)} aria-label="Close">
@@ -1220,11 +1224,11 @@ const StoreFront: React.FC = () => {
                       </div>
                       <PaymentTelebirrIcon size={32} />
                       <div>
-                        <div className="hulupay-variant-name" style={{ fontSize: '14.5px' }}>Telebirr</div>
-                        <div style={{ fontSize: '11.5px', color: '#94A3B8' }}>Instant Mobile Money Transfer</div>
+                        <div className="hulupay-variant-name" style={{ fontSize: '14.5px' }}>{t.telebirrMobile}</div>
+                        <div style={{ fontSize: '11.5px', color: '#94A3B8' }}>{t.instantMobileTransfer}</div>
                       </div>
                     </div>
-                    <span className="hulupay-badge blue">FAST</span>
+                    <span className="hulupay-badge blue">{t.fastBadge}</span>
                   </div>
 
                   {/* CBE Birr */}
@@ -1241,8 +1245,8 @@ const StoreFront: React.FC = () => {
                       </div>
                       <PaymentCbeIcon size={32} />
                       <div>
-                        <div className="hulupay-variant-name" style={{ fontSize: '14.5px' }}>Commercial Bank of Ethiopia</div>
-                        <div style={{ fontSize: '11.5px', color: '#94A3B8' }}>CBE Birr & Mobile Banking</div>
+                        <div className="hulupay-variant-name" style={{ fontSize: '14.5px' }}>{t.cbeBank}</div>
+                        <div style={{ fontSize: '11.5px', color: '#94A3B8' }}>{t.cbeBirrMobileBanking}</div>
                       </div>
                     </div>
                     <span className="hulupay-badge purple">CBE</span>
@@ -1262,16 +1266,16 @@ const StoreFront: React.FC = () => {
                       </div>
                       <PaymentAbyssiniaIcon size={32} />
                       <div>
-                        <div className="hulupay-variant-name" style={{ fontSize: '14.5px' }}>Bank of Abyssinia</div>
-                        <div style={{ fontSize: '11.5px', color: '#94A3B8' }}>BOA Mobile Banking</div>
+                        <div className="hulupay-variant-name" style={{ fontSize: '14.5px' }}>{t.abyssiniaBank}</div>
+                        <div style={{ fontSize: '11.5px', color: '#94A3B8' }}>{t.boaMobileBanking}</div>
                       </div>
                     </div>
-                    <span className="hulupay-badge green">DIRECT</span>
+                    <span className="hulupay-badge green">{t.directBadge}</span>
                   </div>
                 </div>
 
                 <button className="hulupay-btn-action" disabled={submittingOrder} onClick={handleConfirmPaymentMethod}>
-                  <span>{submittingOrder ? 'Processing...' : 'Pay Now'}</span>
+                  <span>{submittingOrder ? t.submitting : t.payNow}</span>
                 </button>
               </div>
             )}
@@ -1286,18 +1290,18 @@ const StoreFront: React.FC = () => {
                     {selectedPaymentRail === 'abyssinia' && <PaymentAbyssiniaIcon size={40} />}
                     <div>
                       <div style={{ fontSize: '15px', fontWeight: 800, color: '#FFFFFF' }}>
-                        {selectedPaymentRail === 'telebirr' && 'Telebirr Mobile Money'}
-                        {selectedPaymentRail === 'cbe' && 'Commercial Bank of Ethiopia'}
-                        {selectedPaymentRail === 'abyssinia' && 'Bank of Abyssinia'}
+                        {selectedPaymentRail === 'telebirr' && t.telebirrMobile}
+                        {selectedPaymentRail === 'cbe' && t.cbeBank}
+                        {selectedPaymentRail === 'abyssinia' && t.abyssiniaBank}
                       </div>
                       <div style={{ fontSize: '12px', color: '#94A3B8' }}>
-                        Account Name: <strong style={{ color: '#E2E8F0' }}>{data?.settings?.[`${selectedPaymentRail}_name` as keyof typeof data.settings] || 'Bighabesha Shop'}</strong>
+                        {t.accountName}: <strong style={{ color: '#E2E8F0' }}>{data?.settings?.[`${selectedPaymentRail}_name` as keyof typeof data.settings] || 'Bighabesha Shop'}</strong>
                       </div>
                     </div>
                   </div>
 
                   <div style={{ background: '#080D14', padding: '14px', borderRadius: '12px', marginBottom: '12px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '11px', color: '#64748B', display: 'block', marginBottom: '2px' }}>ACCOUNT NUMBER</span>
+                    <span style={{ fontSize: '11px', color: '#64748B', display: 'block', marginBottom: '2px' }}>{t.accountNumberHeader}</span>
                     <div style={{ fontSize: '20px', fontWeight: 900, color: '#38BDF8', letterSpacing: '1px' }}>
                       {data?.settings?.[`${selectedPaymentRail}_account` as keyof typeof data.settings] ||
                         (selectedPaymentRail === 'telebirr' ? '0912345678' : selectedPaymentRail === 'cbe' ? '1000123456789' : '123456789')}
@@ -1315,29 +1319,29 @@ const StoreFront: React.FC = () => {
                       )
                     }
                   >
-                    {copiedKey === 'acc' ? <><CheckIcon size={14} /> Copied</> : <><CopyIcon size={14} /> Copy Account Number</>}
+                    {copiedKey === 'acc' ? <><CheckIcon size={14} /> {t.copied}</> : <><CopyIcon size={14} /> {t.copyAccount}</>}
                   </button>
 
                   {checkoutOrder.discount_etb && checkoutOrder.discount_etb > 0 ? (
                     <div style={{ textAlign: 'center', margin: '6px 0 2px 0' }}>
                       <div style={{ fontSize: '11.5px', color: '#94A3B8', textDecoration: 'line-through' }}>
-                        Original Price: {checkoutOrder.amount_etb?.toLocaleString()} ETB
+                        {t.originalPrice}: {checkoutOrder.amount_etb?.toLocaleString()} ETB
                       </div>
                       <div style={{ fontSize: '12px', color: '#38BDF8', fontWeight: 700 }}>
-                        Promo Applied: -{checkoutOrder.discount_etb.toLocaleString()} ETB
+                        {t.promoApplied}: -{checkoutOrder.discount_etb.toLocaleString()} ETB
                       </div>
                       <div style={{ fontSize: '13.5px', color: '#10B981', fontWeight: 800, marginTop: '2px' }}>
-                        Exact Amount to Send: {Math.max(checkoutOrder.amount_etb - checkoutOrder.discount_etb, 1).toLocaleString()} ETB
+                        {t.exactAmountToSend}: {Math.max(checkoutOrder.amount_etb - checkoutOrder.discount_etb, 1).toLocaleString()} ETB
                       </div>
                     </div>
                   ) : (
                     <div style={{ fontSize: '13px', color: '#10B981', fontWeight: 800, textAlign: 'center' }}>
-                      Exact Amount to Send: {checkoutOrder.amount_etb?.toLocaleString()} ETB
+                      {t.exactAmountToSend}: {checkoutOrder.amount_etb?.toLocaleString()} ETB
                     </div>
                   )}
                   {(checkoutOrder.target_username || (pendingCheckoutItem.productId === 'telegram_premium' && pendingCheckoutItem.recipient && pendingCheckoutItem.recipient !== 'Telegram User')) && (
                     <div style={{ fontSize: '12px', color: '#A855F7', fontWeight: 600, textAlign: 'center', marginTop: '6px' }}>
-                      Gift Recipient: @{checkoutOrder.target_username || pendingCheckoutItem.recipient.replace(/^@/, '')}
+                      {t.recipientGiftLabel}: @{checkoutOrder.target_username || pendingCheckoutItem.recipient.replace(/^@/, '')}
                     </div>
                   )}
                 </div>
@@ -1346,9 +1350,9 @@ const StoreFront: React.FC = () => {
                 <div className="receipt-dropzone-card" style={{ marginBottom: '16px' }}>
                   <label style={{ cursor: 'pointer', display: 'block' }}>
                     <CameraIcon size={34} color="#38BDF8" style={{ margin: '0 auto 8px auto' }} />
-                    <div style={{ fontSize: '14.5px', fontWeight: 800, color: '#FFFFFF' }}>Attach Transfer Receipt</div>
+                    <div style={{ fontSize: '14.5px', fontWeight: 800, color: '#FFFFFF' }}>{t.uploadReceipt}</div>
                     <div style={{ fontSize: '12px', color: '#94A3B8', marginTop: '2px' }}>
-                      Upload mobile banking screenshot or SMS confirmation
+                      {t.uploadReceiptSub}
                     </div>
                     <input type="file" accept="image/*" onChange={handleReceiptFileChange} className="sr-only-input" />
                   </label>
@@ -1360,7 +1364,7 @@ const StoreFront: React.FC = () => {
                         className="receipt-remove-btn"
                         onClick={() => setReceiptBase64('')}
                       >
-                        Remove
+                        {t.remove}
                       </button>
                     </div>
                   )}
@@ -1390,7 +1394,7 @@ const StoreFront: React.FC = () => {
                   disabled={uploadingReceipt || !receiptBase64}
                   onClick={handleSubmitReceipt}
                 >
-                  <span>{uploadingReceipt ? 'Submitting...' : 'Submit & Track Order'}</span>
+                  <span>{uploadingReceipt ? t.submittingRequest : t.submitAndTrack}</span>
                 </button>
               </div>
             )}
@@ -1413,10 +1417,10 @@ const StoreFront: React.FC = () => {
                   <CheckIcon size={32} color="#10B981" />
                 </div>
                 <h3 style={{ fontSize: '19px', fontWeight: 900, color: '#FFFFFF', marginBottom: '6px' }}>
-                  Payment Submitted!
+                  {t.paymentSubmitted}
                 </h3>
                 <p style={{ fontSize: '13px', color: '#94A3B8', lineHeight: 1.5, marginBottom: '20px' }}>
-                  Order #{checkoutOrder.id} is being processed. You will receive activation directly in your Telegram bot.
+                  {lang === 'am' ? `ትዕዛዝ #${checkoutOrder.id} ${t.orderProcessingMsg}` : `Order #${checkoutOrder.id} ${t.orderProcessingMsg}`}
                 </p>
                 <button
                   className="hulupay-btn-action"
@@ -1427,7 +1431,7 @@ const StoreFront: React.FC = () => {
                   }}
                 >
                   <PackageIcon size={16} />
-                  <span>View Order Status</span>
+                  <span>{t.viewOrderStatusBtn}</span>
                 </button>
               </div>
             )}
@@ -1440,7 +1444,7 @@ const StoreFront: React.FC = () => {
         <div className="hulupay-sheet-backdrop" onClick={() => setReferralDrawerOpen(false)}>
           <div className="hulupay-sheet-container" onClick={(e) => e.stopPropagation()}>
             <div className="hulupay-sheet-header">
-              <span className="hulupay-sheet-title">Referral Program</span>
+              <span className="hulupay-sheet-title">{t.referralProgram}</span>
               <button className="hulupay-sheet-close-btn" onClick={() => setReferralDrawerOpen(false)}>
                 <CloseIcon size={16} />
               </button>
@@ -1448,7 +1452,7 @@ const StoreFront: React.FC = () => {
             {referralInfo ? (
               <div>
                 <p style={{ fontSize: '13px', color: '#94A3B8', marginBottom: '14px', lineHeight: 1.5 }}>
-                  Earn 5% Level 1 and 1% Level 2 lifetime commissions from every purchase made by your invited users.
+                  {t.referralProgramDesc}
                 </p>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
                   <code style={{ background: '#0E1622', padding: '12px', borderRadius: '12px', flex: 1, color: '#FFFFFF', fontSize: '13px' }}>
@@ -1464,16 +1468,16 @@ const StoreFront: React.FC = () => {
                       )
                     }
                   >
-                    {copiedKey === 'ref' ? 'Copied' : 'Copy Link'}
+                    {copiedKey === 'ref' ? t.copied : t.copyLink}
                   </button>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', background: '#0E1622', padding: '14px', borderRadius: '14px' }}>
                   <div>
-                    <span style={{ fontSize: '11px', color: '#64748B' }}>INVITED USERS</span>
+                    <span style={{ fontSize: '11px', color: '#64748B' }}>{t.invitedUsers}</span>
                     <div style={{ fontSize: '16px', fontWeight: 900, color: '#FFFFFF' }}>{referralInfo.referredUsers}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <span style={{ fontSize: '11px', color: '#64748B' }}>EARNED BALANCE</span>
+                    <span style={{ fontSize: '11px', color: '#64748B' }}>{t.earnedBalance}</span>
                     <div style={{ fontSize: '16px', fontWeight: 900, color: '#10B981' }}>{referralInfo.balanceEtb?.toLocaleString()} ETB</div>
                   </div>
                 </div>
@@ -1497,13 +1501,13 @@ const StoreFront: React.FC = () => {
                       }}
                     >
                       {(referralInfo.balanceEtb || 0) >= 100
-                        ? 'Withdraw Earnings'
-                        : `Minimum Payout: 100 ETB (${(referralInfo.balanceEtb || 0).toLocaleString()} ETB current)`}
+                        ? t.withdrawEarnings
+                        : `${t.minimumPayoutAlert}: 100 ETB (${(referralInfo.balanceEtb || 0).toLocaleString()} ETB ${lang === 'am' ? 'ያለዎት' : 'current'})`}
                     </button>
                   ) : (
                     <div style={{ background: '#0E1622', padding: '14px', borderRadius: '14px', marginTop: '10px' }}>
                       <div style={{ fontSize: '13px', fontWeight: 700, color: '#FFFFFF', marginBottom: '10px' }}>
-                        Withdraw to Ethiopian Account
+                        {t.withdrawToEthiopianAccount}
                       </div>
                       <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                         {(['telebirr', 'cbe', 'abyssinia'] as PaymentRail[]).map((rail) => (
@@ -1530,7 +1534,7 @@ const StoreFront: React.FC = () => {
                       </div>
                       <div style={{ marginBottom: '10px' }}>
                         <label style={{ fontSize: '11px', color: '#64748B', display: 'block', marginBottom: '4px' }}>
-                          Payout Amount (ETB, Min 100)
+                          {t.payoutAmountLabel}
                         </label>
                         <input
                           type="number"
@@ -1552,11 +1556,11 @@ const StoreFront: React.FC = () => {
                       </div>
                       <div style={{ marginBottom: '12px' }}>
                         <label style={{ fontSize: '11px', color: '#64748B', display: 'block', marginBottom: '4px' }}>
-                          Account / Phone Number
+                          {t.accountOrPhoneLabel}
                         </label>
                         <input
                           type="text"
-                          placeholder={payoutMethod === 'telebirr' ? 'e.g. 0912345678' : 'Account number'}
+                          placeholder={payoutMethod === 'telebirr' ? (lang === 'am' ? 'ምሳሌ፡ 0912345678' : 'e.g. 0912345678') : t.accountNumberPlaceholder}
                           value={payoutDestination}
                           onChange={(e) => setPayoutDestination(e.target.value)}
                           style={{
@@ -1578,7 +1582,7 @@ const StoreFront: React.FC = () => {
                           onClick={handleRequestPayout}
                           disabled={submittingPayout}
                         >
-                          {submittingPayout ? 'Submitting...' : 'Submit Request'}
+                          {submittingPayout ? t.submittingRequest : t.submitRequest}
                         </button>
                         <button
                           type="button"
@@ -1593,7 +1597,7 @@ const StoreFront: React.FC = () => {
                             fontSize: '12px',
                           }}
                         >
-                          Cancel
+                          {t.cancel}
                         </button>
                       </div>
                     </div>
@@ -1601,7 +1605,7 @@ const StoreFront: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <div style={{ textAlign: 'center', padding: '20px', color: '#94A3B8' }}>Loading Referral Info...</div>
+              <div style={{ textAlign: 'center', padding: '20px', color: '#94A3B8' }}>{t.loadingReferralInfo}</div>
             )}
           </div>
         </div>
@@ -1612,14 +1616,14 @@ const StoreFront: React.FC = () => {
         <div className="hulupay-sheet-backdrop" onClick={() => setSupportDrawerOpen(false)}>
           <div className="hulupay-sheet-container" onClick={(e) => e.stopPropagation()}>
             <div className="hulupay-sheet-header">
-              <span className="hulupay-sheet-title">Customer Support</span>
+              <span className="hulupay-sheet-title">{t.needHelp}</span>
               <button className="hulupay-sheet-close-btn" onClick={() => setSupportDrawerOpen(false)}>
                 <CloseIcon size={16} />
               </button>
             </div>
             <div style={{ marginBottom: '16px' }}>
               <p style={{ fontSize: '13px', color: '#94A3B8', marginBottom: '12px' }}>
-                Need instant assistance? Contact our team directly on Telegram:
+                {lang === 'am' ? 'አፋጣኝ እርዳታ ይፈልጋሉ? በቴሌግራም በቀጥታ ያግኙን፡' : 'Need instant assistance? Contact our team directly on Telegram:'}
               </p>
               <button
                 className="hulupay-btn-action"
@@ -1633,7 +1637,7 @@ const StoreFront: React.FC = () => {
                 }}
               >
                 <TelegramBrandIcon size={18} />
-                <span>Chat with @{data?.settings.support_username || 'Vweah'}</span>
+                <span>{t.chatWithSupport} @{data?.settings.support_username || 'Vweah'}</span>
               </button>
             </div>
 
@@ -1672,7 +1676,7 @@ const StoreFront: React.FC = () => {
             )}
 
             {/* In-app Message Box */}
-            <div style={{ fontSize: '13px', fontWeight: 800, color: '#FFFFFF', marginBottom: '8px' }}>Or send a message:</div>
+            <div style={{ fontSize: '13px', fontWeight: 800, color: '#FFFFFF', marginBottom: '8px' }}>{t.orSendMessage}</div>
             <div style={{ display: 'flex', gap: '8px' }}>
               <input
                 type="text"
@@ -1681,7 +1685,7 @@ const StoreFront: React.FC = () => {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') void handleSendSupport();
                 }}
-                placeholder="Type your message here..."
+                placeholder={t.typeYourMessage}
                 style={{
                   flex: 1,
                   background: '#0E1622',
@@ -1698,7 +1702,7 @@ const StoreFront: React.FC = () => {
                 onClick={handleSendSupport}
                 disabled={!supportInput.trim()}
               >
-                Send
+                {t.send}
               </button>
             </div>
           </div>
@@ -1710,31 +1714,31 @@ const StoreFront: React.FC = () => {
         <div className="hulupay-sheet-backdrop" onClick={() => setSelectedDetailOrder(null)}>
           <div className="hulupay-sheet-container" onClick={(e) => e.stopPropagation()}>
             <div className="hulupay-sheet-header">
-              <span className="hulupay-sheet-title">Order #{selectedDetailOrder.id}</span>
+              <span className="hulupay-sheet-title">{lang === 'am' ? `ትዕዛዝ #${selectedDetailOrder.id}` : `Order #${selectedDetailOrder.id}`}</span>
               <button className="hulupay-sheet-close-btn" onClick={() => setSelectedDetailOrder(null)}>
                 <CloseIcon size={16} />
               </button>
             </div>
 
             <div style={{ background: '#0E1622', padding: '14px 16px', borderRadius: '16px', marginBottom: '16px', fontSize: '13.5px', lineHeight: 1.6 }}>
-              <div>Product: <strong>{selectedDetailOrder.product_id?.replace(/_/g, ' ').toUpperCase()}</strong></div>
-              <div>Amount: <strong style={{ color: '#38BDF8' }}>{selectedDetailOrder.amount_etb?.toLocaleString()} ETB</strong> ({selectedDetailOrder.payment_rail?.toUpperCase()})</div>
-              <div>Status: <strong>{selectedDetailOrder.status?.toUpperCase()}</strong></div>
+              <div>{t.productLabel}: <strong>{selectedDetailOrder.product_id?.replace(/_/g, ' ').toUpperCase()}</strong></div>
+              <div>{t.amountLabel}: <strong style={{ color: '#38BDF8' }}>{selectedDetailOrder.amount_etb?.toLocaleString()} ETB</strong> ({selectedDetailOrder.payment_rail?.toUpperCase()})</div>
+              <div>{t.orderStatus}: <strong>{selectedDetailOrder.status?.toUpperCase()}</strong></div>
               {selectedDetailOrder.target_username && (
-                <div>Recipient: <strong style={{ color: '#A855F7' }}>@{selectedDetailOrder.target_username}</strong></div>
+                <div>{t.recipientLabel}: <strong style={{ color: '#A855F7' }}>@{selectedDetailOrder.target_username}</strong></div>
               )}
               {selectedDetailOrder.reseller_provider && (
-                <div>Delivered via: <strong style={{ color: selectedDetailOrder.reseller_provider.toLowerCase() === 'gramix' ? '#38BDF8' : '#C084FC' }}>
+                <div>{t.deliveredVia}: <strong style={{ color: selectedDetailOrder.reseller_provider.toLowerCase() === 'gramix' ? '#38BDF8' : '#C084FC' }}>
                   {selectedDetailOrder.reseller_provider.toLowerCase() === 'gramix' ? 'Gramix' : selectedDetailOrder.reseller_provider.toLowerCase() === 'istar' ? 'iStar' : selectedDetailOrder.reseller_provider}
                 </strong></div>
               )}
             </div>
 
-            <OrderTimeline order={selectedDetailOrder} events={detailEvents} />
+            <OrderTimeline order={selectedDetailOrder} events={detailEvents} lang={lang} />
 
             {selectedDetailOrder.fulfillment_payload && (
               <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1.5px solid #10B981', padding: '14px', borderRadius: '14px', margin: '16px 0' }}>
-                <div style={{ fontSize: '12.5px', fontWeight: 800, color: '#10B981', marginBottom: '6px' }}>Activation Link:</div>
+                <div style={{ fontSize: '12.5px', fontWeight: 800, color: '#10B981', marginBottom: '6px' }}>{t.activationLink}:</div>
                 <code style={{ wordBreak: 'break-all', display: 'block', fontSize: '12.5px', color: '#FFFFFF', marginBottom: '10px', background: 'rgba(0,0,0,0.3)', padding: '8px', borderRadius: '8px' }}>
                   {selectedDetailOrder.fulfillment_payload}
                 </code>
@@ -1743,7 +1747,7 @@ const StoreFront: React.FC = () => {
                   style={{ height: '40px', minHeight: '40px', fontSize: '13px' }}
                   onClick={() => copyToClipboard(selectedDetailOrder.fulfillment_payload || '', 'link')}
                 >
-                  {copiedKey === 'link' ? 'Copied' : 'Copy Activation Link'}
+                  {copiedKey === 'link' ? t.copied : t.copyActivationLink}
                 </button>
               </div>
             )}
@@ -1809,7 +1813,7 @@ const StoreFront: React.FC = () => {
             <div className="hulupay-nav-icon-circle">
               <ShoppingBagIcon size={20} />
             </div>
-            <span>Shop</span>
+            <span>{t.catalog}</span>
           </button>
 
           <button
@@ -1822,7 +1826,7 @@ const StoreFront: React.FC = () => {
             <div className="hulupay-nav-icon-circle">
               <PackageIcon size={20} />
             </div>
-            <span>Orders</span>
+            <span>{t.myOrders}</span>
           </button>
 
           <button
@@ -1835,7 +1839,7 @@ const StoreFront: React.FC = () => {
             <div className="hulupay-nav-icon-circle">
               <TierShieldGoldIcon size={20} />
             </div>
-            <span>Profile</span>
+            <span>{t.profileTab}</span>
           </button>
         </div>
       </nav>

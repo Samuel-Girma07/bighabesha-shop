@@ -10,12 +10,12 @@ export interface OrderEvent {
   created_at?: string;
 }
 
-const STEPS: { status: string; labelEn: string; icon: string }[] = [
-  { status: 'created', labelEn: 'Order Placed', icon: '🧾' },
-  { status: 'awaiting_payment', labelEn: 'Awaiting Payment', icon: '⏳' },
-  { status: 'pending_approval', labelEn: 'Verifying Payment', icon: '🔍' },
-  { status: 'pending_fulfillment', labelEn: 'Preparing Delivery', icon: '📦' },
-  { status: 'fulfilled', labelEn: 'Delivered', icon: '✅' },
+const STEPS: { status: string; labelEn: string; labelAm: string; icon: string }[] = [
+  { status: 'created', labelEn: 'Order Placed', labelAm: 'ትዕዛዝ ተሰጥቷል', icon: '🧾' },
+  { status: 'awaiting_payment', labelEn: 'Awaiting Payment', labelAm: 'ክፍያ በመጠባበቅ ላይ', icon: '⏳' },
+  { status: 'pending_approval', labelEn: 'Verifying Payment', labelAm: 'ክፍያ በማረጋገጥ ላይ', icon: '🔍' },
+  { status: 'pending_fulfillment', labelEn: 'Preparing Delivery', labelAm: 'ማድረስ በማዘጋጀት ላይ', icon: '📦' },
+  { status: 'fulfilled', labelEn: 'Delivered', labelAm: 'ደርሷል', icon: '✅' },
 ];
 
 function stepIndexFor(status: string): number {
@@ -33,7 +33,7 @@ function stepIndexFor(status: string): number {
   }
 }
 
-export const OrderTimeline: React.FC<{ order: OrderItem; events?: OrderEvent[] }> = ({ order, events = [] }) => {
+export const OrderTimeline: React.FC<{ order: OrderItem; events?: OrderEvent[]; lang?: 'en' | 'am' }> = ({ order, events = [], lang = 'en' }) => {
   const currentIdx = stepIndexFor(order.status);
   const isFailed = ['rejected', 'cancelled'].includes(order.status);
 
@@ -62,7 +62,7 @@ export const OrderTimeline: React.FC<{ order: OrderItem; events?: OrderEvent[] }
               {isFailed && failedHere ? '❌' : reached ? step.icon : '○'}
             </div>
             <div className="tl-body">
-              <div className="tl-label">{step.labelEn}</div>
+              <div className="tl-label">{lang === 'am' ? step.labelAm : step.labelEn}</div>
               {evNote && <div className="tl-note">{evNote}</div>}
               {ts && <div className="tl-ts">{new Date(ts).toLocaleString()}</div>}
             </div>

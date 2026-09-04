@@ -1,7 +1,7 @@
 import { Context } from 'grammy';
 import { getPhoneRegistrationKeyboard } from '../keyboards/menu.js';
 import { setPendingAction, clearPendingAction } from '../session.js';
-import { saveUserPhone, validatePhoneNumber } from '../../services/users.service.js';
+import { saveUserPhone, validatePhoneNumber, getUserById } from '../../services/users.service.js';
 import { checkChannelMembership, promptChannelSubscription } from './onboarding.js';
 import { startHandler } from './start.js';
 import { logger } from '../../logger/index.js';
@@ -10,19 +10,26 @@ export async function promptPhoneRegistration(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
   if (!userId) return;
 
+  const user = getUserById(userId);
+  const lang = user?.language_code || (ctx.from?.language_code?.startsWith('am') ? 'am' : 'en');
+  const isAmharic = lang === 'am';
+
   setPendingAction(userId, {
     type: 'user_phone_registration' as any,
     data: {},
   });
 
-  const text =
-    '<b>📱 Phone Number Verification</b>\n\n' +
-    'To secure your account, track your orders, and enable instant product delivery, please verify your phone number.\n\n' +
-    'Tap <b>[Share Phone Number]</b> below or enter your number (e.g. <code>0911223344</code>):';
+  const text = isAmharic
+    ? '<b>📱 የስልክ ቁጥር ማረጋገጫ</b>\n\n' +
+      'የአካውንትዎን ደህንነት ለመጠበቅ፣ ትዕዛዞችዎን ለመከታተል እና ምርቶችን ወዲያውኑ ለመቀበል እባክዎ ስልክ ቁጥርዎን ያረጋግጡ።\n\n' +
+      'ከታች <b>[ስልክ ቁጥር አጋራ]</b> የሚለውን ይጫኑ ወይም ስልክ ቁጥርዎን ይጻፉ (ለምሳሌ፦ <code>0911223344</code>):'
+    : '<b>📱 Phone Number Verification</b>\n\n' +
+      'To secure your account, track your orders, and enable instant product delivery, please verify your phone number.\n\n' +
+      'Tap <b>[Share Phone Number]</b> below or enter your number (e.g. <code>0911223344</code>):';
 
   await ctx.reply(text, {
     parse_mode: 'HTML',
-    reply_markup: getPhoneRegistrationKeyboard(),
+    reply_markup: getPhoneRegistrationKeyboard(lang),
   });
 }
 
@@ -54,7 +61,9 @@ export async function handleContactMessage(ctx: Context): Promise<boolean> {
     return true;
   } catch (err) {
     logger.error({ err, userId }, 'Failed to save contact phone');
-    await ctx.reply('Failed to register phone number. Please enter it manually.');
+    const user = getUserById(userId);
+    const lang = user?.language_code || (ctx.from?.language_code?.startsWith('am') ? 'am' : 'en');
+    await ctx.reply(lang === 'am' ? 'ስልክ ቁጥር መመዝገብ አልተቻለም። እባክዎ ቁጥሩን በእጅ ያስገቡ።' : 'Failed to register phone number. Please enter it manually.');
     return true;
   }
 }
@@ -63,10 +72,17 @@ export async function handleManualPhoneText(ctx: Context, text: string): Promise
   const userId = ctx.from?.id;
   if (!userId) return false;
 
+  const user = getUserById(userId);
+  const lang = user?.language_code || (ctx.from?.language_code?.startsWith('am') ? 'am' : 'en');
+  const isAmharic = lang === 'am';
+
   const validation = validatePhoneNumber(text);
   if (!validation.valid || !validation.formatted) {
-    await ctx.reply(validation.error || 'Invalid phone number format.', {
-      reply_markup: getPhoneRegistrationKeyboard(),
+    const errorMsg = isAmharic
+      ? 'የተሳሳተ የስልክ ቁጥር ቅርጸት። እባክዎ ትክክለኛ የኢትዮጵያ ስልክ ቁጥር ያስገቡ (ለምሳሌ፦ 0911223344 ወይም 0711223344)።'
+      : (validation.error || 'Invalid phone number format.');
+    await ctx.reply(errorMsg, {
+      reply_markup: getPhoneRegistrationKeyboard(lang),
     });
     return true;
   }
@@ -86,7 +102,7 @@ export async function handleManualPhoneText(ctx: Context, text: string): Promise
     return true;
   } catch (err) {
     logger.error({ err, userId }, 'Failed to save manual phone');
-    await ctx.reply('Failed to register phone number. Please try again.');
+    await ctx.reply(isAmharic ? 'ስልክ ቁጥር መመዝገብ አልተቻለም። እባክዎ እንደገና ይሞክሩ።' : 'Failed to register phone number. Please try again.');
     return true;
   }
 }

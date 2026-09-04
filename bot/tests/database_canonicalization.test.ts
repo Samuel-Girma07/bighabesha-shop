@@ -400,12 +400,12 @@ describe('User Registration & Language Persistence across Restarts (/start)', ()
     await startHandler(mockCtx, { skipChannelCheck: true });
 
     // Should prompt for phone verification, NOT language selection
-    expect(sentReplyText).toContain('Phone Number Verification');
+    expect(sentReplyText.includes('Phone Number Verification') || sentReplyText.includes('የስልክ ቁጥር ማረጋገጫ')).toBe(true);
     expect(sentReplyText).not.toContain('Please select your preferred language');
     expect(sentOptions?.reply_markup).toBeDefined();
     // Keyboard has phone share button
     const keyboardButtons = sentOptions.reply_markup.keyboard.flat();
-    expect(keyboardButtons.some((b: any) => b.text.includes('Share Phone Number'))).toBe(true);
+    expect(keyboardButtons.some((b: any) => b.text.includes('Share Phone Number') || b.text.includes('ስልክ ቁጥር አጋራ'))).toBe(true);
   });
 
   it('registered user executing /start skips language and phone prompts and retains Amharic language', async () => {

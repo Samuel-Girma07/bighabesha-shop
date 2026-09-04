@@ -22,25 +22,27 @@ export interface StyledKeyboardButtonConfig {
  * Creates a persistent reply keyboard matching the ergonomic bottom bar design:
  * [ 👤 My Account (Success Green) ]  [ 🏠 Main Menu (Primary Blue) ]
  */
-export function getMainMenuKeyboard(): Keyboard {
+export function getMainMenuKeyboard(lang: string = 'en'): Keyboard {
   const keyboard = new Keyboard();
+  const isAmharic = lang === 'am';
   keyboard.add(
     {
-      text: '👤 My Account',
+      text: isAmharic ? '👤 የእኔ መረጃ' : '👤 My Account',
       style: 'success',
     } as any,
     {
-      text: '🏠 Main Menu',
+      text: isAmharic ? '🏠 ዋና ማውጫ' : '🏠 Main Menu',
       style: 'primary',
     } as any
   );
   return keyboard.resized().persistent();
 }
 
-export function getPhoneRegistrationKeyboard(): Keyboard {
+export function getPhoneRegistrationKeyboard(lang: string = 'en'): Keyboard {
   const keyboard = new Keyboard();
+  const isAmharic = lang === 'am';
   keyboard.add({
-    text: '📱 Share Phone Number',
+    text: isAmharic ? '📱 ስልክ ቁጥር አጋራ' : '📱 Share Phone Number',
     request_contact: true,
     style: 'success',
   } as any);

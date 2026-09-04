@@ -87,16 +87,26 @@ export async function startHandler(
   // No ephemeral fallback URLs: if WEBAPP_URL is not configured, we simply
   // omit the WebApp menu button instead of pointing users at a dead tunnel.
   const webAppUrl = config.WEBAPP_URL;
+  const userLang = existing?.language_code || (from.language_code?.startsWith('am') ? 'am' : 'en');
+  const isAmharic = userLang === 'am';
 
-  const welcomeHtml =
-    `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
-    `<blockquote>💎 <b>Ethiopia's Premier Digital Goods & AI Subscriptions</b></blockquote>\n\n` +
-    `⚡ <b>Featured Products & Instant Activation:</b>\n` +
-    `• 🤖 <b>Gemini Pro (18 Months)</b> — <code>2 TB Storage</code> · One-Click Link\n` +
-    `• ⭐ <b>Telegram Premium</b> — <code>3, 6, 12 Months</code> · Direct Gift\n\n` +
-    `<blockquote>💳 <b>Accepted Payment Rails:</b>\n` +
-    `Telebirr · CBE Birr · Bank of Abyssinia · TON / USDT</blockquote>\n\n` +
-    `<i>👇 Choose an option below or open the Web App to get started:</i>`;
+  const welcomeHtml = isAmharic
+    ? `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
+      `<blockquote>💎 <b>የኢትዮጵያ ቀዳሚ የዲጂታል ምርቶች እና የAI ሰብስክሪፕሽን አገልግሎት</b></blockquote>\n\n` +
+      `⚡ <b>ዋና ዋና ምርቶች እና ፈጣን ማግበር፦</b>\n` +
+      `• 🤖 <b>Gemini Pro (ለ18 ወራት)</b> — <code>2 TB ማከማቻ</code> · በአንድ ሊንክ ማግበሪያ\n` +
+      `• ⭐ <b>Telegram Premium</b> — <code>የ3፣ 6፣ 12 ወራት</code> · ቀጥታ ስጦታ ወደ አካውንት\n\n` +
+      `<blockquote>💳 <b>ተቀባይነት ያላቸው የክፍያ አማራጮች፦</b>\n` +
+      `ቴሌብር · ንግድ ባንክ (CBE) · አቢሲኒያ ባንክ · TON / USDT</blockquote>\n\n` +
+      `<i>👇 ለመጀመር ከታች ካሉት አንዱን ይምረጡ ወይም ዌብ አፑን ይክፈቱ፦</i>`
+    : `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
+      `<blockquote>💎 <b>Ethiopia's Premier Digital Goods & AI Subscriptions</b></blockquote>\n\n` +
+      `⚡ <b>Featured Products & Instant Activation:</b>\n` +
+      `• 🤖 <b>Gemini Pro (18 Months)</b> — <code>2 TB Storage</code> · One-Click Link\n` +
+      `• ⭐ <b>Telegram Premium</b> — <code>3, 6, 12 Months</code> · Direct Gift\n\n` +
+      `<blockquote>💳 <b>Accepted Payment Rails:</b>\n` +
+      `Telebirr · CBE Birr · Bank of Abyssinia · TON / USDT</blockquote>\n\n` +
+      `<i>👇 Choose an option below or open the Web App to get started:</i>`;
 
   // Fetch dynamic catalog prices for existing products
   const geminiVariants = getProductVariants('gemini_pro_18m');
@@ -105,13 +115,15 @@ export async function startHandler(
 
   const premVariants = getProductVariants('telegram_premium');
   const premMinPrice = premVariants.length > 0 ? Math.min(...premVariants.map((v) => v.price_etb)) : 1100;
-  const premLabel = `⭐ Telegram Premium — from ${formatPriceETB(premMinPrice)}`;
+  const premLabel = isAmharic
+    ? `⭐ Telegram Premium — ከ ${formatPriceETB(premMinPrice)} ጀምሮ`
+    : `⭐ Telegram Premium — from ${formatPriceETB(premMinPrice)}`;
 
   const keyboard = new InlineKeyboard();
 
   if (webAppUrl) {
     addStyledInlineButton(keyboard, {
-      text: '🚀 Open Web App Store',
+      text: isAmharic ? '🚀 የዌብ አፕ ሱቅ ይክፈቱ' : '🚀 Open Web App Store',
       web_app: { url: webAppUrl },
       style: 'primary',
     }).row();
@@ -120,7 +132,7 @@ export async function startHandler(
       void ctx.setChatMenuButton({
         menu_button: {
           type: 'web_app',
-          text: '🛍️ Open Shop',
+          text: isAmharic ? '🛍️ ሱቅ ይክፈቱ' : '🛍️ Open Shop',
           web_app: { url: webAppUrl },
         },
       });
@@ -145,24 +157,24 @@ export async function startHandler(
 
   // Row 3: Referral & Earn (Primary Blue)
   addStyledInlineButton(keyboard, {
-    text: '🎁 Referral & Earn',
+    text: isAmharic ? '🎁 ጓደኛ ጋብዘው ያትርፉ' : '🎁 Referral & Earn',
     callback_data: 'nav_profile',
     style: 'primary',
   }).row();
 
   // Row 4: My Account & Support & FAQ (2 Columns)
   addStyledInlineButton(keyboard, {
-    text: '👤 My Account',
+    text: isAmharic ? '👤 የእኔ መረጃ' : '👤 My Account',
     callback_data: 'nav_profile',
   });
   addStyledInlineButton(keyboard, {
-    text: '💬 Support & FAQ',
+    text: isAmharic ? '💬 ድጋፍ እና ጥያቄዎች' : '💬 Support & FAQ',
     callback_data: 'nav_support',
   }).row();
 
   if (isAdmin(from.id)) {
     addStyledInlineButton(keyboard, {
-      text: '⚡ Admin Panel',
+      text: isAmharic ? '⚡ የአድሚን ፓነል' : '⚡ Admin Panel',
       callback_data: 'admin_menu',
       style: 'danger',
     }).row();
@@ -205,8 +217,8 @@ export async function startHandler(
     }
 
     // Also send the persistent keyboard
-    await ctx.reply('Use the quick menu below at any time:', {
-      reply_markup: getMainMenuKeyboard(),
+    await ctx.reply(isAmharic ? 'ከታች ያለውን ፈጣን ማውጫ በማንኛውም ጊዜ ይጠቀሙ:' : 'Use the quick menu below at any time:', {
+      reply_markup: getMainMenuKeyboard(userLang),
     });
   }
 }
