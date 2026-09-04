@@ -3,6 +3,7 @@ import fsp from 'fs/promises';
 import path from 'path';
 import { getConfig, resolveDatabasePath, resolveRepoRoot } from '../config/env.js';
 import { logger } from '../logger/index.js';
+import { uploadReceiptToRemote } from './storage.service.js';
 
 export class ReceiptValidationError extends Error {
   constructor(message: string) {
@@ -44,10 +45,20 @@ export function detectImageExtension(buffer: Buffer): string | null {
  */
 export function resolveReceiptsDir(databasePath?: string): string {
   const config = getConfig();
+  if (databasePath) {
+    const resolvedDb = resolveDatabasePath(databasePath);
+    if (resolvedDb === ':memory:') {
+      return config.RECEIPTS_DIR ? path.resolve(config.RECEIPTS_DIR) : path.resolve(resolveRepoRoot(), 'data/receipts');
+    }
+    return path.join(path.dirname(resolvedDb), 'receipts');
+  }
   if (config.RECEIPTS_DIR) {
     return path.resolve(config.RECEIPTS_DIR);
   }
-  const dbPath = resolveDatabasePath(databasePath || config.DATABASE_PATH);
+  if (config.DATA_DIR) {
+    return path.resolve(config.DATA_DIR, 'receipts');
+  }
+  const dbPath = resolveDatabasePath(config.DATABASE_PATH);
   if (dbPath === ':memory:') {
     return path.resolve(resolveRepoRoot(), 'data/receipts');
   }
@@ -120,6 +131,11 @@ export async function saveReceiptImage(
   const filename = `receipt_${safeOrderId}_${options.nowMs ?? Date.now()}.${ext}`;
   const filePath = path.join(dir, filename);
   await fsp.writeFile(filePath, buffer);
+
+  // Asynchronously replicate to Backblaze B2 / S3 if configured
+  void uploadReceiptToRemote(filename, buffer, `image/${ext}`).catch((err) => {
+    logger.warn({ err, filename }, 'Non-blocking upload of receipt to remote storage failed');
+  });
 
   logger.info(
     { orderId, bytes: buffer.length, ext, dir },

@@ -10,7 +10,7 @@ let dbInstance: Database.Database | null = null;
 
 const stmtCache = new Map<string, Database.Statement>();
 
-export function initDatabase(dbPath: string = './data/shop.db', migrationsDir?: string): Database.Database {
+export function initDatabase(dbPath?: string, migrationsDir?: string): Database.Database {
   const resolvedPath = resolveDatabasePath(dbPath);
   if (resolvedPath !== ':memory:') {
     const dir = path.dirname(resolvedPath);

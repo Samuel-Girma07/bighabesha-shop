@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -136,6 +136,25 @@ describe('Database Canonicalization, Path Resolution & Receipts Directory', () =
       process.env.DATABASE_PATH = './data/custom_env.db';
       expect(resolveDatabasePath()).toBe(path.resolve(canonicalRoot, 'data/custom_env.db'));
     });
+
+    it('respects DATA_DIR environment variable when DATABASE_PATH and customPath are omitted', () => {
+      delete process.env.DATABASE_PATH;
+      process.env.DATA_DIR = '/var/data';
+      expect(resolveDatabasePath()).toBe(path.resolve('/var/data', 'shop.db'));
+
+      // Clean up
+      delete process.env.DATA_DIR;
+    });
+
+    it('prioritizes DATABASE_PATH over DATA_DIR', () => {
+      process.env.DATA_DIR = '/var/data';
+      process.env.DATABASE_PATH = '/custom/path/store.db';
+      expect(resolveDatabasePath()).toBe(path.resolve('/custom/path/store.db'));
+
+      // Clean up
+      delete process.env.DATA_DIR;
+      delete process.env.DATABASE_PATH;
+    });
   });
 
   describe('resolveReceiptsDir', () => {
@@ -163,6 +182,18 @@ describe('Database Canonicalization, Path Resolution & Receipts Directory', () =
       const customDb = path.resolve(os.tmpdir(), 'store', 'shop.db');
       const expectedReceiptsDir = path.resolve(os.tmpdir(), 'store', 'receipts');
       expect(resolveReceiptsDir(customDb)).toBe(expectedReceiptsDir);
+    });
+
+    it('resolves receipts inside DATA_DIR when configured', () => {
+      delete process.env.RECEIPTS_DIR;
+      process.env.DATA_DIR = '/var/data';
+      resetConfigCache();
+
+      const expectedReceipts = path.resolve('/var/data', 'receipts');
+      expect(resolveReceiptsDir()).toBe(expectedReceipts);
+
+      delete process.env.DATA_DIR;
+      resetConfigCache();
     });
   });
 });
@@ -451,5 +482,86 @@ describe('User Registration & Language Persistence across Restarts (/start)', ()
     // 5. Verify Amharic preference was NOT reset to 'en'
     const persistedUser = getUserById(registeredUserId);
     expect(persistedUser?.language_code).toBe('am');
+  });
+});
+
+describe('Redeployment Persistence & Idempotency', () => {
+  const migrationsDir = path.join(__dirname, '../src/db/migrations');
+  const tempDbDir = path.join(os.tmpdir(), `render-persistence-test-${Date.now()}`);
+  const tempDbPath = path.join(tempDbDir, 'shop.db');
+
+  beforeAll(() => {
+    fs.mkdirSync(tempDbDir, { recursive: true });
+  });
+
+  afterAll(() => {
+    closeDatabase();
+    if (fs.existsSync(tempDbDir)) {
+      fs.rmSync(tempDbDir, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves customized prices, settings, and registered users across redeployment boots', async () => {
+    process.env.BOT_TOKEN = '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ';
+    process.env.ADMIN_IDS = '111111111';
+
+    // ── DEPLOYMENT 1: Initial deployment & configuration ─────────────────
+    let db = initDatabase(tempDbPath, migrationsDir);
+
+    // Verify initial seed values
+    const initialGemini = db.prepare('SELECT price_etb FROM variants WHERE id = ?').get('gemini_pro_18m_default') as { price_etb: number };
+    expect(initialGemini.price_etb).toBe(1500);
+
+    // Admin updates prices in dashboard/bot
+    const { updateVariantPrice } = await import('../src/services/catalog.service.js');
+    const { setSetting, getSetting } = await import('../src/services/settings.service.js');
+    updateVariantPrice('gemini_pro_18m_default', 2800);
+    updateVariantPrice('tg_prem_3m', 1650);
+
+    // Admin updates setting
+    setSetting('etb_per_usd', '160');
+
+    // Customer registers
+    const customerId = 888777;
+    upsertUser({
+      id: customerId,
+      username: 'returning_customer',
+      first_name: 'Abebe',
+      language_code: 'am',
+    });
+    saveUserPhone(customerId, '+251912345678');
+    expect(isUserRegistered(customerId)).toBe(true);
+
+    // ── SIMULATE REDEPLOYMENT / REBOOT ────────────────────────────────────
+    // App shuts down cleanly on SIGTERM
+    closeDatabase();
+
+    // New container boots up and attaches persistent disk mounting tempDbPath
+    const rebootedDb = initDatabase(tempDbPath, migrationsDir);
+
+    // 1. Customized prices must NOT be reset by seedDatabase
+    const rebootedGemini = rebootedDb.prepare('SELECT price_etb FROM variants WHERE id = ?').get('gemini_pro_18m_default') as { price_etb: number };
+    const rebootedPrem = rebootedDb.prepare('SELECT price_etb FROM variants WHERE id = ?').get('tg_prem_3m') as { price_etb: number };
+    expect(rebootedGemini.price_etb).toBe(2800);
+    expect(rebootedPrem.price_etb).toBe(1650);
+
+    // 2. Customized settings must NOT be overwritten
+    expect(getSetting('etb_per_usd')).toBe('160');
+
+    // 3. User remains registered; /start must NOT treat user as new
+    expect(isUserRegistered(customerId)).toBe(true);
+    const sentReplies: string[] = [];
+    const mockCtx: any = {
+      from: { id: customerId, username: 'returning_customer', first_name: 'Abebe' },
+      reply: async (text: string) => { sentReplies.push(text); },
+      replyWithPhoto: async (_photo: any, options: any) => { sentReplies.push(options?.caption || ''); },
+      setChatMenuButton: async () => {},
+    };
+
+    await startHandler(mockCtx, { skipChannelCheck: true });
+    const output = sentReplies.join(' ');
+    expect(output).not.toContain('Please select your preferred language');
+    expect(output).not.toContain('Phone Number Verification');
+    expect(output).toContain('ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ');
   });
 });

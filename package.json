@@ -6,6 +6,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "start": "pnpm --filter bot start",
+    "start:litestream": "node scripts/run-with-litestream.mjs node bot/dist/index.js",
     "test": "pnpm -r test",
     "bot:dev": "pnpm --filter bot dev",
     "bot:start": "pnpm --filter bot start",

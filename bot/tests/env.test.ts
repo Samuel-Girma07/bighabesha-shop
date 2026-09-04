@@ -68,4 +68,50 @@ describe('Environment Configuration Validation', () => {
     expect(cascadeConfig.GRAMIX_API_KEY).toBe('');
     expect(cascadeConfig.ISTAR_API_KEY).toBe('');
   });
+
+  it('automatically derives DATABASE_PATH and RECEIPTS_DIR when DATA_DIR is provided', () => {
+    const config = loadEnv({
+      BOT_TOKEN: '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ',
+      ADMIN_IDS: '123456789',
+      DATA_DIR: '/var/data',
+    });
+
+    expect(config.DATA_DIR).toBe('/var/data');
+    expect(config.DATABASE_PATH).toMatch(/[\\/]var[\\/]data[\\/]shop\.db$/);
+    expect(config.RECEIPTS_DIR).toMatch(/[\\/]var[\\/]data[\\/]receipts$/);
+  });
+
+  it('allows explicit DATABASE_PATH and RECEIPTS_DIR overrides even when DATA_DIR is set', () => {
+    const config = loadEnv({
+      BOT_TOKEN: '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ',
+      ADMIN_IDS: '123456789',
+      DATA_DIR: '/var/data',
+      DATABASE_PATH: '/custom/store.db',
+      RECEIPTS_DIR: '/custom/receipts_dir',
+    });
+
+    expect(config.DATA_DIR).toBe('/var/data');
+    expect(config.DATABASE_PATH).toBe('/custom/store.db');
+    expect(config.RECEIPTS_DIR).toBe('/custom/receipts_dir');
+  });
+
+  it('correctly normalizes Backblaze B2 and Litestream configuration variables', () => {
+    const config = loadEnv({
+      BOT_TOKEN: '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ',
+      ADMIN_IDS: '123456789',
+      B2_BUCKET: 'bighabesha-backup',
+      B2_ENDPOINT: 's3.us-west-004.backblazeb2.com',
+      B2_KEY_ID: '004key123',
+      B2_APPLICATION_KEY: 'secretAppKey456',
+      B2_REGION: 'us-west-004',
+    });
+
+    expect(config.B2_BUCKET).toBe('bighabesha-backup');
+    expect(config.B2_ENDPOINT).toBe('s3.us-west-004.backblazeb2.com');
+    expect(config.B2_KEY_ID).toBe('004key123');
+    expect(config.B2_APPLICATION_KEY).toBe('secretAppKey456');
+    expect(config.B2_REGION).toBe('us-west-004');
+    expect(config.LITESTREAM_BUCKET).toBe('bighabesha-backup');
+    expect(config.LITESTREAM_ACCESS_KEY_ID).toBe('004key123');
+  });
 });

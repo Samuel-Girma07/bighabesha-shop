@@ -5,6 +5,7 @@ import { createBot } from './bot/bot.js';
 import { startPeriodicCleanup, stopPeriodicCleanup } from './services/maintenance.service.js';
 import { stopWalletPayReconciliation } from './services/payments/index.js';
 import { startLifecycleJobs, stopLifecycleJobs } from './services/lifecycle.service.js';
+import { syncReceiptsFromRemote } from './services/storage.service.js';
 import { syncAdminsFromEnv } from './auth/permissions.js';
 import { prewarmAllBanners } from './services/banner_generator.service.js';
 import { tryAcquireLease } from './db/lease.js';
@@ -30,6 +31,13 @@ async function main() {
     // Initialize database
     initDatabase(config.DATABASE_PATH);
     syncAdminsFromEnv();
+
+    // Sync any existing receipt images from Backblaze B2 into local container
+    try {
+      await syncReceiptsFromRemote();
+    } catch (err) {
+      logger.warn({ err }, 'Failed to sync receipts from remote storage');
+    }
 
     // Pre-rasterize standard product banners into disk cache
     void prewarmAllBanners();

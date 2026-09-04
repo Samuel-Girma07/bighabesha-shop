@@ -1,0 +1,39 @@
+# ==============================================================================
+# Render.com Blueprint Specification for Bighabesha Shop
+# Free Tier + Backblaze B2 Continuous Cloud Replication (Litestream)
+# ==============================================================================
+
+services:
+  - type: web
+    name: bighabesha-shop
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install -g pnpm@9 && pnpm install --frozen-lockfile && pnpm -r build
+    startCommand: node scripts/run-with-litestream.mjs node bot/dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: WALLET_PAY_MODE
+        value: live
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: WALLET_PAY_API_KEY
+        sync: false
+      - key: WEBAPP_URL
+        sync: false
+      # Backblaze B2 Continuous SQLite Replication & Receipt Persistence
+      - key: B2_BUCKET
+        sync: false
+      - key: B2_ENDPOINT
+        sync: false
+      - key: B2_KEY_ID
+        sync: false
+      - key: B2_APPLICATION_KEY
+        sync: false

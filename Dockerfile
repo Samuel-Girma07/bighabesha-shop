@@ -37,12 +37,17 @@ FROM node:20-bookworm-slim AS runner
 
 WORKDIR /app
 
-# Install runtime sqlite3 libraries
+# Install runtime sqlite3 libraries & curl
 RUN apt-get update && apt-get install -y --no-install-recommends \
     sqlite3 \
     libsqlite3-0 \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Litestream for continuous WAL replication to Backblaze B2
+ADD https://github.com/benbjohnson/litestream/releases/download/v0.3.13/litestream-v0.3.13-linux-amd64.tar.gz /tmp/litestream.tar.gz
+RUN tar -C /usr/local/bin -xzf /tmp/litestream.tar.gz && rm /tmp/litestream.tar.gz && chmod +x /usr/local/bin/litestream
 
 # Install pnpm
 RUN npm install -g pnpm@9
@@ -50,10 +55,11 @@ RUN npm install -g pnpm@9
 ENV NODE_ENV=production
 ENV PORT=7860
 
-# Hugging Face Spaces runs as user 1000 by default
+# Pre-create data directories with write permissions for persistent disk mounts (Render / HF Spaces / Docker)
 RUN useradd -m -u 1000 appuser && \
-    mkdir -p /app/data /app/bot/assets/banners && \
-    chown -R appuser:appuser /app
+    mkdir -p /var/data /app/data /app/bot/assets/banners && \
+    chown -R appuser:appuser /var/data /app && \
+    chmod 777 /var/data /app/data
 
 COPY --chown=appuser:appuser package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --chown=appuser:appuser bot/package.json ./bot/
@@ -62,7 +68,8 @@ COPY --chown=appuser:appuser webapp/package.json ./webapp/
 # Install production dependencies only
 RUN pnpm install --prod --frozen-lockfile
 
-# Copy built code from builder
+# Copy scripts and built code from builder
+COPY --chown=appuser:appuser scripts/ ./scripts/
 COPY --from=builder --chown=appuser:appuser /app/bot/dist ./bot/dist
 COPY --from=builder --chown=appuser:appuser /app/webapp/dist ./webapp/dist
 
@@ -70,4 +77,4 @@ USER appuser
 
 EXPOSE 7860
 
-CMD ["node", "bot/dist/index.js"]
+CMD ["node", "scripts/run-with-litestream.mjs", "node", "bot/dist/index.js"]

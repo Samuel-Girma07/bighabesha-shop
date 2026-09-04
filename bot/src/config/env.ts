@@ -36,11 +36,19 @@ export function resolveRepoRoot(moduleDir: string = __dirname): string {
  * - Relative paths (e.g. './data/shop.db') are resolved relative to the monorepo root.
  */
 export function resolveDatabasePath(customPath?: string): string {
-  const target = (customPath && customPath.trim().length > 0)
-    ? customPath.trim()
-    : (process.env.DATABASE_PATH && process.env.DATABASE_PATH.trim().length > 0)
-      ? process.env.DATABASE_PATH.trim()
-      : './data/shop.db';
+  const customTrimmed = customPath && customPath.trim().length > 0 ? customPath.trim() : undefined;
+  const envDbTrimmed = process.env.DATABASE_PATH && process.env.DATABASE_PATH.trim().length > 0
+    ? process.env.DATABASE_PATH.trim()
+    : undefined;
+  const envDataDirTrimmed = process.env.DATA_DIR && process.env.DATA_DIR.trim().length > 0
+    ? process.env.DATA_DIR.trim()
+    : undefined;
+
+  const target =
+    customTrimmed ??
+    envDbTrimmed ??
+    (envDataDirTrimmed ? path.join(envDataDirTrimmed, 'shop.db') : './data/shop.db');
+
   if (target === ':memory:') {
     return ':memory:';
   }
@@ -110,8 +118,9 @@ export const EnvSchema = z
     // No default: missing ADMIN_PASSWORD disables the web admin login (fail-closed)
     // and is a hard boot error in production.
     ADMIN_PASSWORD: z.string().optional(),
-    DATABASE_PATH: z.string().default('./data/shop.db'),
-    RECEIPTS_DIR: z.string().optional(),       // defaults to <db-dir>/receipts
+    DATA_DIR: z.string().optional(),
+    DATABASE_PATH: z.string().optional(),
+    RECEIPTS_DIR: z.string().optional(),       // defaults to <db-dir>/receipts or <data-dir>/receipts
     RECEIPT_MAX_BYTES: z
       .string()
       .default(String(5 * 1024 * 1024))
@@ -202,6 +211,52 @@ export const EnvSchema = z
       .string()
       .default('true')
       .transform((v) => v !== 'false' && v !== '0'),
+    // Backblaze B2 / Litestream persistent cloud storage
+    B2_BUCKET: z.string().optional(),
+    B2_ENDPOINT: z.string().optional(),
+    B2_KEY_ID: z.string().optional(),
+    B2_APPLICATION_KEY: z.string().optional(),
+    B2_REGION: z.string().optional(),
+    LITESTREAM_BUCKET: z.string().optional(),
+    LITESTREAM_ENDPOINT: z.string().optional(),
+    LITESTREAM_ACCESS_KEY_ID: z.string().optional(),
+    LITESTREAM_SECRET_ACCESS_KEY: z.string().optional(),
+  })
+  .transform((cfg) => {
+    const rawDataDir = cfg.DATA_DIR?.trim();
+    const dataDir = rawDataDir && rawDataDir.length > 0 ? rawDataDir : undefined;
+
+    const rawDbPath = cfg.DATABASE_PATH?.trim();
+    const dbPath = rawDbPath && rawDbPath.length > 0
+      ? rawDbPath
+      : (dataDir ? path.join(dataDir, 'shop.db') : './data/shop.db');
+
+    const rawReceiptsDir = cfg.RECEIPTS_DIR?.trim();
+    const receiptsDir = rawReceiptsDir && rawReceiptsDir.length > 0
+      ? rawReceiptsDir
+      : (dataDir ? path.join(dataDir, 'receipts') : undefined);
+
+    const b2Bucket = (cfg.B2_BUCKET || cfg.LITESTREAM_BUCKET)?.trim() || undefined;
+    const b2Endpoint = (cfg.B2_ENDPOINT || cfg.LITESTREAM_ENDPOINT)?.trim() || undefined;
+    const b2KeyId = (cfg.B2_KEY_ID || cfg.LITESTREAM_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID)?.trim() || undefined;
+    const b2AppKey = (cfg.B2_APPLICATION_KEY || cfg.LITESTREAM_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY)?.trim() || undefined;
+    const b2Region = cfg.B2_REGION?.trim() || undefined;
+
+    return {
+      ...cfg,
+      DATA_DIR: dataDir,
+      DATABASE_PATH: dbPath,
+      RECEIPTS_DIR: receiptsDir,
+      B2_BUCKET: b2Bucket,
+      B2_ENDPOINT: b2Endpoint,
+      B2_KEY_ID: b2KeyId,
+      B2_APPLICATION_KEY: b2AppKey,
+      B2_REGION: b2Region,
+      LITESTREAM_BUCKET: b2Bucket,
+      LITESTREAM_ENDPOINT: b2Endpoint,
+      LITESTREAM_ACCESS_KEY_ID: b2KeyId,
+      LITESTREAM_SECRET_ACCESS_KEY: b2AppKey,
+    };
   })
   .superRefine((cfg, ctx) => {
     if (cfg.NODE_ENV === 'production') {
