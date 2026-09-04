@@ -21,6 +21,7 @@ import {
   getPremiumMonths,
   setResellerProviderForTest,
   resetResellerProviderCache,
+  resetLowFloatAlertCooldownForTest,
 } from '../src/services/reseller.service.js';
 import { MockResellerAdapter } from '../src/services/reseller/mock.js';
 import {
@@ -49,6 +50,7 @@ describe('B2B Telegram Premium Reseller Pipeline', () => {
     process.env.RESELLER_LOW_BALANCE_ALERT_USDT = '50';
     resetConfigCache();
     resetResellerProviderCache();
+    resetLowFloatAlertCooldownForTest();
     db = initDatabase(':memory:', migrationsDir);
   });
 
@@ -752,6 +754,59 @@ describe('B2B Telegram Premium Reseller Pipeline', () => {
       expect(mockApi.sendMessage).toHaveBeenCalledTimes(2);
     });
 
+    it('enforces 30-minute cooldown on low-float alert and only alerts when orders are waiting', async () => {
+      const { retryFailedResellerDeliveries } = await import('../src/services/reseller.service.js');
+      const mockAdapter = new MockResellerAdapter();
+      mockAdapter.customBalanceUsdt = 25; // threshold is 50
+      setResellerProviderForTest(mockAdapter);
+
+      const mockApi: any = {
+        sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      };
+
+      // 1. When waitingOrdersCount === 0, sweeper does NOT alert admins even if float is low
+      const res1 = await retryFailedResellerDeliveries(mockApi);
+      expect(res1.retried).toBe(0);
+      expect(res1.fulfilled).toBe(0);
+      expect(res1.failed).toBe(0);
+      expect(mockApi.sendMessage).not.toHaveBeenCalled();
+
+      // 2. When waitingOrdersCount > 0, sweeper alerts admins on the first run
+      const order = createOrder({
+        userId: BUYER_ID,
+        username: 'waitinguser',
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
+        paymentRail: 'telebirr',
+        status: 'pending_approval',
+        targetUsername: 'waiting_target',
+      });
+      updateOrderStatus(order.id, 'processing');
+      updateOrderStatus(order.id, 'delivery_failed', { reseller_error: 'Float depleted' });
+
+      const res2 = await retryFailedResellerDeliveries(mockApi);
+      expect(res2.retried).toBe(0);
+      expect(mockApi.sendMessage).toHaveBeenCalledTimes(2); // Sent to both admins
+      expect(mockApi.sendMessage).toHaveBeenCalledWith(
+        ADMIN_1,
+        expect.stringContaining('• Waiting Orders: <b>1</b>'),
+        expect.anything()
+      );
+
+      // 3. Subsequent sweeper run within 30 minutes does NOT re-alert (cooldown enforced)
+      mockApi.sendMessage.mockClear();
+      const res3 = await retryFailedResellerDeliveries(mockApi);
+      expect(res3.retried).toBe(0);
+      expect(mockApi.sendMessage).not.toHaveBeenCalled();
+
+      // 4. Resetting cooldown allows alerting again
+      resetLowFloatAlertCooldownForTest();
+      const res4 = await retryFailedResellerDeliveries(mockApi);
+      expect(res4.retried).toBe(0);
+      expect(mockApi.sendMessage).toHaveBeenCalledTimes(2);
+    });
+
     it('handleAdminQueueResellerDeliver executes delivery and notifies buyer', async () => {
       const { handleAdminQueueResellerDeliver } = await import('../src/bot/handlers/admin_queue.js');
       const mockAdapter = new MockResellerAdapter();
@@ -1065,10 +1120,10 @@ describe('B2B Telegram Premium Reseller Pipeline', () => {
       app.use('/api/admin', adminRouter);
 
       const srv = http.createServer(app);
-      const port = await new Promise<number>((resolve) => srv.listen(0, () => resolve((srv.address() as any).port)));
+      const port = await new Promise<number>((resolve) => srv.listen(0, '127.0.0.1', () => resolve((srv.address() as any).port)));
 
       try {
-        const res = await fetch(`http://localhost:${port}/api/admin/orders/${order.id}/approve`, {
+        const res = await fetch(`http://127.0.0.1:${port}/api/admin/orders/${order.id}/approve`, {
           method: 'POST',
           headers: {
             Authorization: 'Bearer test_admin_session_token_123',
@@ -1092,7 +1147,7 @@ describe('B2B Telegram Premium Reseller Pipeline', () => {
       } finally {
         await new Promise<void>((resolve) => srv.close(() => resolve()));
       }
-    });
+    }, 15000);
 
     it('prevents concurrent double-spend in deliverWithReseller via invocation-scoped lease', async () => {
       let fulfillCalls = 0;

@@ -43,6 +43,14 @@ export function setResellerProviderForTest(provider: IResellerProvider | null | 
   cachedProvider = provider;
 }
 
+export const LOW_FLOAT_ALERT_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+let lastLowFloatAlertTime = 0;
+
+/** Test helper to reset the cooldown timestamp */
+export function resetLowFloatAlertCooldownForTest(): void {
+  lastLowFloatAlertTime = 0;
+}
+
 /** True when this order is eligible for the reseller pipeline. */
 export function isResellerEligible(order: Order): boolean {
   return order.product_id === 'telegram_premium' && getResellerProvider() !== null;
@@ -246,7 +254,8 @@ export async function notifyAdminsLowFloatFromResult(
   api: Api<RawApi>,
   providerNameOrResult: string | ResellerBalanceResult,
   balanceUsdt?: number,
-  subProviders?: ResellerBalanceResult['providers']
+  subProviders?: ResellerBalanceResult['providers'],
+  waitingOrdersCount?: number
 ): Promise<void> {
   let providerName: string;
   let resolvedBalance = balanceUsdt;
@@ -275,6 +284,10 @@ export async function notifyAdminsLowFloatFromResult(
 
   const config = getConfig();
   const balanceLine = resolvedBalance !== undefined ? `$${resolvedBalance.toFixed(2)} USDT` : 'unknown';
+  const waitingOrdersLine =
+    waitingOrdersCount !== undefined && waitingOrdersCount > 0
+      ? `• Waiting Orders: <b>${waitingOrdersCount}</b>\n`
+      : '';
   let message: string;
 
   if (providers && providers.length > 0) {
@@ -289,6 +302,7 @@ export async function notifyAdminsLowFloatFromResult(
 
     message =
       `🚨 <b>Reseller Float Low</b>\n\n` +
+      waitingOrdersLine +
       `• Total Float: <b>${balanceLine}</b>\n` +
       `${providerLines}\n` +
       `• Alert threshold: $${config.RESELLER_LOW_BALANCE_ALERT_USDT.toFixed(2)}\n\n` +
@@ -296,6 +310,7 @@ export async function notifyAdminsLowFloatFromResult(
   } else {
     message =
       `🚨 <b>Reseller Float Low</b>\n\n` +
+      waitingOrdersLine +
       `• Provider: <b>${escapeHtml(providerName)}</b>\n` +
       `• Balance: <b>${balanceLine}</b>\n` +
       `• Alert threshold: $${config.RESELLER_LOW_BALANCE_ALERT_USDT.toFixed(2)}\n\n` +
@@ -326,8 +341,27 @@ export async function retryFailedResellerDeliveries(api?: Api<RawApi>): Promise<
     const config = getConfig();
     const threshold = config.RESELLER_LOW_BALANCE_ALERT_USDT;
     if (balance.balanceUsdt < threshold) {
-      logger.warn({ provider: balance.provider, balanceUsdt: balance.balanceUsdt, threshold }, 'Reseller retry sweeper skipped: float below threshold');
-      if (api) await notifyAdminsLowFloatFromResult(api, balance.provider, balance.balanceUsdt, balance.providers);
+      const db = getDatabase();
+      const waitingOrdersCount = (db.prepare(`
+        SELECT COUNT(*) as count FROM orders
+        WHERE status IN ('delivery_failed', 'pending_fulfillment')
+          AND product_id = 'telegram_premium'
+      `).get() as { count: number }).count;
+
+      if (waitingOrdersCount === 0) {
+        logger.info({ provider: balance.provider, balanceUsdt: balance.balanceUsdt, threshold }, 'Reseller retry sweeper skipped: float below threshold, but no waiting orders');
+        return { retried: 0, fulfilled: 0, failed: 0 };
+      }
+
+      const now = Date.now();
+      if (now - lastLowFloatAlertTime >= LOW_FLOAT_ALERT_COOLDOWN_MS) {
+        lastLowFloatAlertTime = now;
+        if (api) {
+          await notifyAdminsLowFloatFromResult(api, balance.provider, balance.balanceUsdt, balance.providers, waitingOrdersCount);
+        }
+      } else {
+        logger.info({ waitingOrdersCount, lastAlertMsAgo: now - lastLowFloatAlertTime }, 'Low-float alert suppressed by 30-minute cooldown');
+      }
       return { retried: 0, fulfilled: 0, failed: 0 };
     }
 
