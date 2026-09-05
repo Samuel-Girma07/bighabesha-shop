@@ -1722,33 +1722,33 @@
     "semantic_hash": ""
   },
   "bot/assets/static_banners/checkout.jpg": {
-    "mtime": 1787766769.8703277,
-    "seen": 1787941904.504143,
-    "ast_hash": "aa47e4f8c33fff097c51925c83c41997",
+    "mtime": 1788624910.131297,
+    "seen": 1788625145.5433106,
+    "ast_hash": "326ef4ea1b96d51b01c59fe0f19ef0bf",
     "semantic_hash": ""
   },
   "bot/assets/static_banners/gemini.jpg": {
-    "mtime": 1787766693.2201579,
-    "seen": 1787941904.5041444,
-    "ast_hash": "f5973712095b07603f5839138401aa4b",
+    "mtime": 1788624851.1565678,
+    "seen": 1788625145.5433137,
+    "ast_hash": "55b09d3ae89f4b084a6eedc0cdca47bf",
     "semantic_hash": ""
   },
   "bot/assets/static_banners/premium.jpg": {
-    "mtime": 1787766727.987744,
-    "seen": 1787941904.5041454,
-    "ast_hash": "34b0ef510afb69a38273e04f14bfeb66",
+    "mtime": 1788624869.6991088,
+    "seen": 1788625145.5433156,
+    "ast_hash": "09778af01dab436166714b3e2e52f3db",
     "semantic_hash": ""
   },
   "bot/assets/static_banners/stars.jpg": {
-    "mtime": 1787766743.414507,
-    "seen": 1787941904.5041466,
-    "ast_hash": "2ccd88f2e66a6559237bd836d8e1c739",
+    "mtime": 1788624885.0274377,
+    "seen": 1788625145.5433176,
+    "ast_hash": "0d25556ca8b40841c26faea7af325143",
     "semantic_hash": ""
   },
   "bot/assets/static_banners/welcome.jpg": {
-    "mtime": 1787766674.4266436,
-    "seen": 1787941904.504148,
-    "ast_hash": "f6a22033b3338176607d3068114f40e0",
+    "mtime": 1788624838.780168,
+    "seen": 1788625145.5433195,
+    "ast_hash": "795daf50e78648ecc6a24847734a0f0c",
     "semantic_hash": ""
   },
   "star design by you.jpg": {
@@ -1764,33 +1764,33 @@
     "semantic_hash": ""
   },
   "webapp/public/banners/checkout.jpg": {
-    "mtime": 1787766769.8703277,
-    "seen": 1787941904.5041516,
-    "ast_hash": "aa47e4f8c33fff097c51925c83c41997",
+    "mtime": 1788624910.131297,
+    "seen": 1788625145.5437248,
+    "ast_hash": "326ef4ea1b96d51b01c59fe0f19ef0bf",
     "semantic_hash": ""
   },
   "webapp/public/banners/gemini.jpg": {
-    "mtime": 1787766693.2201579,
-    "seen": 1787941904.5041525,
-    "ast_hash": "f5973712095b07603f5839138401aa4b",
+    "mtime": 1788624851.1565678,
+    "seen": 1788625145.5437267,
+    "ast_hash": "55b09d3ae89f4b084a6eedc0cdca47bf",
     "semantic_hash": ""
   },
   "webapp/public/banners/premium.jpg": {
-    "mtime": 1787766727.987744,
-    "seen": 1787941904.504154,
-    "ast_hash": "34b0ef510afb69a38273e04f14bfeb66",
+    "mtime": 1788624869.6991088,
+    "seen": 1788625145.543728,
+    "ast_hash": "09778af01dab436166714b3e2e52f3db",
     "semantic_hash": ""
   },
   "webapp/public/banners/stars.jpg": {
-    "mtime": 1787766743.414507,
-    "seen": 1787941904.504155,
-    "ast_hash": "2ccd88f2e66a6559237bd836d8e1c739",
+    "mtime": 1788624885.0274377,
+    "seen": 1788625145.54373,
+    "ast_hash": "0d25556ca8b40841c26faea7af325143",
     "semantic_hash": ""
   },
   "webapp/public/banners/welcome.jpg": {
-    "mtime": 1787766674.4266436,
-    "seen": 1787941904.5041559,
-    "ast_hash": "f6a22033b3338176607d3068114f40e0",
+    "mtime": 1788624838.780168,
+    "seen": 1788625145.5437317,
+    "ast_hash": "795daf50e78648ecc6a24847734a0f0c",
     "semantic_hash": ""
   },
   "webapp/public/icons/abyssinia.jpg": {
