@@ -127,6 +127,19 @@ export const KNOWN_SETTING_KEYS: ReadonlySet<string> = new Set([
   'restock_safety_days',
   'chapa_fee_pct',
   'wallet_gas_bps',
+  // Ethiopian Bank Receipt Verification Engine
+  'receipt_auto_verify_enabled',
+  'receipt_recency_before_mins',
+  'receipt_recency_after_mins',
+  'receipt_circuit_breaker_threshold',
+  'receipt_circuit_breaker_cooldown_sec',
+  'receipt_retention_days_raw_payloads',
+  'receipt_retention_days_unverified',
+  'receipt_retention_days_verified',
+  'receipt_cbe_beneficiaries',
+  'receipt_telebirr_beneficiaries',
+  'receipt_abyssinia_beneficiaries',
+  'receipt_ethiopia_proxy_url',
 ]);
 
 export function isKnownSettingKey(key: string): boolean {

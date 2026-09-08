@@ -1,0 +1,1029 @@
+openapi: 3.1.0
+info:
+  title: Bighabesha Shop - Ethiopian Bank Receipt Verification Engine API
+  version: 1.0.0
+  description: |
+    Standardized REST API specifications for the Bighabesha Shop in-process
+    Ethiopian Bank Receipt Verification Engine (ADR-001).
+    
+    Supports native QR matrix decoding and upstream automated verification for:
+    - **CBE**: Commercial Bank of Ethiopia (Port 100 direct HTTPS / PDF parse)
+    - **Telebirr**: Ethio Telecom Telebirr (HTML table scraping via Ethiopian egress proxy)
+    - **Abyssinia**: Bank of Abyssinia (Routed to administrative review)
+    
+    Adheres strictly to RFC 7807 (Problem Details for HTTP APIs) for error reporting
+    and enforces a 4-Pillar Security Gate (Anti-Replay, Beneficiary Whitelist, Amount Parity, Recency Window).
+  contact:
+    name: Bighabesha Shop Engineering Team
+    url: https://t.me/bighabesha_support
+servers:
+  - url: http://localhost:3000
+    description: Local In-Process Express Development Server
+  - url: https://api.bighabesha.shop
+    description: Production Bot & Mini App API Gateway
+
+tags:
+  - name: Verification
+    description: Public & Mini App customer verification endpoints
+  - name: Diagnostics
+    description: Developer & operator testing utilities (QR decoding, portal probes)
+  - name: Admin Review
+    description: Protected administrative audit, manual re-verification, and evidence endpoints
+
+paths:
+  /api/receipts/verify:
+    post:
+      tags:
+        - Verification
+      summary: Verify transfer receipt or transaction reference
+      description: |
+        Ingests a payment receipt (image screenshot, vector PDF, or raw transaction code),
+        executes QR decoding or reference normalization, queries the corresponding
+        bank verification gateway (CBE / Telebirr), evaluates the 4-Pillar Security Gate,
+        and automatically fulfills the order if valid.
+      security:
+        - TelegramInitData: []
+        - AdminBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptVerifyJsonRequest'
+            examples:
+              jsonReference:
+                summary: Direct Reference Code Verification
+                value:
+                  orderId: "ord_cbe_782910"
+                  reference: "FT24252Y8WQM"
+                  note: "Paid via CBE Mobile Banking"
+              jsonBase64:
+                summary: Base64 Encoded Receipt Image
+                value:
+                  orderId: "ord_cbe_782910"
+                  receiptBase64: "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
+                  note: "Attached receipt screenshot"
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReceiptVerifyMultipartRequest'
+      responses:
+        '200':
+          description: Receipt successfully verified and order fulfilled or queued for delivery
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationSuccessResponse'
+              examples:
+                cbeSuccess:
+                  summary: CBE Verified & Auto-Fulfilled
+                  value:
+                    success: true
+                    status: "auto_verified"
+                    orderId: "ord_cbe_782910"
+                    bank: "cbe"
+                    transactionReference: "FT24252Y8WQM"
+                    extractedData:
+                      bank: "cbe"
+                      rawReference: "FT24252Y8WQM"
+                      normalizedReference: "FT24252Y8WQM"
+                      sourceUrl: "https://apps.cbe.com.et:100/customer/receipt/FT24252Y8WQM"
+                      amountEtb: 1250
+                      extractedAt: "2026-09-08T09:45:00.000Z"
+                      confidence: 0.99
+                      decodeMethod: "qr_matrix"
+                    bankPayload:
+                      bank: "cbe"
+                      transactionReference: "FT24252Y8WQM"
+                      amountEtb: 1250
+                      feeEtb: 0
+                      currency: "ETB"
+                      senderName: "ABEBE BIKILA"
+                      senderIdentifier: "100029384729"
+                      beneficiaryAccount: "1000510711258"
+                      beneficiaryName: "SAMUEL GIRMA"
+                      transactionTimestamp: "2026-09-08T09:44:12.000Z"
+                      paymentChannel: "mobile_banking"
+                      rawAuditTrail:
+                        voucherCode: "VCH-99281"
+                        branchCode: "1000"
+                    securityGateResult:
+                      passed: true
+                      evaluatedAt: "2026-09-08T09:45:02.100Z"
+                      evaluations:
+                        - pillar: "anti_replay"
+                          passed: true
+                          expected: "UNIQUE"
+                          actual: "UNIQUE"
+                          details: "Reference FT24252Y8WQM has not been previously recorded."
+                        - pillar: "beneficiary_whitelist"
+                          passed: true
+                          expected: "1000510711258"
+                          actual: "1000510711258"
+                          details: "Matches official CBE store account."
+                        - pillar: "exact_amount"
+                          passed: true
+                          expected: 1250
+                          actual: 1250
+                          details: "Amount matches required order net total."
+                        - pillar: "recency_window"
+                          passed: true
+                          expected: "within [-60m, +120m]"
+                          actual: "3 minutes ago"
+                          details: "Transaction timestamp falls well within allowable window."
+                    needsAdminReview: false
+                    verifiedAt: "2026-09-08T09:45:02.150Z"
+                    processingDurationMs: 1420
+        '400':
+          description: Malformed request, unsupported bank rail, or corrupted image
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+              examples:
+                unsupportedBank:
+                  summary: Unsupported Bank Rail
+                  value:
+                    type: "https://bighabesha.shop/errors/unsupported-bank"
+                    title: "Unsupported Banking Rail"
+                    status: 400
+                    detail: "Automated verification is not currently supported for banking rail: 'awash'."
+                    instance: "/api/receipts/verify"
+                    code: "UNSUPPORTED_BANK"
+                    remediation_hint: "Automated verification currently supports CBE and Telebirr. Other banks will be reviewed manually by administrators."
+                    timestamp: "2026-09-08T09:45:00.000Z"
+                    details:
+                      detectedRail: "awash"
+        '401':
+          description: Missing or invalid authentication token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+        '403':
+          description: Forbidden - order does not belong to authenticated user
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+        '404':
+          description: Order not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+        '409':
+          description: Conflict - Transaction reference already used (Replay attack detected)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+              examples:
+                replayAttack:
+                  summary: Receipt Replay Detected
+                  value:
+                    type: "https://bighabesha.shop/errors/receipt-already-used"
+                    title: "Receipt Already Used"
+                    status: 409
+                    detail: "Transaction reference 'FT24252Y8WQM' has already been verified and credited to another order."
+                    instance: "/api/receipts/verify"
+                    code: "RECEIPT_ALREADY_USED"
+                    remediation_hint: "This transfer receipt has already been used. Please submit the receipt for your current payment or contact support."
+                    timestamp: "2026-09-08T09:45:00.000Z"
+                    details:
+                      reference: "FT24252Y8WQM"
+                      existingOrderId: "ord_prev_99812"
+        '422':
+          description: Unprocessable Entity - Security gate pillar failure (Beneficiary, Amount, Recency) or unreadable QR code
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+              examples:
+                amountMismatch:
+                  summary: Underpayment Detected
+                  value:
+                    type: "https://bighabesha.shop/errors/amount-mismatch"
+                    title: "Payment Amount Mismatch"
+                    status: 422
+                    detail: "Verified bank payment of 500 ETB is less than required order total of 1250 ETB."
+                    instance: "/api/receipts/verify"
+                    code: "AMOUNT_MISMATCH"
+                    remediation_hint: "The transferred amount (500 ETB) is less than the required order total (1250 ETB). Please transfer the remaining balance."
+                    timestamp: "2026-09-08T09:45:00.000Z"
+                    details:
+                      expectedAmountEtb: 1250
+                      actualAmountEtb: 500
+                      differenceEtb: 750
+                beneficiaryMismatch:
+                  summary: Beneficiary Spoofing / Wrong Account
+                  value:
+                    type: "https://bighabesha.shop/errors/beneficiary-mismatch"
+                    title: "Beneficiary Account Mismatch"
+                    status: 422
+                    detail: "Payment was made to '1000999999999', which does not match official shop accounts."
+                    instance: "/api/receipts/verify"
+                    code: "BENEFICIARY_MISMATCH"
+                    remediation_hint: "The transfer was sent to an unauthorized recipient. Payments must be sent strictly to Bighabesha Shop official accounts."
+                    timestamp: "2026-09-08T09:45:00.000Z"
+                    details:
+                      bank: "cbe"
+                      actualBeneficiary: "1000999999999"
+                      expectedAccounts: ["1000510711258"]
+                qrDecodeFailed:
+                  summary: QR Code Unreadable
+                  value:
+                    type: "https://bighabesha.shop/errors/qr-decode-failed"
+                    title: "QR Code Matrix Decoding Failed"
+                    status: 422
+                    detail: "Image matrix does not contain a recognizable 2D QR code or the image is too blurry."
+                    instance: "/api/receipts/verify"
+                    code: "QR_DECODE_FAILED"
+                    remediation_hint: "Could not read the QR code on the receipt screenshot. Please ensure the image is clear, uncropped, and not blurry, or enter the reference code manually."
+                    timestamp: "2026-09-08T09:45:00.000Z"
+        '502':
+          description: Bad Gateway - Telebirr portal proxy issue or upstream gateway geoblock
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+              examples:
+                geoblocked:
+                  summary: Upstream Proxy Egress Failed
+                  value:
+                    type: "https://bighabesha.shop/errors/portal-geoblocked"
+                    title: "Bank Portal Geoblocked or Proxy Egress Failed"
+                    status: 502
+                    detail: "Access to TELEBIRR transaction verification portal was blocked or Ethiopian residential proxy failed."
+                    instance: "/api/receipts/verify"
+                    code: "PORTAL_GEOBLOCKED"
+                    remediation_hint: "Bank gateway routing encountered a regional network block. Receipt routed to administrator review queue for manual verification."
+                    timestamp: "2026-09-08T09:45:00.000Z"
+                    details:
+                      bank: "telebirr"
+                      proxyHost: "proxy-et-01.internal"
+        '504':
+          description: Gateway Timeout - Upstream bank portal timed out (7.5s hard abort)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+              examples:
+                timeout:
+                  summary: Upstream CBE Portal Unresponsive
+                  value:
+                    type: "https://bighabesha.shop/errors/bank-portal-unavailable"
+                    title: "Bank Confirmation Portal Unavailable"
+                    status: 504
+                    detail: "Upstream verification portal for CBE timed out or failed to respond: Connection timed out after 7500ms"
+                    instance: "/api/receipts/verify"
+                    code: "BANK_PORTAL_UNAVAILABLE"
+                    remediation_hint: "The bank confirmation portal is currently unresponsive. Your receipt has been routed to our store administrators for manual review."
+                    timestamp: "2026-09-08T09:45:00.000Z"
+                    details:
+                      bank: "cbe"
+                      reason: "Connection timed out after 7500ms"
+
+  /api/receipts/test-qr:
+    post:
+      tags:
+        - Diagnostics
+      summary: Diagnostic endpoint to test QR code decoding on an uploaded image
+      description: |
+        Accepts a receipt image (JPEG, PNG, or WebP) via multipart upload or base64 JSON,
+        normalizes the image with `sharp` (grayscale, contrast stretching, auto-rotation),
+        and applies `@zxing/library` multi-pass matrix decoding to evaluate readability.
+      security:
+        - TelegramInitData: []
+        - AdminBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - receiptImage
+              properties:
+                receiptImage:
+                  type: string
+                  format: binary
+                  description: Raw image binary (JPEG, PNG, WebP up to 10MB)
+                enableContrastEnhancement:
+                  type: boolean
+                  default: true
+                multiPassThresholding:
+                  type: boolean
+                  default: true
+          application/json:
+            schema:
+              type: object
+              required:
+                - imageBase64
+              properties:
+                imageBase64:
+                  type: string
+                  description: Base64 data URL or raw base64 string
+                enableContrastEnhancement:
+                  type: boolean
+                  default: true
+                multiPassThresholding:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: QR matrix successfully located and decoded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QrTestSuccessResponse'
+        '400':
+          description: Invalid image format or file exceeds size cap
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+        '422':
+          description: QR code could not be resolved from provided image
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+
+  /api/receipts/status/{orderId}:
+    get:
+      tags:
+        - Verification
+      summary: Query verification audit status for an order
+      description: |
+        Retrieves the real-time verification state, security pillar evaluation results,
+        and diagnostic audit data for an order. Accessible by the order's buyer or an admin.
+      security:
+        - TelegramInitData: []
+        - AdminBearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: The alphanumeric order identifier
+          schema:
+            type: string
+            example: "ord_10294812"
+      responses:
+        '200':
+          description: Verification audit status record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptStatusResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+        '403':
+          description: Forbidden
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+        '404':
+          description: Order not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+
+  /api/admin/receipts/evidence:
+    get:
+      tags:
+        - Admin Review
+      summary: Paginated query of verified receipt evidence with filtering
+      description: |
+        Returns a paginated list of verification audit logs from the SQLite `receipt_evidence`
+        store. Allows filtering by bank rail, resolution status, order ID, or transaction reference.
+        Requires `orders.view` permission.
+      security:
+        - AdminBearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number (1-indexed)
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+        - name: bank
+          in: query
+          description: Filter by banking rail
+          schema:
+            $ref: '#/components/schemas/SupportedBank'
+        - name: status
+          in: query
+          description: Filter by pipeline resolution status
+          schema:
+            $ref: '#/components/schemas/VerificationStatus'
+        - name: orderId
+          in: query
+          description: Filter by specific Order ID
+          schema:
+            type: string
+        - name: reference
+          in: query
+          description: Filter by transaction reference code
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          description: Filter created after ISO timestamp
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          description: Filter created before ISO timestamp
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Paginated audit evidence list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEvidenceResponse'
+        '401':
+          description: Admin authorization required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+        '403':
+          description: Insufficient permissions (requires orders.view)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+
+  /api/admin/receipts/{orderId}/reverify:
+    post:
+      tags:
+        - Admin Review
+      summary: Trigger manual re-verification of an order receipt
+      description: |
+        Forces the verification engine to re-run the verification pipeline against the
+        upstream bank confirmation portal using the order's existing stored receipt or
+        transaction reference. Can optionally bypass the circuit breaker or override
+        the reference. Requires `orders.decide` permission.
+      security:
+        - AdminBearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: The alphanumeric order identifier
+          schema:
+            type: string
+            example: "ord_10294812"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bypassCircuitBreaker:
+                  type: boolean
+                  default: false
+                  description: Force upstream bank call even if circuit breaker is OPEN
+                customReference:
+                  type: string
+                  description: Optional corrected transaction reference override
+      responses:
+        '200':
+          description: Re-verification executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationSuccessResponse'
+        '401':
+          description: Admin authorization required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+        '403':
+          description: Insufficient permissions (requires orders.decide)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+        '404':
+          description: Order not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+        '409':
+          description: Replay conflict detected
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+        '422':
+          description: Security gate mismatch
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+        '502':
+          description: Upstream proxy failure
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+        '504':
+          description: Upstream bank timeout
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Rfc7807ProblemDetails'
+
+components:
+  securitySchemes:
+    TelegramInitData:
+      type: apiKey
+      name: Authorization
+      in: header
+      description: |
+        Telegram WebApp raw `initData` string prefixed with `tma ` or `bearer `.
+        Example: `Authorization: tma query_id=...&user=...&hash=...`
+    AdminBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: HexToken
+      description: |
+        24-hour cryptographic admin session token issued via `/api/admin/auth/verify-2fa`.
+        Example: `Authorization: Bearer 8f1b2c...`
+
+  schemas:
+    SupportedBank:
+      type: string
+      enum:
+        - cbe
+        - telebirr
+        - abyssinia
+        - unknown
+      description: Banking or mobile money rail in Ethiopia
+
+    VerificationStatus:
+      type: string
+      enum:
+        - auto_verified
+        - pending_manual_review
+        - rejected
+        - upstream_failure
+      description: Operational status of the receipt verification
+
+    ReceiptInputSource:
+      type: string
+      enum:
+        - telegram_photo
+        - telegram_document
+        - webapp_upload
+        - sms_forward
+        - manual_admin_entry
+
+    SecurityPillarId:
+      type: string
+      enum:
+        - anti_replay
+        - beneficiary_whitelist
+        - exact_amount
+        - recency_window
+
+    VerificationFailureCode:
+      type: string
+      enum:
+        - RECEIPT_ALREADY_USED
+        - BENEFICIARY_MISMATCH
+        - AMOUNT_MISMATCH
+        - RECEIPT_EXPIRED
+        - QR_DECODE_FAILED
+        - BANK_PORTAL_UNAVAILABLE
+        - PORTAL_GEOBLOCKED
+        - UNSUPPORTED_BANK
+        - CORRUPTED_FILE
+        - RATE_LIMITED
+        - INTERNAL_ENGINE_ERROR
+
+    Rfc7807ProblemDetails:
+      type: object
+      required:
+        - type
+        - title
+        - status
+        - detail
+        - instance
+        - code
+        - remediation_hint
+        - timestamp
+      properties:
+        type:
+          type: string
+          format: uri
+          description: URI identifying the problem type
+          example: "https://bighabesha.shop/errors/receipt-already-used"
+        title:
+          type: string
+          description: Human-readable summary of problem type
+          example: "Receipt Already Used"
+        status:
+          type: integer
+          description: HTTP status code
+          example: 409
+        detail:
+          type: string
+          description: Specific description of this error occurrence
+          example: "Transaction reference 'FT24252Y8WQM' has already been verified and credited to another order."
+        instance:
+          type: string
+          format: uri-reference
+          description: Target endpoint URI
+          example: "/api/receipts/verify"
+        code:
+          $ref: '#/components/schemas/VerificationFailureCode'
+        details:
+          type: object
+          additionalProperties: true
+          description: Diagnostic context attributes
+        remediation_hint:
+          type: string
+          description: Actionable guidance to resolve error
+          example: "This transfer receipt has already been used. Please submit the receipt for your current payment or contact support."
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-09-08T09:45:00.000Z"
+
+    ReceiptVerifyJsonRequest:
+      type: object
+      required:
+        - orderId
+      properties:
+        orderId:
+          type: string
+          description: Target Order ID
+          example: "ord_cbe_782910"
+        reference:
+          type: string
+          description: Direct bank reference code (e.g. FT... or 10-digit Telebirr ref)
+          example: "FT24252Y8WQM"
+        receiptBase64:
+          type: string
+          description: Data URL or raw base64 string of receipt image or PDF
+          example: "data:image/jpeg;base64,..."
+        note:
+          type: string
+          description: Optional user note or SMS caption
+          example: "Payment completed via CBE Mobile Banking"
+
+    ReceiptVerifyMultipartRequest:
+      type: object
+      required:
+        - orderId
+      properties:
+        orderId:
+          type: string
+          description: Target Order ID
+          example: "ord_cbe_782910"
+        receiptFile:
+          type: string
+          format: binary
+          description: Uploaded receipt file (JPEG, PNG, WebP, or PDF up to 10MB)
+        reference:
+          type: string
+          description: Direct bank transaction reference if provided alongside
+        note:
+          type: string
+          description: Optional buyer note
+
+    ExtractedReceiptReference:
+      type: object
+      required:
+        - bank
+        - rawReference
+        - normalizedReference
+        - extractedAt
+        - confidence
+        - decodeMethod
+      properties:
+        bank:
+          $ref: '#/components/schemas/SupportedBank'
+        rawReference:
+          type: string
+          example: "FT24252Y8WQM"
+        normalizedReference:
+          type: string
+          example: "FT24252Y8WQM"
+        sourceUrl:
+          type: string
+          format: uri
+          example: "https://apps.cbe.com.et:100/customer/receipt/FT24252Y8WQM"
+        amountEtb:
+          type: number
+          example: 1250
+        extractedAt:
+          type: string
+          format: date-time
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 0.99
+        decodeMethod:
+          type: string
+          enum: [qr_matrix, pdf_stream, ocr_regex, sms_regex, manual_code]
+        rawPayloadSnippet:
+          type: string
+        qrBoundingBox:
+          type: object
+          properties:
+            x: { type: integer }
+            y: { type: integer }
+            width: { type: integer }
+            height: { type: integer }
+
+    BankTransactionPayload:
+      type: object
+      required:
+        - bank
+        - transactionReference
+        - amountEtb
+        - currency
+        - beneficiaryAccount
+        - beneficiaryName
+        - transactionTimestamp
+        - rawAuditTrail
+      properties:
+        bank:
+          $ref: '#/components/schemas/SupportedBank'
+        transactionReference:
+          type: string
+          example: "FT24252Y8WQM"
+        amountEtb:
+          type: number
+          example: 1250
+        feeEtb:
+          type: number
+          example: 0
+        currency:
+          type: string
+          enum: [ETB]
+        senderName:
+          type: string
+          example: "ABEBE BIKILA"
+        senderIdentifier:
+          type: string
+          example: "100029384729"
+        beneficiaryAccount:
+          type: string
+          example: "1000510711258"
+        beneficiaryName:
+          type: string
+          example: "SAMUEL GIRMA"
+        transactionTimestamp:
+          type: string
+          format: date-time
+          example: "2026-09-08T09:44:12.000Z"
+        paymentChannel:
+          type: string
+          example: "mobile_banking"
+        rawAuditTrail:
+          type: object
+          additionalProperties: true
+
+    SecurityPillarEvaluation:
+      type: object
+      required:
+        - pillar
+        - passed
+        - expected
+        - actual
+      properties:
+        pillar:
+          $ref: '#/components/schemas/SecurityPillarId'
+        passed:
+          type: boolean
+        expected:
+          oneOf:
+            - type: string
+            - type: number
+        actual:
+          oneOf:
+            - type: string
+            - type: number
+        details:
+          type: string
+        tolerance:
+          type: number
+
+    SecurityGateResult:
+      type: object
+      required:
+        - passed
+        - evaluations
+        - evaluatedAt
+      properties:
+        passed:
+          type: boolean
+        evaluations:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityPillarEvaluation'
+        failedPillar:
+          $ref: '#/components/schemas/SecurityPillarEvaluation'
+        evaluatedAt:
+          type: string
+          format: date-time
+
+    VerificationSuccessResponse:
+      type: object
+      required:
+        - success
+        - status
+        - orderId
+        - needsAdminReview
+        - verifiedAt
+        - processingDurationMs
+      properties:
+        success:
+          type: boolean
+          example: true
+        status:
+          $ref: '#/components/schemas/VerificationStatus'
+        orderId:
+          type: string
+          example: "ord_cbe_782910"
+        bank:
+          $ref: '#/components/schemas/SupportedBank'
+        transactionReference:
+          type: string
+          example: "FT24252Y8WQM"
+        extractedData:
+          $ref: '#/components/schemas/ExtractedReceiptReference'
+        bankPayload:
+          $ref: '#/components/schemas/BankTransactionPayload'
+        securityGateResult:
+          $ref: '#/components/schemas/SecurityGateResult'
+        needsAdminReview:
+          type: boolean
+          example: false
+        adminReviewReason:
+          type: string
+        verifiedAt:
+          type: string
+          format: date-time
+        processingDurationMs:
+          type: integer
+          example: 1420
+
+    QrTestSuccessResponse:
+      type: object
+      required:
+        - success
+        - decodeDurationMs
+        - passesAttempted
+      properties:
+        success:
+          type: boolean
+          example: true
+        rawText:
+          type: string
+          example: "https://apps.cbe.com.et:100/customer/receipt/FT24252Y8WQM"
+        extractedReference:
+          $ref: '#/components/schemas/ExtractedReceiptReference'
+        decodeDurationMs:
+          type: integer
+          example: 312
+        passesAttempted:
+          type: integer
+          example: 1
+        error:
+          type: string
+
+    VerificationAuditRecord:
+      type: object
+      required:
+        - orderId
+        - userId
+        - source
+        - bank
+        - securityGatePassed
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: integer
+          example: 412
+        orderId:
+          type: string
+          example: "ord_cbe_782910"
+        userId:
+          type: integer
+          example: 98172635
+        source:
+          $ref: '#/components/schemas/ReceiptInputSource'
+        bank:
+          $ref: '#/components/schemas/SupportedBank'
+        rawReference:
+          type: string
+          example: "FT24252Y8WQM"
+        normalizedReference:
+          type: string
+          example: "FT24252Y8WQM"
+        amountEtb:
+          type: integer
+          example: 1250
+        verifiedAmountEtb:
+          type: integer
+          example: 1250
+        beneficiaryAccount:
+          type: string
+          example: "1000510711258"
+        securityGatePassed:
+          type: boolean
+          example: true
+        securityGateEvaluations:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityPillarEvaluation'
+        status:
+          $ref: '#/components/schemas/VerificationStatus'
+        errorCode:
+          $ref: '#/components/schemas/VerificationFailureCode'
+        rawBankPayload:
+          type: object
+          additionalProperties: true
+        ipAddress:
+          type: string
+          example: "197.156.104.22"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ReceiptStatusResponse:
+      type: object
+      required:
+        - orderId
+        - status
+        - isVerified
+      properties:
+        orderId:
+          type: string
+          example: "ord_cbe_782910"
+        status:
+          $ref: '#/components/schemas/VerificationStatus'
+        isVerified:
+          type: boolean
+          example: true
+        latestAuditRecord:
+          $ref: '#/components/schemas/VerificationAuditRecord'
+
+    PaginatedEvidenceResponse:
+      type: object
+      required:
+        - items
+        - total
+        - page
+        - limit
+        - totalPages
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/VerificationAuditRecord'
+        total:
+          type: integer
+          example: 1842
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 50
+        totalPages:
+          type: integer
+          example: 37

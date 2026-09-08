@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # ── Bighabesha Bot & Ethiopian Bank Receipt Verification Platform ───────────
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    container_name: bighabesha-bot
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATA_DIR=/app/data
+      - DATABASE_PATH=/app/data/shop.db
+      - RECEIPTS_DIR=/app/data/receipts
+      - TRUST_PROXY=1
+    volumes:
+      # Persistent storage for SQLite database (shop.db, WAL, SHM) and uploaded receipt images
+      - bot_data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:' + (process.env.PORT || 3000) + '/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - bighabesha_network
+    depends_on:
+      proxy:
+        condition: service_started
+        required: false
+
+  # ── Optional SOCKS5 / HTTP Proxy for Ethiopian Banking Egress Simulation ───
+  # Activated with: docker compose --profile with-proxy up -d
+  # Used to simulate or route residential in-country egress (AS24757) to Telebirr
+  # and Commercial Bank of Ethiopia (CBE) Port 100 verification endpoints.
+  proxy:
+    image: vimagick/tinyproxy:latest
+    container_name: bighabesha-egress-proxy
+    restart: unless-stopped
+    profiles:
+      - with-proxy
+    ports:
+      - "8888:8888"
+    environment:
+      - DISABLE_PROMETHEUS=yes
+    networks:
+      - bighabesha_network
+
+volumes:
+  # Named persistent volume guaranteeing SQLite database and receipt image retention across container updates
+  bot_data:
+    driver: local
+
+networks:
+  bighabesha_network:
+    driver: bridge
