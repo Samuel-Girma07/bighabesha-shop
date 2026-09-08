@@ -15,6 +15,7 @@ import { isPrivateOrReservedIp } from '../src/services/receipt_verifier/adapters
 import { SecurityGateService } from '../src/services/receipt_verifier/security_gate.service.js';
 import { ReceiptIngestionService } from '../src/services/receipt_verifier/ingestion.service.js';
 import { CBE_PERMITTED_HOSTNAMES } from '../src/services/receipt_verifier/constants.js';
+import { validateVerificationSettings } from '../src/services/settings.service.js';
 
 describe('Phase 7: SAST & SCA Security Hardening Suite', () => {
   // ============================================================================
@@ -222,6 +223,29 @@ describe('Phase 7: SAST & SCA Security Hardening Suite', () => {
       expect(durationMs).toBeLessThan(100);
       expect(result.bank).toBe('cbe');
       expect(result.normalizedReference).toBe('FT24252Y8WQM');
+    });
+  });
+
+  // ============================================================================
+  // 4. Parameter Tampering & Port Whitelisting Defense (CWE-20)
+  // ============================================================================
+
+  describe('4. Parameter Tampering & Port Whitelisting Defense (CWE-20)', () => {
+    it('strictly restricts receipt_cbe_port to allowed gateway ports (100 or 443)', () => {
+      // Valid ports
+      expect(validateVerificationSettings({ receipt_cbe_port: '100' }).isValid).toBe(true);
+      expect(validateVerificationSettings({ receipt_cbe_port: '443' }).isValid).toBe(true);
+
+      // Malicious or unauthorized internal ports (SSRF / port probing attempts)
+      const invalid22 = validateVerificationSettings({ receipt_cbe_port: '22' });
+      expect(invalid22.isValid).toBe(false);
+      expect(invalid22.errors[0]).toContain('receipt_cbe_port must be either "100" or "443"');
+
+      const invalid8080 = validateVerificationSettings({ receipt_cbe_port: '8080' });
+      expect(invalid8080.isValid).toBe(false);
+
+      const invalidAlpha = validateVerificationSettings({ receipt_cbe_port: 'http' });
+      expect(invalidAlpha.isValid).toBe(false);
     });
   });
 });

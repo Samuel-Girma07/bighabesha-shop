@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import type { Bot } from 'grammy';
 import { getConfig } from '../config/env.js';
 import { getDatabase, prepared } from '../db/index.js';
-import { cachedSync } from '../services/cache.service.js';
+import { cachedSync, invalidate } from '../services/cache.service.js';
 import { logger } from '../logger/index.js';
 import { resolveStoredReceiptPath } from '../services/receipts.service.js';
 import { createReceiptDownloadToken, verifyReceiptDownloadToken } from '../services/download_tokens.service.js';
@@ -19,7 +19,15 @@ import {
   getAvailableStockCount,
   deleteStockItem,
 } from '../services/stock.service.js';
-import { getAllSettings, setSetting, getSetting, isKnownSettingKey, KNOWN_SETTING_KEYS } from '../services/settings.service.js';
+import {
+  getAllSettings,
+  setSetting,
+  setSettings,
+  getSetting,
+  isKnownSettingKey,
+  KNOWN_SETTING_KEYS,
+  validateVerificationSettings,
+} from '../services/settings.service.js';
 import { getAllUsers } from '../services/users.service.js';
 import {
   getBroadcastTargets,
@@ -495,8 +503,60 @@ adminRouter.get('/orders', requireAdminAuth, requirePermission('orders.view'), (
 
   query += ' ORDER BY created_at DESC LIMIT 100';
 
-  const orders = db.prepare(query).all(...params);
-  res.json({ orders });
+  const orders = db.prepare(query).all(...params) as any[];
+
+  if (orders.length === 0) {
+    res.json({ orders: [] });
+    return;
+  }
+
+  // Enrich with latest receipt_evidence summary in a single batch query (avoid N+1)
+  const orderIds = orders.map((o) => o.id);
+  const placeholders = orderIds.map(() => '?').join(',');
+
+  const evidenceRows = db.prepare(`
+    SELECT id, order_id, bank, reference, normalized_reference, status, error_code, verified_amount_etb, security_gate_passed, created_at
+    FROM receipt_evidence
+    WHERE id IN (
+      SELECT MAX(id)
+      FROM receipt_evidence
+      WHERE order_id IN (${placeholders})
+      GROUP BY order_id
+    )
+  `).all(...orderIds) as any[];
+
+  const evidenceMap = new Map<string, {
+    id: number;
+    bank: string;
+    reference: string | null;
+    normalized_reference: string | null;
+    status: string;
+    error_code: string | null;
+    verified_amount_etb: number | null;
+    security_gate_passed: boolean;
+    created_at: string;
+  }>();
+
+  for (const row of evidenceRows) {
+    evidenceMap.set(row.order_id, {
+      id: row.id,
+      bank: row.bank,
+      reference: row.reference ?? null,
+      normalized_reference: row.normalized_reference ?? null,
+      status: row.status,
+      error_code: row.error_code ?? null,
+      verified_amount_etb: row.verified_amount_etb ?? null,
+      security_gate_passed: Boolean(row.security_gate_passed),
+      created_at: row.created_at,
+    });
+  }
+
+  const enrichedOrders = orders.map((order) => ({
+    ...order,
+    evidence: evidenceMap.get(order.id) ?? null,
+  }));
+
+  res.json({ orders: enrichedOrders });
 });
 
 // 2b. View / Stream Order Receipt Image (supports disk-stored uploads and Telegram bot file_ids)
@@ -833,10 +893,22 @@ adminRouter.put('/settings', requireAdminAuth, requirePermission('settings.write
     return;
   }
 
-  const changedKeys = Object.keys(settings);
-  for (const [key, val] of Object.entries(settings)) {
-    setSetting(key, String(val));
+  // Validate verification settings formats and bounds
+  const validation = validateVerificationSettings(settings);
+  if (!validation.isValid) {
+    res.status(400).json({
+      error: `Settings validation failed: ${validation.errors.join('; ')}`,
+      validationErrors: validation.errors,
+    });
+    return;
   }
+
+  const changedKeys = Object.keys(settings);
+  // Atomic batch persistence across all changed keys in a single transaction
+  setSettings(settings);
+
+  // Invalidate cached bootstrap catalog so public settings refresh immediately in memory
+  invalidate('bootstrap:catalog');
 
   recordAudit({
     adminId: (req as any).adminSession?.adminId ?? 'unknown',

@@ -3,6 +3,7 @@ import { getConfig } from '../config/env.js';
 import { getDatabase } from '../db/index.js';
 import { validateTelegramInitData } from './auth.js';
 import { requireAdminAuth, requirePermission } from './admin.js';
+import { ensureAdminRow } from '../auth/permissions.js';
 import { getOrderById } from '../services/orders.service.js';
 import { getReceiptOrchestrator } from '../services/receipt_verifier/index.js';
 import { getAuditsForOrder } from '../db/receipt_evidence.dao.js';
@@ -101,12 +102,15 @@ function authenticateUserOrAdmin(req: Request): AuthContext | null {
         .prepare('SELECT admin_id as adminId, expires_at as expiresAt FROM admin_sessions WHERE token = ?')
         .get(token) as { adminId: number; expiresAt: number } | undefined;
 
-      if (session && session.expiresAt >= Date.now() && config.ADMIN_IDS.includes(session.adminId)) {
-        return {
-          userId: session.adminId,
-          isAdmin: true,
-          adminId: session.adminId,
-        };
+      if (session && session.expiresAt >= Date.now()) {
+        const role = ensureAdminRow(session.adminId);
+        if (config.ADMIN_IDS.includes(session.adminId) || role !== null) {
+          return {
+            userId: session.adminId,
+            isAdmin: true,
+            adminId: session.adminId,
+          };
+        }
       }
     }
   }
@@ -388,14 +392,23 @@ receiptsRouter.get('/status/:orderId', async (req: Request, res: Response): Prom
 
   const orchestrator = getReceiptOrchestrator();
   const evidence = await orchestrator.getAuditRecord(orderId);
-  const attempts = getAuditsForOrder(orderId);
+  const attempts = auth.isAdmin ? getAuditsForOrder(orderId) : [];
+
+  // Protect sensitive banking identifiers and internal scraping payloads from public customer exposure (CWE-200 / CWE-359)
+  const sanitizedEvidence = (!auth.isAdmin && evidence)
+    ? {
+        ...evidence,
+        rawBankPayload: undefined,
+        ipAddress: undefined,
+      }
+    : evidence;
 
   res.status(200).json({
     orderId: order.id,
     orderStatus: order.status,
     amountEtb: order.amount_etb,
     paymentRail: order.payment_rail,
-    evidence,
+    evidence: sanitizedEvidence,
     attempts,
   });
 });

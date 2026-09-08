@@ -89,6 +89,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_receipt_evidence_normalized_anti_replay
 CREATE INDEX IF NOT EXISTS idx_receipt_evidence_order
     ON receipt_evidence(order_id, created_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_receipt_evidence_order_id
+    ON receipt_evidence(order_id, id DESC);
+
 CREATE INDEX IF NOT EXISTS idx_receipt_evidence_reference
     ON receipt_evidence(reference COLLATE NOCASE);
 
@@ -178,5 +181,6 @@ INSERT INTO settings (key, value) VALUES
     ('receipt_retention_days_verified', '365'),
     ('receipt_cbe_beneficiaries', '["0000000000000"]'),
     ('receipt_telebirr_beneficiaries', '["0000000000"]'),
-    ('receipt_abyssinia_beneficiaries', '["0000000000000"]')
+    ('receipt_abyssinia_beneficiaries', '["0000000000000"]'),
+    ('receipt_ethiopia_proxy_url', '')
 ON CONFLICT(key) DO NOTHING;
