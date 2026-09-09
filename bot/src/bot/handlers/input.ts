@@ -4,7 +4,7 @@ import { formatPriceETB, updateVariantPrice, getProductById } from '../../servic
 import { addStockLink, importStockCSV, getTotalStockCount } from '../../services/stock.service.js';
 import { setSetting, getSetting } from '../../services/settings.service.js';
 import { isAdmin, renderAdminProducts, renderAdminRates, renderAdminSettings, renderAdminStock } from './admin.js';
-import { submitReceipt, rejectReceipt, getOrderById, fulfillOrderWithProof, refundOrder, sanitizeUsername, InvalidUsernameError } from '../../services/orders.service.js';
+import { submitReceipt, rejectReceipt, getOrderById, fulfillOrderWithProof, refundOrder, sanitizeUsername, InvalidUsernameError, Order } from '../../services/orders.service.js';
 import { notifyAdminsNewReceipt, initiateCheckout } from './checkout.js';
 import { previewBroadcastDraft } from './broadcast.js';
 import { renderAdminOrdersQueue } from './admin_queue.js';
@@ -14,6 +14,15 @@ import { parseBankSms, matchSmsToOrders } from '../../services/sms_parser.servic
 import { getDatabase } from '../../db/index.js';
 import { renderPaymentRailSelection } from './checkout.js';
 import { getConfig } from '../../config/env.js';
+import type { ReceiptMimeType, VerificationResult, IReceiptOrchestrator } from '../../services/receipt_verifier/types.js';
+
+const MAX_RECEIPT_BUFFER_SIZE_BYTES = 10 * 1024 * 1024;
+
+async function getOrchestrator(): Promise<IReceiptOrchestrator> {
+  const { getReceiptOrchestrator } = await import('../../services/receipt_verifier/index.js');
+  return getReceiptOrchestrator();
+}
+
 
 async function renderPaymentRailSelectionFor(ctx: Context, order: any, productName: string): Promise<void> {
   try {
@@ -22,6 +31,80 @@ async function renderPaymentRailSelectionFor(ctx: Context, order: any, productNa
     /* rail re-render is best-effort */
   }
 }
+
+async function downloadTelegramFileBuffer(ctx: Context, fileId: string): Promise<Buffer | undefined> {
+  try {
+    if (typeof ctx.api?.getFile === 'function') {
+      const file = await ctx.api.getFile(fileId);
+      if (file.file_path) {
+        const config = getConfig();
+        const fileUrl = `https://api.telegram.org/file/bot${config.BOT_TOKEN}/${file.file_path}`;
+        const resp = await fetch(fileUrl);
+        if (resp.ok) {
+          return Buffer.from(await resp.arrayBuffer());
+        }
+      }
+    }
+  } catch (dlErr: unknown) {
+    logger.warn({ err: dlErr, fileId }, 'Could not download file for verification');
+  }
+  return undefined;
+}
+
+async function sendVerificationSuccessReply(
+  ctx: Context,
+  orderId: string,
+  fallbackOrder: Order,
+  result: VerificationResult
+): Promise<void> {
+  const verifiedOrder = getOrderById(orderId) || fallbackOrder;
+  const verifiedAmount = result.bankPayload?.amountEtb || verifiedOrder.amount_etb;
+  const railName = (result.bank || verifiedOrder.payment_rail || 'Bank').toUpperCase();
+  const refCode = result.transactionReference || 'n/a';
+
+  if (verifiedOrder.fulfillment_payload) {
+    const rawTemplate = getSetting(
+      'gemini_instructions',
+      '1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.'
+    );
+    const deliveryText =
+      `🎉 <b>Payment Verified! (Order #${verifiedOrder.id})</b>\n\n` +
+      `• <b>Verified:</b> ${formatPriceETB(verifiedAmount)} via <b>${railName}</b>\n` +
+      `• <b>Reference:</b> <code>${escapeHtml(refCode)}</code>\n\n` +
+      `🔑 <b>Activation Link:</b>\n<code>${verifiedOrder.fulfillment_payload}</code>\n\n` +
+      `<b>Instructions:</b>\n${rawTemplate}\n\n` +
+      `<i>Thank you for choosing Bighabesha Shop! 🇪🇹</i>`;
+
+    await ctx.reply(deliveryText, { parse_mode: 'HTML' });
+  } else {
+    const prodName = getProductById(verifiedOrder.product_id)?.name || verifiedOrder.product_id;
+    const buyerMsg =
+      `🎉 <b>Payment Verified! (Order #${verifiedOrder.id})</b>\n\n` +
+      `• <b>Verified:</b> ${formatPriceETB(verifiedAmount)} via <b>${railName}</b>\n` +
+      `• <b>Reference:</b> <code>${escapeHtml(refCode)}</code>\n\n` +
+      `Your <b>${escapeHtml(prodName)}</b> order has been queued for immediate delivery to <b>@${escapeHtml(verifiedOrder.target_username || verifiedOrder.username || 'your account')}</b>.\n` +
+      `You will receive a notification as soon as it is completed! ⚡`;
+
+    await ctx.reply(buyerMsg, { parse_mode: 'HTML' });
+  }
+}
+
+async function sendVerificationFallbackReply(
+  ctx: Context,
+  orderId: string,
+  receiptRefOrFileId: string,
+  note?: string
+): Promise<void> {
+  const updatedOrder = submitReceipt(orderId, receiptRefOrFileId, note);
+  await ctx.reply(
+    `✅ <b>Receipt Received! (Order #${updatedOrder.id})</b>\n\n` +
+      `Thank you! Our administrators have been notified and will verify your transfer shortly.\n` +
+      `You will receive a message with your subscription / coins as soon as it is approved.`,
+    { parse_mode: 'HTML' }
+  );
+  await notifyAdminsNewReceipt(ctx, updatedOrder);
+}
+
 
 export async function handleAdminInput(
   ctx: Context,
@@ -164,6 +247,42 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
     }
     return true;
   }
+
+  // Direct reference or SMS text for user_receipt_upload
+  if (session.type === 'user_receipt_upload') {
+    const { orderId } = session.data as { orderId: string };
+    const targetOrder = getOrderById(orderId);
+    if (!targetOrder || targetOrder.user_id !== userId) {
+      clearPendingAction(userId);
+      await ctx.reply('Order not found.');
+      return true;
+    }
+    clearPendingAction(userId);
+
+    try {
+      const orchestrator = await getOrchestrator();
+      const result = await orchestrator.processSubmission({
+        orderId,
+        userId,
+        source: 'sms_forward',
+        directReference: text,
+        note: text,
+      });
+
+      if (result.success) {
+        await sendVerificationSuccessReply(ctx, orderId, targetOrder, result);
+        return true;
+      }
+
+      await sendVerificationFallbackReply(ctx, orderId, `text:${Date.now()}`, text);
+      return true;
+    } catch (err: unknown) {
+      logger.error({ err, orderId }, 'Failed to process submitted reference text');
+      await sendVerificationFallbackReply(ctx, orderId, `text:${Date.now()}`, text);
+      return true;
+    }
+  }
+
 
   // Gift recipient @username entry (Premium checkout)
   if (session.type === 'user_gift_username') {
@@ -417,8 +536,6 @@ export async function handlePhotoInput(ctx: Context): Promise<boolean> {
 
   if (session.type === 'user_receipt_upload') {
     const { orderId } = session.data as { orderId: string };
-    // Ownership re-check: the session may reference an order that is not the
-    // user's own (e.g. crafted callback). Never accept foreign receipts.
     const targetOrder = getOrderById(orderId);
     if (!targetOrder || targetOrder.user_id !== userId) {
       clearPendingAction(userId);
@@ -426,25 +543,42 @@ export async function handlePhotoInput(ctx: Context): Promise<boolean> {
       return true;
     }
     clearPendingAction(userId);
+
     try {
-      const updatedOrder = submitReceipt(orderId, largestPhoto.file_id, caption);
+      const fileBuffer = await downloadTelegramFileBuffer(ctx, largestPhoto.file_id);
+      if (!fileBuffer) {
+        await sendVerificationFallbackReply(ctx, orderId, largestPhoto.file_id, caption);
+        return true;
+      }
 
-      await ctx.reply(
-        `✅ <b>Receipt Received! (Order #${updatedOrder.id})</b>\n\n` +
-          `Thank you! Our administrators have been notified and will verify your transfer shortly.\n` +
-          `You will receive a message with your subscription / coins as soon as it is approved.`,
-        { parse_mode: 'HTML' }
-      );
+      const orchestrator = await getOrchestrator();
+      const result = await orchestrator.processSubmission({
+        orderId,
+        userId,
+        source: 'telegram_photo',
+        fileBuffer,
+        mimeType: 'image/jpeg',
+        note: caption,
+      });
 
-      // Notify admins
-      await notifyAdminsNewReceipt(ctx, updatedOrder);
+      if (result.success) {
+        await sendVerificationSuccessReply(ctx, orderId, targetOrder, result);
+        return true;
+      }
+
+      await sendVerificationFallbackReply(ctx, orderId, largestPhoto.file_id, caption);
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error({ err, orderId }, 'Failed to process submitted receipt');
-      await ctx.reply(`❌ Could not submit receipt: ${escapeHtml(err.message)}`, { parse_mode: 'HTML' });
+      try {
+        await sendVerificationFallbackReply(ctx, orderId, largestPhoto.file_id, caption);
+      } catch {
+        await ctx.reply(`❌ Could not submit receipt: ${escapeHtml(err instanceof Error ? err.message : String(err))}`, { parse_mode: 'HTML' });
+      }
       return true;
     }
   }
+
 
   return false;
 }
@@ -462,7 +596,6 @@ export async function handleDocumentInput(ctx: Context): Promise<boolean> {
   // Process user bank receipt document uploads
   if (session.type === 'user_receipt_upload') {
     const { orderId } = session.data as { orderId: string };
-    // Ownership re-check: never accept receipts for foreign orders.
     const targetOrder = getOrderById(orderId);
     if (!targetOrder || targetOrder.user_id !== userId) {
       clearPendingAction(userId);
@@ -470,26 +603,47 @@ export async function handleDocumentInput(ctx: Context): Promise<boolean> {
       return true;
     }
     clearPendingAction(userId);
-    try {
-      const caption = ctx.message?.caption;
-      const updatedOrder = submitReceipt(orderId, doc.file_id, caption);
 
-      await ctx.reply(
-        `✅ <b>Receipt Received! (Order #${updatedOrder.id})</b>\n\n` +
-          `Thank you! Our administrators have been notified and will verify your transfer shortly.\n` +
-          `You will receive a message with your subscription / coins as soon as it is approved.`,
-        { parse_mode: 'HTML' }
-      );
+    const caption = ctx.message?.caption;
 
-      // Notify admins
-      await notifyAdminsNewReceipt(ctx, updatedOrder);
+    if (doc.file_size && doc.file_size > MAX_RECEIPT_BUFFER_SIZE_BYTES) {
+      await ctx.reply(`❌ File too large (${(doc.file_size / 1024 / 1024).toFixed(1)} MB). Maximum allowed is 10 MB.`);
       return true;
-    } catch (err: any) {
+    }
+
+    try {
+      const fileBuffer = await downloadTelegramFileBuffer(ctx, doc.file_id);
+      if (!fileBuffer) {
+        await sendVerificationFallbackReply(ctx, orderId, doc.file_id, caption);
+        return true;
+      }
+
+      const mimeType = (doc.mime_type as ReceiptMimeType) || (doc.file_name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/png');
+      const orchestrator = await getOrchestrator();
+
+      const result = await orchestrator.processSubmission({
+        orderId,
+        userId,
+        source: 'telegram_document',
+        fileBuffer,
+        mimeType,
+        note: caption,
+      });
+
+      if (result.success) {
+        await sendVerificationSuccessReply(ctx, orderId, targetOrder, result);
+        return true;
+      }
+
+      await sendVerificationFallbackReply(ctx, orderId, doc.file_id, caption);
+      return true;
+    } catch (err: unknown) {
       logger.error({ err, orderId }, 'Failed to process submitted document receipt');
-      await ctx.reply(`❌ Could not submit receipt: ${escapeHtml(err.message)}`, { parse_mode: 'HTML' });
+      await sendVerificationFallbackReply(ctx, orderId, doc.file_id, caption);
       return true;
     }
   }
+
 
   if (!isAdmin(userId)) return false;
 

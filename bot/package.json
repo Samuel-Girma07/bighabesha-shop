@@ -13,7 +13,9 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1125.0",
     "@resvg/resvg-js": "^2.6.2",
+    "@zxing/library": "^0.23.0",
     "better-sqlite3": "^11.8.1",
+    "cheerio": "^1.2.0",
     "cors": "^2.8.6",
     "dotenv": "^16.4.7",
     "exceljs": "^4.4.0",
@@ -21,9 +23,12 @@
     "express-rate-limit": "^8.6.2",
     "grammy": "^1.35.0",
     "helmet": "^8.3.0",
+    "https-proxy-agent": "^9.1.0",
+    "pdf-parse": "^2.4.5",
     "pdfkit": "^0.19.1",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
+    "sharp": "^0.35.4",
     "zod": "^3.24.2"
   },
   "devDependencies": {
@@ -31,6 +36,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^22.13.4",
+    "@types/pdf-parse": "^1.1.5",
     "@types/pdfkit": "^0.17.6",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",

@@ -277,6 +277,7 @@ export async function handleManualRail(ctx: Context, rail: 'telebirr' | 'cbe' | 
       `• <b>የሂሳብ / ስልክ ቁጥር፦</b> <code>${escapeHtml(accountNum)}</code> <i>(ለመቅዳት ይጫኑ)</i>\n` +
       `• <b>የሂሳብ ስም፦</b> <b>${escapeHtml(accountName)}</b>\n` +
       `• <b>የትራንስፈር ማስታወሻ (Reason)፦</b> <code>${order.id}</code>\n\n` +
+      `<blockquote>⚡ <b>ፈጣን አውቶሜትድ ማረጋገጫ፦</b>\nየከፈሉበትን ደረሰኝ (QR ኮድ ያለበትን ስክሪንሾት ወይም PDF) በመላክ በሰከንዶች ውስጥ ያረጋግጡ እና ትዕዛዝዎን ወዲያውኑ ይቀበሉ!</blockquote>\n\n` +
       `<blockquote>📸 የከፈሉበትን ደረሰኝ ስክሪንሾት በማንሳት ከታች <b>[የክፍያ ደረሰኝ ላክ]</b> የሚለውን ይጫኑ።</blockquote>`
     : `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
       `🏦 <b>Payment via ${escapeHtml(railTitle)}</b>\n\n` +
@@ -285,6 +286,7 @@ export async function handleManualRail(ctx: Context, rail: 'telebirr' | 'cbe' | 
       `• <b>Account / Phone:</b> <code>${escapeHtml(accountNum)}</code> <i>(Tap to copy)</i>\n` +
       `• <b>Account Name:</b> <b>${escapeHtml(accountName)}</b>\n` +
       `• <b>Payment Reference:</b> <code>${order.id}</code>\n\n` +
+      `<blockquote>⚡ <b>Instant Verification:</b>\nUpload your receipt screenshot (with QR code) or PDF for instant automated verification and delivery!</blockquote>\n\n` +
       `<blockquote>📸 Take a screenshot of your transfer confirmation, then tap <b>[Upload Transfer Receipt]</b> below.</blockquote>`;
 
   const keyboard = new InlineKeyboard()
@@ -318,12 +320,12 @@ export async function promptReceiptUpload(ctx: Context, orderId: string): Promis
   const text = isAmharic
     ? `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
       `📤 <b>የክፍያ ደረሰኝ መላኪያ — ትዕዛዝ <code>${order.id}</code></b>\n\n` +
-      `እባክዎ የተላለፈበትን ማረጋገጫ ፎቶ / ስክሪንሾት / ዶክመንት በዚህ ቻት ውስጥ ይላኩ።\n\n` +
-      `<i>አውቶሜትድ ሲስተማችን እና አድሚኖች ክፍያውን አረጋግጠው ትዕዛዝዎን በፍጥነት ይልካሉ።</i>`
+      `እባክዎ የተላለፈበትን ማረጋገጫ ፎቶ / ስክሪንሾት / ዶክመንት (QR ኮድ ያለበትን) ወይም የትራንዛክሽን ቁጥሩን በዚህ ቻት ውስጥ ይላኩ።\n\n` +
+      `⚡ <i>አውቶሜትድ ሲስተማችን የደረሰኙን QR ኮድ አንብቦ በሰከንዶች ውስጥ አረጋግጦ ወዲያውኑ ያስረክባል።</i>`
     : `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
       `📤 <b>Upload Transfer Slip — Order <code>${order.id}</code></b>\n\n` +
-      `Please send a photo / screenshot / document of your transaction confirmation in this chat.\n\n` +
-      `<i>Our automated system and admins will verify your transfer and release your order promptly.</i>`;
+      `Please send a photo / screenshot / document of your transaction confirmation (with QR code) or transaction code in this chat.\n\n` +
+      `⚡ <i>Our automated verification engine will scan the QR code and fulfill your order instantly.</i>`;
 
   const keyboard = new InlineKeyboard().text(isAmharic ? '« ተመለስ' : '« Cancel', `pay_manual_${order.payment_rail}_${order.id}`);
 

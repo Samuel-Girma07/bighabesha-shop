@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   adminLoginApi,
   adminVerify2FAApi,
@@ -24,6 +24,14 @@ import {
   fetchReceiptImageUrl,
   receiptIsInline,
   onSessionExpired,
+  reverifyOrderReceiptApi,
+  getVerificationDiagnosticToast,
+  AdminOverviewData,
+  AdminOverviewPoint,
+  AdminStockSummary,
+  AdminStockItem,
+  AdminUser,
+  AdminPayout,
 } from './adminApi.ts';
 import {
   LayoutDashboardIcon,
@@ -57,7 +65,14 @@ import {
   TelegramBrandIcon,
   StarsBrandIcon,
 } from '../components/Icons.tsx';
-import { ResellerBadge } from './Orders.tsx';
+import {
+  ResellerBadge,
+  AutoVerifiedBadge,
+  VerificationDiagnosticBadge,
+  ReverifyActionBtn,
+  AdminOrder,
+} from './Orders.tsx';
+import { AuditEvidenceModal } from './AuditEvidenceModal.tsx';
 import './admin.css';
 
 // ── Additional Clean Inline Vector Icons ─────────────────────────────
@@ -181,7 +196,7 @@ const Sparkline: React.FC<{ data: number[]; color?: string; width?: number; heig
   );
 };
 
-function formatProductName(productId: string, variantId?: string | null): { name: string; variant?: string; icon: React.ReactNode } {
+function formatProductName(productId?: string | null, variantId?: string | null): { name: string; variant?: string; icon: React.ReactNode } {
   if (productId === 'telegram_premium') {
     let varLabel = 'Subscription';
     if (variantId === 'tg_prem_3m') varLabel = '3 Months Plan';
@@ -198,9 +213,10 @@ function formatProductName(productId: string, variantId?: string | null): { name
     let varLabel = 'Stars Package';
     if (variantId?.startsWith('tg_stars_')) {
       const num = parseInt(variantId.replace('tg_stars_', ''), 10);
-      varLabel = !isNaN(num) ? `${num.toLocaleString()} Stars` : variantId;
+      if (!isNaN(num)) varLabel = `${num.toLocaleString()} Stars`;
+      else varLabel = variantId.replace('tg_stars_', '').replace(/_/g, ' ') + ' Stars';
     } else if (variantId) {
-      varLabel = variantId;
+      varLabel = variantId.replace(/_/g, ' ');
     }
     return {
       name: 'Telegram Stars',
@@ -216,7 +232,7 @@ function formatProductName(productId: string, variantId?: string | null): { name
     };
   }
   return {
-    name: productId.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+    name: (productId || 'Product').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
     variant: variantId ? variantId.replace(/_/g, ' ') : undefined,
     icon: <ShoppingBagIcon size={16} />,
   };
@@ -253,7 +269,8 @@ function formatOrderStatus(status: string): { label: string; className: string }
   }
 }
 
-function formatDateTime(dateStr: string): { date: string; time: string } {
+function formatDateTime(dateStr?: string | null): { date: string; time: string } {
+  if (!dateStr) return { date: '—', time: '' };
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return { date: '—', time: '' };
   const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -322,7 +339,7 @@ export const AdminDashboard: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(false);
 
   // Data States
-  const [overview, setOverview] = useState<any>(null);
+  const [overview, setOverview] = useState<AdminOverviewData | null>(null);
   const [timeRange, setTimeRange] = useState<string>('6M');
   const [hoveredColumnIdx, setHoveredColumnIdx] = useState<number | null>(null);
 
@@ -336,17 +353,17 @@ export const AdminDashboard: React.FC = () => {
   const [orderFilter, setOrderFilter] = useState<string>('all');
   const [providerFilter, setProviderFilter] = useState<string>('all');
   const [orderSearch, setOrderSearch] = useState<string>('');
-  const [orders, setOrders] = useState<any[]>([]);
+  const [orders, setOrders] = useState<AdminOrder[]>([]);
 
   // Stock, Users, Settings, Payouts, Broadcast States
-  const [stockData, setStockData] = useState<{ summary: any; items: any[] }>({ summary: {}, items: [] });
+  const [stockData, setStockData] = useState<{ summary: AdminStockSummary; items: AdminStockItem[] }>({ summary: {}, items: [] });
   const [bulkLinks, setBulkLinks] = useState('');
   const [stockSearch, setStockSearch] = useState('');
-  const [revealedStockIds, setRevealedStockIds] = useState<Set<number>>(new Set());
-  const [users, setUsers] = useState<any[]>([]);
+  const [revealedStockIds, setRevealedStockIds] = useState<Set<string | number>>(new Set());
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [userSearch, setUserSearch] = useState('');
   const [settings, setSettings] = useState<Record<string, string>>({});
-  const [payoutRows, setPayoutRows] = useState<any[]>([]);
+  const [payoutRows, setPayoutRows] = useState<AdminPayout[]>([]);
 
   // Broadcast State
   const [broadcastTarget, setBroadcastTarget] = useState<'all' | 'active_buyers' | 'registered'>('all');
@@ -355,10 +372,16 @@ export const AdminDashboard: React.FC = () => {
   const [broadcasting, setBroadcasting] = useState(false);
 
   // Modals State
-  const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [fulfillProof, setFulfillProof] = useState('');
   const [modalType, setModalType] = useState<'receipt' | 'reject' | 'fulfill' | 'details' | null>(null);
+
+  // Bank Verification Audit State (ADR-002)
+  const [auditOrder, setAuditOrder] = useState<AdminOrder | null>(null);
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState<boolean>(false);
+  const [reverifyingOrderIds, setReverifyingOrderIds] = useState<Set<string>>(new Set());
+  const [showAdvancedVerification, setShowAdvancedVerification] = useState<boolean>(false);
 
   // In-flight guards
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -381,7 +404,10 @@ export const AdminDashboard: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (showChartMenu) setShowChartMenu(false);
-        else if (confirmModal) setConfirmModal(null);
+        else if (isAuditModalOpen) {
+          setIsAuditModalOpen(false);
+          setAuditOrder(null);
+        } else if (confirmModal) setConfirmModal(null);
         else if (showShortcutsModal) setShowShortcutsModal(false);
         else if (modalType) {
           setModalType(null);
@@ -395,7 +421,7 @@ export const AdminDashboard: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [confirmModal, showShortcutsModal, modalType, mobileMenuOpen, showChartMenu]);
+  }, [confirmModal, showShortcutsModal, modalType, mobileMenuOpen, showChartMenu, isAuditModalOpen]);
 
   // Session expiry listener
   useEffect(() => {
@@ -425,8 +451,9 @@ export const AdminDashboard: React.FC = () => {
       setSettings(stgs.settings);
       setPayoutRows(pyts.payouts || []);
       setLastSync(new Date());
-    } catch (err: any) {
-      if (err.message && !err.message.includes('expired')) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg && !errMsg.includes('expired')) {
         console.error('Admin data load error:', err);
       }
     } finally {
@@ -479,7 +506,7 @@ export const AdminDashboard: React.FC = () => {
     }
     setReceiptError(false);
     if (receiptIsInline(selectedOrder.receipt_file_id)) {
-      setReceiptUrl(selectedOrder.receipt_file_id);
+      setReceiptUrl(selectedOrder.receipt_file_id || '');
       setReceiptLoading(false);
       return;
     }
@@ -488,10 +515,11 @@ export const AdminDashboard: React.FC = () => {
     setReceiptLoading(true);
     fetchReceiptImageUrl(selectedOrder.id)
       .then((url) => { if (!cancelled) setReceiptUrl(url); })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
         if (!cancelled) {
           setReceiptError(true);
-          showToast(err.message || 'Could not load receipt image', 'error');
+          const msg = err instanceof Error ? err.message : 'Could not load receipt image';
+          showToast(msg, 'error');
         }
       })
       .finally(() => { if (!cancelled) setReceiptLoading(false); });
@@ -547,9 +575,10 @@ export const AdminDashboard: React.FC = () => {
       setRequire2FA(true);
       setAdminId(res.adminId);
       showToast('2FA verification code dispatched to Telegram', 'info');
-    } catch (err: any) {
-      setAuthError(err.message || 'Login failed');
-      showToast(err.message || 'Login failed', 'error');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Login failed';
+      setAuthError(msg);
+      showToast(msg, 'error');
     } finally {
       setAuthLoading(false);
     }
@@ -567,9 +596,10 @@ export const AdminDashboard: React.FC = () => {
       setIsLoggedIn(true);
       setRequire2FA(false);
       showToast('Authenticated successfully as Executive Administrator', 'success');
-    } catch (err: any) {
-      setAuthError(err.message || '2FA verification failed');
-      showToast(err.message || '2FA verification failed', 'error');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '2FA verification failed';
+      setAuthError(msg);
+      showToast(msg, 'error');
     } finally {
       setAuthLoading(false);
     }
@@ -586,7 +616,11 @@ export const AdminDashboard: React.FC = () => {
 
   // Order Actions
   const handleApprove = (orderId: string) => {
-    const targetOrder = orders.find((o: any) => String(o.id) === String(orderId)) || selectedOrder;
+    if (!canSee('orders.decide')) {
+      showToast('Permission denied: requires orders.decide to approve orders.', 'error');
+      return;
+    }
+    const targetOrder = orders.find((o) => String(o.id) === String(orderId)) || selectedOrder;
     const priceStr = targetOrder ? `${targetOrder.amount_etb?.toLocaleString()} ETB` : 'Order Amount';
     const clientStr = targetOrder?.username ? `@${targetOrder.username}` : `User #${targetOrder?.user_id || 'Client'}`;
     const railStr = targetOrder?.payment_rail?.toUpperCase() || 'Bank Transfer';
@@ -609,8 +643,9 @@ export const AdminDashboard: React.FC = () => {
           showToast(`Order #${orderId} approved and credentials delivered!`, 'success');
           loadAllAdminData();
           if (modalType) setModalType(null);
-        } catch (err: any) {
-          showToast(err.message || 'Failed to approve order', 'error');
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Failed to approve order';
+          showToast(msg, 'error');
         } finally {
           setConfirmModal(null);
         }
@@ -620,6 +655,10 @@ export const AdminDashboard: React.FC = () => {
 
   const handleReject = async () => {
     if (modalBusy) return;
+    if (!canSee('orders.decide')) {
+      showToast('Permission denied: requires orders.decide to reject orders.', 'error');
+      return;
+    }
     if (!selectedOrder || !rejectReason.trim()) {
       showToast('Please enter a rejection reason for the buyer.', 'error');
       return;
@@ -631,8 +670,9 @@ export const AdminDashboard: React.FC = () => {
       setModalType(null);
       setRejectReason('');
       loadAllAdminData();
-    } catch (err: any) {
-      showToast(err.message || 'Failed to reject order', 'error');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to reject order';
+      showToast(msg, 'error');
     } finally {
       setModalBusy(false);
     }
@@ -647,8 +687,9 @@ export const AdminDashboard: React.FC = () => {
       setModalType(null);
       setFulfillProof('');
       loadAllAdminData();
-    } catch (err: any) {
-      showToast(err.message || 'Failed to fulfill order', 'error');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to fulfill order';
+      showToast(msg, 'error');
     } finally {
       setModalBusy(false);
     }
@@ -663,14 +704,15 @@ export const AdminDashboard: React.FC = () => {
       showToast(`Successfully added ${res.addedCount} activation links to vault`, 'success');
       setBulkLinks('');
       loadAllAdminData();
-    } catch (err: any) {
-      showToast(err.message || 'Failed to add stock', 'error');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to add stock';
+      showToast(msg, 'error');
     } finally {
       setStockBusy(false);
     }
   };
 
-  const handleDeleteStockItem = (id: string) => {
+  const handleDeleteStockItem = (id: string | number) => {
     setConfirmModal({
       title: 'Delete Digital Key',
       message: 'This will permanently remove the activation credential from the secure vault. This action cannot be reversed.',
@@ -686,8 +728,9 @@ export const AdminDashboard: React.FC = () => {
           await deleteStockItemApi(id);
           showToast('Stock item deleted from vault', 'info');
           loadAllAdminData();
-        } catch (err: any) {
-          showToast(err.message || 'Failed to delete stock item', 'error');
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Failed to delete stock item';
+          showToast(msg, 'error');
         } finally {
           setConfirmModal(null);
         }
@@ -698,15 +741,170 @@ export const AdminDashboard: React.FC = () => {
   // Settings Action
   const handleSaveSettings = async () => {
     if (settingsBusy) return;
+
+    // RBAC check
+    if (!canSee('settings.write')) {
+      showToast('Permission denied: requires settings.write.', 'error');
+      return;
+    }
+
+    // Client-side format validation guards
+    if (settings.cbe_account && settings.cbe_account.trim() !== '0000000000000' && !/^\d{13}$/.test(settings.cbe_account.trim())) {
+      showToast('CBE Account Number must be strictly 13 digits.', 'error');
+      return;
+    }
+    if (settings.telebirr_account && settings.telebirr_account.trim() !== '0000000000' && !/^(09|07|\+2519|\+2517|\d{10})\d*$/.test(settings.telebirr_account.trim())) {
+      showToast('Telebirr Merchant Phone must be a valid Ethiopian phone number (e.g. 09..., 07..., +251...).', 'error');
+      return;
+    }
+    if (settings.abyssinia_account && settings.abyssinia_account.trim() !== '0000000000000' && !/^\d{8,16}$/.test(settings.abyssinia_account.trim())) {
+      showToast('Bank of Abyssinia Account Number must be 8 to 16 digits.', 'error');
+      return;
+    }
+    if (settings.receipt_recency_before_mins) {
+      const num = Number(settings.receipt_recency_before_mins);
+      if (!Number.isInteger(num) || num < 5 || num > 1440) {
+        showToast('Recency Window Before Order must be between 5 and 1440 minutes.', 'error');
+        return;
+      }
+    }
+    if (settings.receipt_recency_after_mins) {
+      const num = Number(settings.receipt_recency_after_mins);
+      if (!Number.isInteger(num) || num < 5 || num > 1440) {
+        showToast('Recency Window After Order must be between 5 and 1440 minutes.', 'error');
+        return;
+      }
+    }
+    if (settings.receipt_circuit_breaker_threshold) {
+      const num = Number(settings.receipt_circuit_breaker_threshold);
+      if (!Number.isInteger(num) || num < 2 || num > 20) {
+        showToast('Circuit Breaker Threshold must be between 2 and 20.', 'error');
+        return;
+      }
+    }
+    if (settings.receipt_circuit_breaker_cooldown_sec) {
+      const num = Number(settings.receipt_circuit_breaker_cooldown_sec);
+      if (!Number.isInteger(num) || num < 10 || num > 600) {
+        showToast('Circuit Breaker Cooldown must be between 10 and 600 seconds.', 'error');
+        return;
+      }
+    }
+    if (settings.receipt_ethiopia_proxy_url && settings.receipt_ethiopia_proxy_url.trim()) {
+      if (!/^(https?|socks5):\/\/[^\s]+$/.test(settings.receipt_ethiopia_proxy_url.trim())) {
+        showToast('Proxy URL must be a valid HTTP, HTTPS, or SOCKS5 URL.', 'error');
+        return;
+      }
+    }
+
     setSettingsBusy(true);
     try {
       await updateAdminSettingsApi(settings);
       showToast('Store settings updated successfully', 'success');
       loadAllAdminData();
-    } catch (err: any) {
-      showToast(err.message || 'Failed to save settings', 'error');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to save settings';
+      showToast(msg, 'error');
     } finally {
       setSettingsBusy(false);
+    }
+  };
+
+  // Automated Bank Verification Engine Action (ADR-002)
+  const handleReverifyOrder = async (orderId: string) => {
+    if (reverifyingOrderIds.has(orderId)) return;
+    if (!canSee('orders.decide')) {
+      showToast('Permission denied: requires orders.decide to trigger re-verification.', 'error');
+      return;
+    }
+
+    setReverifyingOrderIds((prev) => new Set(prev).add(orderId));
+
+    try {
+      const res = await reverifyOrderReceiptApi(orderId);
+      const bankLabel = res.bank ? res.bank.toUpperCase() : 'Bank';
+      const refText = res.transactionReference || res.reference ? ` (Ref: ${res.transactionReference || res.reference})` : '';
+      showToast(`Order #${orderId} verified successfully with ${bankLabel}!${refText}`, 'success');
+
+      // Optimistically update order state
+      setOrders((prev) =>
+        prev.map((ord) => {
+          if (ord.id !== orderId) return ord;
+          const updatedEvidence = {
+            id: ord.evidence?.id || Date.now(),
+            bank: res.bank || ord.evidence?.bank || ord.payment_rail,
+            reference: res.transactionReference || res.reference || ord.evidence?.reference || null,
+            normalized_reference: res.transactionReference || res.reference || ord.evidence?.normalized_reference || null,
+            status: res.status || 'auto_verified',
+            error_code: null,
+            verified_amount_etb: res.verifiedAmountEtb ?? ord.amount_etb,
+            security_gate_passed: true,
+            created_at: new Date().toISOString(),
+          };
+          return {
+            ...ord,
+            status: ord.status === 'pending_approval' ? 'fulfilled' : ord.status,
+            evidence: updatedEvidence,
+          };
+        })
+      );
+
+      // If open in audit modal, update auditOrder state as well
+      if (auditOrder && auditOrder.id === orderId) {
+        setAuditOrder((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: prev.status === 'pending_approval' ? 'fulfilled' : prev.status,
+                evidence: {
+                  id: prev.evidence?.id || Date.now(),
+                  bank: res.bank || prev.evidence?.bank || prev.payment_rail,
+                  reference: res.transactionReference || res.reference || prev.evidence?.reference || null,
+                  normalized_reference: res.transactionReference || res.reference || prev.evidence?.normalized_reference || null,
+                  status: res.status || 'auto_verified',
+                  error_code: null,
+                  verified_amount_etb: res.verifiedAmountEtb ?? prev.amount_etb,
+                  security_gate_passed: true,
+                  created_at: new Date().toISOString(),
+                },
+              }
+            : null
+        );
+      }
+
+      loadAllAdminData();
+    } catch (err: unknown) {
+      const e = err as Error & { code?: string; problemDetails?: { code?: string } };
+      const errorCode = e.code || e.problemDetails?.code;
+      const diag = getVerificationDiagnosticToast(errorCode, undefined);
+      showToast(e.message || `${diag.title}: ${diag.message}`, 'error');
+
+      if (errorCode) {
+        setOrders((prev) =>
+          prev.map((ord) => {
+            if (ord.id !== orderId) return ord;
+            return {
+              ...ord,
+              evidence: {
+                id: ord.evidence?.id || Date.now(),
+                bank: ord.evidence?.bank || ord.payment_rail,
+                reference: ord.evidence?.reference || null,
+                normalized_reference: ord.evidence?.normalized_reference || null,
+                status: 'pending_manual_review',
+                error_code: errorCode,
+                verified_amount_etb: ord.evidence?.verified_amount_etb || null,
+                security_gate_passed: false,
+                created_at: ord.evidence?.created_at || new Date().toISOString(),
+              },
+            };
+          })
+        );
+      }
+    } finally {
+      setReverifyingOrderIds((prev) => {
+        const next = new Set(prev);
+        next.delete(orderId);
+        return next;
+      });
     }
   };
 
@@ -735,8 +933,9 @@ export const AdminDashboard: React.FC = () => {
           showToast('Broadcast dispatched to Telegram queue successfully', 'success');
           setBroadcastMessage('');
           setBroadcastPhotoId('');
-        } catch (err: any) {
-          showToast(err.message || 'Broadcast failed', 'error');
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Broadcast failed';
+          showToast(msg, 'error');
         } finally {
           setBroadcasting(false);
           setConfirmModal(null);
@@ -746,10 +945,10 @@ export const AdminDashboard: React.FC = () => {
   };
 
   // Payout Decision
-  const openPayoutConfirm = (p: any, decision: 'paid' | 'rejected') => {
+  const openPayoutConfirm = (p: AdminPayout, decision: 'paid' | 'rejected') => {
     const amountStr = `${p.amount_etb?.toLocaleString?.() ?? p.amount_etb} ETB`;
     const userStr = p.username ? `@${p.username}` : `User #${p.user_id}`;
-    const accountStr = p.account_details || p.destination || 'Bank Account';
+    const accountStr = p.account_details || (p as { destination?: string }).destination || 'Bank Account';
 
     setConfirmModal({
       title: decision === 'paid' ? 'Confirm Payout Settlement' : 'Decline Payout Request',
@@ -769,8 +968,9 @@ export const AdminDashboard: React.FC = () => {
           await decidePayoutApi(p.id, decision);
           showToast(`Payout #${p.id} marked as ${decision}`, 'success');
           loadAllAdminData();
-        } catch (err: any) {
-          showToast(err.message || 'Failed to update payout', 'error');
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Failed to update payout';
+          showToast(msg, 'error');
         } finally {
           setConfirmModal(null);
         }
@@ -877,19 +1077,36 @@ export const AdminDashboard: React.FC = () => {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 2. Data Preparation for Equalizer Matrix & Bento
+  // 2. Data Preparation for Equalizer Matrix & Bento (Memoized)
   // ─────────────────────────────────────────────────────────────
-  const pendingApprovalOrders = orders.filter((o) => o.status === 'pending_approval');
-  const deliveredOrdersCount = orders.filter((o) => o.status === 'fulfilled' || o.status === 'delivered').length;
-  const awaitingPaymentOrdersCount = orders.filter((o) => o.status === 'awaiting_payment').length;
-  const totalRevenueETB = overview?.totalRevenue ?? orders.reduce((acc, o) => acc + (o.status === 'fulfilled' || o.status === 'delivered' ? o.amount_etb : 0), 0);
+  const pendingApprovalOrders = useMemo(
+    () => orders.filter((o) => o.status === 'pending_approval'),
+    [orders]
+  );
+  const deliveredOrdersCount = useMemo(
+    () => orders.filter((o) => o.status === 'fulfilled' || o.status === 'delivered').length,
+    [orders]
+  );
+  const awaitingPaymentOrdersCount = useMemo(
+    () => orders.filter((o) => o.status === 'awaiting_payment').length,
+    [orders]
+  );
+  const totalRevenueETB = useMemo(
+    () =>
+      overview?.totalRevenue ??
+      orders.reduce(
+        (acc, o) => acc + (o.status === 'fulfilled' || o.status === 'delivered' ? o.amount_etb : 0),
+        0
+      ),
+    [overview?.totalRevenue, orders]
+  );
 
-  // Equalizer Histogram Data Construction
-  const getRealChartPoints = () => {
+  // Equalizer Histogram Data Construction (Memoized)
+  const monthlyData = useMemo<AdminOverviewPoint[]>(() => {
     if (overview?.chartPoints && overview.chartPoints.length > 0) {
       return overview.chartPoints;
     }
-    const points: { label: string; revenue: number; orders: number }[] = [];
+    const points: AdminOverviewPoint[] = [];
     const now = new Date();
     const numBuckets = timeRange === '1Y' ? 12 : 7;
     for (let i = numBuckets - 1; i >= 0; i--) {
@@ -915,18 +1132,26 @@ export const AdminDashboard: React.FC = () => {
       }
     }
     return points;
-  };
+  }, [overview?.chartPoints, orders, timeRange]);
 
-  const monthlyData = getRealChartPoints();
-  const maxRev = Math.max(...monthlyData.map((d: any) => d.revenue || 0), 1000);
+  const maxRev = useMemo(
+    () => Math.max(...monthlyData.map((d) => d.revenue || 0), 1000),
+    [monthlyData]
+  );
   const TOTAL_BLOCKS_PER_COL = 10;
 
-  // Sparkline data feeds from real database metrics
-  const revenueSparklineData = monthlyData.map((d: any) => d.revenue || 0);
-  const ordersSparklineData = monthlyData.map((d: any) => d.orders || 0);
+  // Sparkline data feeds from real database metrics (Memoized)
+  const revenueSparklineData = useMemo(
+    () => monthlyData.map((d) => d.revenue || 0),
+    [monthlyData]
+  );
+  const ordersSparklineData = useMemo(
+    () => monthlyData.map((d) => d.orders || 0),
+    [monthlyData]
+  );
 
-  // Real user registrations grouped by time bucket
-  const getRealUsersSparkline = () => {
+  // Real user registrations grouped by time bucket (Memoized)
+  const activeBuyersSparklineData = useMemo<number[]>(() => {
     const points: number[] = [];
     const now = new Date();
     const numBuckets = timeRange === '1Y' ? 12 : 7;
@@ -935,26 +1160,28 @@ export const AdminDashboard: React.FC = () => {
       if (timeRange === '1Y') {
         d.setMonth(now.getMonth() - i);
         const monthPrefix = d.toISOString().slice(0, 7);
-        const count = users.filter((u: any) => u.created_at && u.created_at.startsWith(monthPrefix)).length;
+        const count = users.filter((u) => u.created_at && u.created_at.startsWith(monthPrefix)).length;
         points.push(count);
       } else {
         d.setDate(now.getDate() - i);
         const dayStr = d.toISOString().slice(0, 10);
-        const count = users.filter((u: any) => u.created_at && u.created_at.startsWith(dayStr)).length;
+        const count = users.filter((u) => u.created_at && u.created_at.startsWith(dayStr)).length;
         points.push(count);
       }
     }
     return points;
-  };
-  const activeBuyersSparklineData = getRealUsersSparkline();
+  }, [users, timeRange]);
 
   // Real stock inventory telemetry
   const availableStock = stockData.summary?.available ?? 0;
   const usedStock = stockData.summary?.used ?? 0;
-  const vaultSparklineData = [usedStock, availableStock];
+  const vaultSparklineData = useMemo(
+    () => [usedStock, availableStock],
+    [usedStock, availableStock]
+  );
 
   // Dynamic period-over-period growth computation
-  const computeGrowth = (data: number[]): { pct: string; direction: 'positive' | 'negative' | 'neutral'; label: string } => {
+  const computeGrowth = useCallback((data: number[]): { pct: string; direction: 'positive' | 'negative' | 'neutral'; label: string } => {
     if (data.length < 2) return { pct: '0.0', direction: 'neutral', label: 'No prior data' };
     const current = data[data.length - 1] || 0;
     const previous = data[data.length - 2] || 0;
@@ -968,59 +1195,73 @@ export const AdminDashboard: React.FC = () => {
       direction: change > 0 ? 'positive' : change < 0 ? 'negative' : 'neutral',
       label: 'vs previous period',
     };
-  };
-  const revenueGrowth = computeGrowth(revenueSparklineData);
-  const ordersGrowth = computeGrowth(ordersSparklineData);
-  const customersGrowth = computeGrowth(activeBuyersSparklineData);
+  }, []);
 
-  // Product share distribution
-  const geminiOrders = orders.filter((o) => o.product_id?.startsWith('gemini'));
-  const premOrders = orders.filter((o) => o.product_id?.startsWith('telegram_prem'));
-  const starsOrders = orders.filter((o) => o.product_id?.startsWith('telegram_stars'));
-  const totalCatOrders = orders.length || 1;
-  const geminiPct = Math.round((geminiOrders.length / totalCatOrders) * 100);
-  const premPct = Math.round((premOrders.length / totalCatOrders) * 100);
-  const starsPct = Math.min(100, Math.round((starsOrders.length / totalCatOrders) * 100));
+  const revenueGrowth = useMemo(() => computeGrowth(revenueSparklineData), [computeGrowth, revenueSparklineData]);
+  const ordersGrowth = useMemo(() => computeGrowth(ordersSparklineData), [computeGrowth, ordersSparklineData]);
+  const customersGrowth = useMemo(() => computeGrowth(activeBuyersSparklineData), [computeGrowth, activeBuyersSparklineData]);
 
-  // Payment rails distribution
-  const railsDistribution = [
-    { id: 'telebirr', name: 'Telebirr', color: '#0284C7', count: orders.filter((o) => o.payment_rail === 'telebirr').length },
-    { id: 'cbe', name: 'CBE Bank', color: '#A855F7', count: orders.filter((o) => o.payment_rail === 'cbe').length },
-    { id: 'abyssinia', name: 'Abyssinia', color: '#EA580C', count: orders.filter((o) => o.payment_rail === 'abyssinia').length },
-    { id: 'stars', name: 'Telegram Stars', color: '#EAB308', count: orders.filter((o) => o.payment_rail === 'stars').length },
-  ].map((r) => ({
-    ...r,
-    pct: Math.round((r.count / totalCatOrders) * 100),
-  }));
+  // Product share distribution (Memoized)
+  const { geminiPct, premPct, starsPct } = useMemo(() => {
+    const gemini = orders.filter((o) => o.product_id?.startsWith('gemini'));
+    const prem = orders.filter((o) => o.product_id?.startsWith('telegram_prem'));
+    const stars = orders.filter((o) => o.product_id?.startsWith('telegram_stars'));
+    const total = orders.length || 1;
+    return {
+      geminiPct: Math.round((gemini.length / total) * 100),
+      premPct: Math.round((prem.length / total) * 100),
+      starsPct: Math.min(100, Math.round((stars.length / total) * 100)),
+    };
+  }, [orders]);
 
-  // Filtering
-  const filteredOrders = orders.filter((o) => {
-    if (orderFilter !== 'all' && o.status !== orderFilter) return false;
-    if (categoryRail !== 'all' && (o.payment_rail || '').toLowerCase() !== categoryRail.toLowerCase()) return false;
-    if (providerFilter !== 'all' && (o.reseller_provider || '').toLowerCase() !== providerFilter.toLowerCase()) return false;
-    if (orderSearch) {
-      const q = orderSearch.toLowerCase();
-      const matchId = String(o.id).includes(q);
-      const matchUser = o.username?.toLowerCase().includes(q) || String(o.user_id).includes(q);
-      const matchProd = o.product_id?.toLowerCase().includes(q);
-      const matchProvider = o.reseller_provider?.toLowerCase().includes(q);
-      const matchTarget = o.target_username?.toLowerCase().includes(q);
-      if (!matchId && !matchUser && !matchProd && !matchProvider && !matchTarget) return false;
-    }
-    return true;
-  });
+  // Payment rails distribution (Memoized)
+  const railsDistribution = useMemo(() => {
+    const total = orders.length || 1;
+    return [
+      { id: 'telebirr', name: 'Telebirr', color: '#0284C7', count: orders.filter((o) => o.payment_rail === 'telebirr').length },
+      { id: 'cbe', name: 'CBE Bank', color: '#A855F7', count: orders.filter((o) => o.payment_rail === 'cbe').length },
+      { id: 'abyssinia', name: 'Abyssinia', color: '#EA580C', count: orders.filter((o) => o.payment_rail === 'abyssinia').length },
+      { id: 'stars', name: 'Telegram Stars', color: '#EAB308', count: orders.filter((o) => o.payment_rail === 'stars').length },
+    ].map((r) => ({
+      ...r,
+      pct: Math.round((r.count / total) * 100),
+    }));
+  }, [orders]);
 
-  const filteredUsers = users.filter((u) => {
-    if (!userSearch) return true;
-    const q = userSearch.toLowerCase();
-    return String(u.id).includes(q) || u.username?.toLowerCase().includes(q) || u.phone_number?.includes(q);
-  });
+  // Filtering (Memoized)
+  const filteredOrders = useMemo(() => {
+    return orders.filter((o) => {
+      if (orderFilter !== 'all' && o.status !== orderFilter) return false;
+      if (categoryRail !== 'all' && (o.payment_rail || '').toLowerCase() !== categoryRail.toLowerCase()) return false;
+      if (providerFilter !== 'all' && (o.reseller_provider || '').toLowerCase() !== providerFilter.toLowerCase()) return false;
+      if (orderSearch) {
+        const q = orderSearch.toLowerCase();
+        const matchId = String(o.id).includes(q);
+        const matchUser = o.username?.toLowerCase().includes(q) || String(o.user_id).includes(q);
+        const matchProd = o.product_id?.toLowerCase().includes(q);
+        const matchProvider = o.reseller_provider?.toLowerCase().includes(q);
+        const matchTarget = o.target_username?.toLowerCase().includes(q);
+        if (!matchId && !matchUser && !matchProd && !matchProvider && !matchTarget) return false;
+      }
+      return true;
+    });
+  }, [orders, orderFilter, categoryRail, providerFilter, orderSearch]);
 
-  const filteredStock = stockData.items.filter((item) => {
-    if (!stockSearch) return true;
-    const q = stockSearch.toLowerCase();
-    return String(item.id).includes(q) || item.payload?.toLowerCase().includes(q);
-  });
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      if (!userSearch) return true;
+      const q = userSearch.toLowerCase();
+      return String(u.id).includes(q) || u.username?.toLowerCase().includes(q) || u.phone_number?.includes(q);
+    });
+  }, [users, userSearch]);
+
+  const filteredStock = useMemo(() => {
+    return stockData.items.filter((item) => {
+      if (!stockSearch) return true;
+      const q = stockSearch.toLowerCase();
+      return String(item.id).includes(q) || item.payload?.toLowerCase().includes(q);
+    });
+  }, [stockData.items, stockSearch]);
 
   // Tab Title label helper
   const getTabTitle = () => {
@@ -1517,7 +1758,7 @@ export const AdminDashboard: React.FC = () => {
                       {customersGrowth.direction === 'neutral' && <MinusIcon size={11} />}
                       {customersGrowth.direction === 'negative' ? '−' : customersGrowth.direction === 'positive' ? '+' : ''}{customersGrowth.pct}%
                     </span>
-                    <span>{users.filter((u: any) => Boolean(u.username)).length === users.length ? '100%' : Math.round((users.filter((u: any) => Boolean(u.username)).length / Math.max(users.length, 1)) * 100) + '%'} verified Telegram</span>
+                    <span>{users.filter((u: AdminUser) => Boolean(u.username)).length === users.length ? '100%' : Math.round((users.filter((u: AdminUser) => Boolean(u.username)).length / Math.max(users.length, 1)) * 100) + '%'} verified Telegram</span>
                   </div>
                 </div>
 
@@ -1627,7 +1868,7 @@ export const AdminDashboard: React.FC = () => {
                   {/* Equalizer Canvas */}
                   <div className="matrix-chart-wrapper">
                     <div className="matrix-chart-canvas">
-                      {monthlyData.map((point: any, idx: number) => {
+                      {monthlyData.map((point: AdminOverviewPoint, idx: number) => {
                         const activeCount = Math.max(1, Math.round((point.revenue / maxRev) * TOTAL_BLOCKS_PER_COL));
                         const isHovered = hoveredColumnIdx === idx;
 
@@ -2024,16 +2265,41 @@ export const AdminDashboard: React.FC = () => {
                               </div>
                             </td>
                             <td>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                 <div className="table-price-cell">
                                   {ord.amount_etb?.toLocaleString()} <span className="currency">ETB</span>
                                 </div>
-                                <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                                   <span className={rail.className}>
                                     <span className="rail-dot" />
                                     {rail.label}
                                   </span>
                                 </div>
+                                {ord.evidence?.status === 'auto_verified' && (
+                                  <div style={{ marginTop: '2px' }}>
+                                    <AutoVerifiedBadge
+                                      bank={ord.evidence.bank}
+                                      reference={ord.evidence.normalized_reference || ord.evidence.reference}
+                                      onClick={() => {
+                                        setAuditOrder(ord);
+                                        setIsAuditModalOpen(true);
+                                      }}
+                                      onCopy={(ref) => showToast(`Reference ${ref} copied!`, 'info')}
+                                    />
+                                  </div>
+                                )}
+                                {ord.status === 'pending_approval' && ord.evidence?.error_code && (
+                                  <div style={{ marginTop: '2px' }}>
+                                    <VerificationDiagnosticBadge
+                                      errorCode={ord.evidence.error_code}
+                                      bank={ord.evidence?.bank}
+                                      onClick={() => {
+                                        setAuditOrder(ord);
+                                        setIsAuditModalOpen(true);
+                                      }}
+                                    />
+                                  </div>
+                                )}
                               </div>
                             </td>
                             <td className="table-actions-cell">
@@ -2045,15 +2311,23 @@ export const AdminDashboard: React.FC = () => {
                                 <div className="table-micro-actions">
                                   {ord.status === 'pending_approval' && (
                                     <>
-                                      <button
-                                        className="action-btn-pill-primary"
-                                        title="Approve transfer and deliver items"
-                                        aria-label="Approve transfer"
-                                        onClick={() => handleApprove(ord.id)}
-                                      >
-                                        <CheckCircleIcon size={12} />
-                                        <span>Approve</span>
-                                      </button>
+                                      <ReverifyActionBtn
+                                        orderId={ord.id}
+                                        isReverifying={reverifyingOrderIds.has(ord.id)}
+                                        disabled={!canSee('orders.decide') || reverifyingOrderIds.has(ord.id)}
+                                        onReverify={handleReverifyOrder}
+                                      />
+                                      {canSee('orders.decide') && (
+                                        <button
+                                          className="action-btn-pill-primary"
+                                          title="Approve transfer and deliver items"
+                                          aria-label="Approve transfer"
+                                          onClick={() => handleApprove(ord.id)}
+                                        >
+                                          <CheckCircleIcon size={12} />
+                                          <span>Approve</span>
+                                        </button>
+                                      )}
                                       <button
                                         className="action-btn-pill-secondary"
                                         title="Inspect payment transfer slip"
@@ -2067,16 +2341,30 @@ export const AdminDashboard: React.FC = () => {
                                         <span>Slip</span>
                                       </button>
                                       <button
-                                        className="action-btn-pill-danger"
-                                        title="Reject payment slip"
-                                        aria-label="Reject transfer"
+                                        className="action-btn-pill-secondary"
+                                        title="Inspect bank verification audit & 4-pillar security checks"
+                                        aria-label="Inspect verification evidence"
                                         onClick={() => {
-                                          setSelectedOrder(ord);
-                                          setModalType('reject');
+                                          setAuditOrder(ord);
+                                          setIsAuditModalOpen(true);
                                         }}
                                       >
-                                        ✕
+                                        <ShieldCheckIcon size={12} />
+                                        <span>Audit</span>
                                       </button>
+                                      {canSee('orders.decide') && (
+                                        <button
+                                          className="action-btn-pill-danger"
+                                          title="Reject payment slip"
+                                          aria-label="Reject transfer"
+                                          onClick={() => {
+                                            setSelectedOrder(ord);
+                                            setModalType('reject');
+                                          }}
+                                        >
+                                          ✕
+                                        </button>
+                                      )}
                                     </>
                                   )}
                                   {ord.status === 'pending_fulfillment' && (
@@ -2093,6 +2381,20 @@ export const AdminDashboard: React.FC = () => {
                                         <SendIcon size={12} />
                                         <span>Fulfill</span>
                                       </button>
+                                      {ord.evidence && (
+                                        <button
+                                          className="action-btn-pill-secondary"
+                                          title="Inspect bank verification audit & 4-pillar security checks"
+                                          aria-label="Inspect verification evidence"
+                                          onClick={() => {
+                                            setAuditOrder(ord);
+                                            setIsAuditModalOpen(true);
+                                          }}
+                                        >
+                                          <ShieldCheckIcon size={12} />
+                                          <span>Audit</span>
+                                        </button>
+                                      )}
                                       {ord.receipt_file_id && (
                                         <button
                                           className="action-btn-pill-secondary"
@@ -2111,6 +2413,20 @@ export const AdminDashboard: React.FC = () => {
                                   )}
                                   {ord.status !== 'pending_approval' && ord.status !== 'pending_fulfillment' && (
                                     <>
+                                      {ord.evidence && (
+                                        <button
+                                          className="action-btn-pill-secondary"
+                                          title="Inspect bank verification audit & 4-pillar security checks"
+                                          aria-label="Inspect verification evidence"
+                                          onClick={() => {
+                                            setAuditOrder(ord);
+                                            setIsAuditModalOpen(true);
+                                          }}
+                                        >
+                                          <ShieldCheckIcon size={12} />
+                                          <span>Audit</span>
+                                        </button>
+                                      )}
                                       <button
                                         className="action-btn-pill-secondary"
                                         title="View order specifications and fulfillment"
@@ -2286,7 +2602,7 @@ export const AdminDashboard: React.FC = () => {
                                   className="stock-action-pill copy"
                                   title="Copy key payload to clipboard"
                                   aria-label="Copy key"
-                                  onClick={() => copyTextToClipboard(item.payload, 'Stock Key')}
+                                  onClick={() => copyTextToClipboard(item.payload || '', 'Stock Key')}
                                 >
                                   <CopyIcon size={12} />
                                   <span>Copy</span>
@@ -2550,14 +2866,14 @@ export const AdminDashboard: React.FC = () => {
                   </label>
                   <div className="audience-cards-grid">
                     {[
-                      { id: 'all', title: 'All Subscribers', count: users.length, desc: 'Every registered bot user' },
-                      { id: 'active_buyers', title: 'Active Buyers', count: users.filter((u: any) => (u.total_orders || 0) > 0).length || Math.min(users.length, 4), desc: 'Users with completed orders' },
-                      { id: 'registered', title: 'Phone Verified', count: users.filter((u: any) => Boolean(u.phone_number)).length || Math.min(users.length, 5), desc: 'Verified phone numbers' },
+                      { id: 'all' as const, title: 'All Subscribers', count: users.length, desc: 'Every registered bot user' },
+                      { id: 'active_buyers' as const, title: 'Active Buyers', count: users.filter((u: AdminUser) => (u.total_orders || 0) > 0).length || Math.min(users.length, 4), desc: 'Users with completed orders' },
+                      { id: 'registered' as const, title: 'Phone Verified', count: users.filter((u: AdminUser) => Boolean(u.phone_number)).length || Math.min(users.length, 5), desc: 'Verified phone numbers' },
                     ].map((tg) => (
                       <div
                         key={tg.id}
                         className={`audience-card ${broadcastTarget === tg.id ? 'active' : ''}`}
-                        onClick={() => setBroadcastTarget(tg.id as any)}
+                        onClick={() => setBroadcastTarget(tg.id)}
                       >
                         <div className="audience-card-top">
                           <span className="audience-card-title">{tg.title}</span>
@@ -2711,13 +3027,15 @@ export const AdminDashboard: React.FC = () => {
                           📷 [Header Photo Attached: {broadcastPhotoId.substring(0, 16)}…]
                         </div>
                       )}
-                      <div
-                        dangerouslySetInnerHTML={{
-                          __html: broadcastMessage.trim()
-                            ? broadcastMessage.replace(/\n/g, '<br/>')
-                            : '<i>Type a broadcast message in the composer on the left to see live Telegram rendering…</i>',
-                        }}
-                      />
+                      <div className="telegram-message-content" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '13px' }}>
+                        {broadcastMessage.trim() ? (
+                          broadcastMessage
+                        ) : (
+                          <em style={{ opacity: 0.7 }}>
+                            Type a broadcast message in the composer on the left to see live Telegram rendering…
+                          </em>
+                        )}
+                      </div>
                       <div className="telegram-bubble-meta">
                         <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         <span>✓✓</span>
@@ -2746,55 +3064,461 @@ export const AdminDashboard: React.FC = () => {
              TAB 7: SETTINGS (Store Rates & Payment Rails)
              ───────────────────────────────────────────────────────────── */}
           {activeTab === 'settings' && (
-            <div style={{ maxWidth: '780px' }}>
-              <div className="bento-card" style={{ marginBottom: '20px' }}>
-                <h3 style={{ fontSize: '15.5px', fontWeight: 800, color: 'var(--admin-text-pure)', margin: '0 0 16px 0' }}>
-                  Official Merchant Bank Accounts
-                </h3>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '16px' }}>
+            <div style={{ maxWidth: '820px' }}>
+              {/* ⚡ Automated Bank Verification Engine Section */}
+              <div className="bento-card verification-engine-card" style={{ marginBottom: '22px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
                   <div>
-                    <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>CBE Account Number</label>
-                    <input
-                      type="text"
-                      value={settings.cbe_account || ''}
-                      onChange={(e) => setSettings({ ...settings, cbe_account: e.target.value })}
-                      style={{ width: '100%', background: 'var(--admin-input-bg)', border: '1px solid var(--admin-border)', borderRadius: 'var(--admin-radius-md)', padding: '10px 12px', color: 'var(--admin-text-pure)', fontSize: '13px', fontFamily: 'var(--font-admin-mono)', boxSizing: 'border-box' }}
-                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '18px' }}>⚡</span>
+                      <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--admin-text-pure)', margin: 0 }}>
+                        Automated Bank Verification Engine
+                      </h3>
+                    </div>
+                    <p style={{ fontSize: '12px', color: 'var(--admin-text-muted)', margin: '4px 0 0 0' }}>
+                      Native in-process verification pipeline for CBE, Telebirr &amp; Bank of Abyssinia (ADR-002)
+                    </p>
                   </div>
-                  <div>
-                    <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>CBE Account Holder Name</label>
-                    <input
-                      type="text"
-                      value={settings.cbe_name || ''}
-                      onChange={(e) => setSettings({ ...settings, cbe_name: e.target.value })}
-                      style={{ width: '100%', background: 'var(--admin-input-bg)', border: '1px solid var(--admin-border)', borderRadius: 'var(--admin-radius-md)', padding: '10px 12px', color: 'var(--admin-text-pure)', fontSize: '13px', boxSizing: 'border-box' }}
-                    />
+
+                  {/* Master Toggle with Live Visual Indicator */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span
+                      className={`engine-status-indicator ${
+                        settings.receipt_auto_verify_enabled === '1' || settings.receipt_auto_verify_enabled === 'true'
+                          ? 'active'
+                          : 'paused'
+                      }`}
+                    >
+                      {settings.receipt_auto_verify_enabled === '1' || settings.receipt_auto_verify_enabled === 'true' ? (
+                        <>
+                          <span className="engine-dot active" />
+                          <span>🟢 Active</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="engine-dot paused" />
+                          <span>⏸️ Paused</span>
+                        </>
+                      )}
+                    </span>
+
+                    <button
+                      type="button"
+                      className={`toggle-switch-btn ${
+                        settings.receipt_auto_verify_enabled === '1' || settings.receipt_auto_verify_enabled === 'true'
+                          ? 'on'
+                          : 'off'
+                      }`}
+                      disabled={!canSee('settings.write')}
+                      onClick={() => {
+                        const current =
+                          settings.receipt_auto_verify_enabled === '1' ||
+                          settings.receipt_auto_verify_enabled === 'true';
+                        setSettings({ ...settings, receipt_auto_verify_enabled: current ? '0' : '1' });
+                      }}
+                      title={canSee('settings.write') ? 'Toggle verification engine state' : 'Requires settings.write permission'}
+                      aria-label="Toggle auto verification engine"
+                    >
+                      <span className="toggle-switch-handle" />
+                    </button>
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '16px' }}>
-                  <div>
-                    <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>Telebirr Merchant Phone</label>
-                    <input
-                      type="text"
-                      value={settings.telebirr_account || ''}
-                      onChange={(e) => setSettings({ ...settings, telebirr_account: e.target.value })}
-                      style={{ width: '100%', background: 'var(--admin-input-bg)', border: '1px solid var(--admin-border)', borderRadius: 'var(--admin-radius-md)', padding: '10px 12px', color: 'var(--admin-text-pure)', fontSize: '13px', fontFamily: 'var(--font-admin-mono)', boxSizing: 'border-box' }}
-                    />
+                {/* Official Merchant Accounts Grid */}
+                <div style={{ borderTop: '1px solid var(--admin-border)', paddingTop: '16px', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--admin-text-pure)', margin: 0, letterSpacing: '0.2px' }}>
+                      Official Merchant Accounts (Receiver Whitelist)
+                    </h4>
+                    {!canSee('settings.write') && (
+                      <span style={{ fontSize: '10.5px', color: 'var(--admin-amber)', background: 'var(--admin-amber-dim)', padding: '2px 8px', borderRadius: '4px' }}>
+                        Read-Only (Requires settings.write)
+                      </span>
+                    )}
                   </div>
-                  <div>
-                    <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>Telebirr Merchant Name</label>
-                    <input
-                      type="text"
-                      value={settings.telebirr_name || ''}
-                      onChange={(e) => setSettings({ ...settings, telebirr_name: e.target.value })}
-                      style={{ width: '100%', background: 'var(--admin-input-bg)', border: '1px solid var(--admin-border)', borderRadius: 'var(--admin-radius-md)', padding: '10px 12px', color: 'var(--admin-text-pure)', fontSize: '13px', boxSizing: 'border-box' }}
-                    />
+
+                  {/* CBE Account & Name */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                        <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', fontWeight: 600 }}>CBE Account Number</label>
+                        {settings.cbe_account && settings.cbe_account.trim() !== '0000000000000' && !/^\d{13}$/.test(settings.cbe_account.trim()) && (
+                          <span className="validation-error-text">Must be 13 digits</span>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        value={settings.cbe_account || ''}
+                        onChange={(e) => setSettings({ ...settings, cbe_account: e.target.value })}
+                        disabled={!canSee('settings.write')}
+                        placeholder="e.g. 1000123456789"
+                        maxLength={13}
+                        style={{
+                          width: '100%',
+                          background: 'var(--admin-input-bg)',
+                          border: `1px solid ${
+                            settings.cbe_account && settings.cbe_account.trim() !== '0000000000000' && !/^\d{13}$/.test(settings.cbe_account.trim())
+                              ? 'var(--admin-ruby)'
+                              : 'var(--admin-border)'
+                          }`,
+                          borderRadius: 'var(--admin-radius-md)',
+                          padding: '10px 12px',
+                          color: 'var(--admin-text-pure)',
+                          fontSize: '13px',
+                          fontFamily: 'var(--font-admin-mono)',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '5px', fontWeight: 600 }}>
+                        CBE Account Holder Name
+                      </label>
+                      <input
+                        type="text"
+                        value={settings.cbe_name || ''}
+                        onChange={(e) => setSettings({ ...settings, cbe_name: e.target.value })}
+                        disabled={!canSee('settings.write')}
+                        placeholder="e.g. Bighabesha Shop"
+                        style={{
+                          width: '100%',
+                          background: 'var(--admin-input-bg)',
+                          border: '1px solid var(--admin-border)',
+                          borderRadius: 'var(--admin-radius-md)',
+                          padding: '10px 12px',
+                          color: 'var(--admin-text-pure)',
+                          fontSize: '13px',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
                   </div>
+
+                  {/* Telebirr Account & Name */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                        <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', fontWeight: 600 }}>Telebirr Merchant Phone</label>
+                        {settings.telebirr_account &&
+                          settings.telebirr_account.trim() !== '0000000000' &&
+                          !/^(09|07|\+2519|\+2517|\d{10})\d*$/.test(settings.telebirr_account.trim()) && (
+                            <span className="validation-error-text">09/07/+251 phone</span>
+                          )}
+                      </div>
+                      <input
+                        type="text"
+                        value={settings.telebirr_account || ''}
+                        onChange={(e) => setSettings({ ...settings, telebirr_account: e.target.value })}
+                        disabled={!canSee('settings.write')}
+                        placeholder="e.g. 0911234567 or +251911234567"
+                        style={{
+                          width: '100%',
+                          background: 'var(--admin-input-bg)',
+                          border: `1px solid ${
+                            settings.telebirr_account &&
+                            settings.telebirr_account.trim() !== '0000000000' &&
+                            !/^(09|07|\+2519|\+2517|\d{10})\d*$/.test(settings.telebirr_account.trim())
+                              ? 'var(--admin-ruby)'
+                              : 'var(--admin-border)'
+                          }`,
+                          borderRadius: 'var(--admin-radius-md)',
+                          padding: '10px 12px',
+                          color: 'var(--admin-text-pure)',
+                          fontSize: '13px',
+                          fontFamily: 'var(--font-admin-mono)',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '5px', fontWeight: 600 }}>
+                        Telebirr Merchant Name
+                      </label>
+                      <input
+                        type="text"
+                        value={settings.telebirr_name || ''}
+                        onChange={(e) => setSettings({ ...settings, telebirr_name: e.target.value })}
+                        disabled={!canSee('settings.write')}
+                        placeholder="e.g. Bighabesha Shop"
+                        style={{
+                          width: '100%',
+                          background: 'var(--admin-input-bg)',
+                          border: '1px solid var(--admin-border)',
+                          borderRadius: 'var(--admin-radius-md)',
+                          padding: '10px 12px',
+                          color: 'var(--admin-text-pure)',
+                          fontSize: '13px',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Bank of Abyssinia Account & Name */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                        <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', fontWeight: 600 }}>Bank of Abyssinia Account</label>
+                        {settings.abyssinia_account &&
+                          settings.abyssinia_account.trim() !== '0000000000000' &&
+                          !/^\d{8,16}$/.test(settings.abyssinia_account.trim()) && (
+                            <span className="validation-error-text">8-16 digits</span>
+                          )}
+                      </div>
+                      <input
+                        type="text"
+                        value={settings.abyssinia_account || ''}
+                        onChange={(e) => setSettings({ ...settings, abyssinia_account: e.target.value })}
+                        disabled={!canSee('settings.write')}
+                        placeholder="e.g. 12345678"
+                        maxLength={16}
+                        style={{
+                          width: '100%',
+                          background: 'var(--admin-input-bg)',
+                          border: `1px solid ${
+                            settings.abyssinia_account &&
+                            settings.abyssinia_account.trim() !== '0000000000000' &&
+                            !/^\d{8,16}$/.test(settings.abyssinia_account.trim())
+                              ? 'var(--admin-ruby)'
+                              : 'var(--admin-border)'
+                          }`,
+                          borderRadius: 'var(--admin-radius-md)',
+                          padding: '10px 12px',
+                          color: 'var(--admin-text-pure)',
+                          fontSize: '13px',
+                          fontFamily: 'var(--font-admin-mono)',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '5px', fontWeight: 600 }}>
+                        Bank of Abyssinia Holder Name
+                      </label>
+                      <input
+                        type="text"
+                        value={settings.abyssinia_name || ''}
+                        onChange={(e) => setSettings({ ...settings, abyssinia_name: e.target.value })}
+                        disabled={!canSee('settings.write')}
+                        placeholder="e.g. Bighabesha Shop"
+                        style={{
+                          width: '100%',
+                          background: 'var(--admin-input-bg)',
+                          border: '1px solid var(--admin-border)',
+                          borderRadius: 'var(--admin-radius-md)',
+                          padding: '10px 12px',
+                          color: 'var(--admin-text-pure)',
+                          fontSize: '13px',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Advanced Verification Parameters Accordion / Grid */}
+                <div style={{ borderTop: '1px solid var(--admin-border)', paddingTop: '14px' }}>
+                  <button
+                    type="button"
+                    className="advanced-accordion-toggle"
+                    onClick={() => setShowAdvancedVerification(!showAdvancedVerification)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--admin-accent)',
+                      fontSize: '12.5px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '4px 0',
+                    }}
+                  >
+                    <span>{showAdvancedVerification ? '▾' : '▸'} Advanced Verification Parameters &amp; Gateway Tuning</span>
+                  </button>
+
+                  {showAdvancedVerification && (
+                    <div className="advanced-accordion-content" style={{ marginTop: '14px' }}>
+                      {/* Recency Window Grid */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+                        <div>
+                          <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '5px', fontWeight: 600 }}>
+                            Recency Window Before Order (Mins)
+                          </label>
+                          <input
+                            type="number"
+                            min="5"
+                            max="1440"
+                            value={settings.receipt_recency_before_mins || '120'}
+                            onChange={(e) => setSettings({ ...settings, receipt_recency_before_mins: e.target.value })}
+                            disabled={!canSee('settings.write')}
+                            style={{
+                              width: '100%',
+                              background: 'var(--admin-input-bg)',
+                              border: '1px solid var(--admin-border)',
+                              borderRadius: 'var(--admin-radius-md)',
+                              padding: '10px 12px',
+                              color: 'var(--admin-text-pure)',
+                              fontSize: '13px',
+                              fontFamily: 'var(--font-admin-mono)',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <span style={{ fontSize: '10.5px', color: 'var(--admin-text-muted)', marginTop: '3px', display: 'block' }}>
+                            Allowable slip timestamp before order creation (5–1440m, default: 120m)
+                          </span>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '5px', fontWeight: 600 }}>
+                            Recency Window After Order (Mins)
+                          </label>
+                          <input
+                            type="number"
+                            min="5"
+                            max="1440"
+                            value={settings.receipt_recency_after_mins || '120'}
+                            onChange={(e) => setSettings({ ...settings, receipt_recency_after_mins: e.target.value })}
+                            disabled={!canSee('settings.write')}
+                            style={{
+                              width: '100%',
+                              background: 'var(--admin-input-bg)',
+                              border: '1px solid var(--admin-border)',
+                              borderRadius: 'var(--admin-radius-md)',
+                              padding: '10px 12px',
+                              color: 'var(--admin-text-pure)',
+                              fontSize: '13px',
+                              fontFamily: 'var(--font-admin-mono)',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <span style={{ fontSize: '10.5px', color: 'var(--admin-text-muted)', marginTop: '3px', display: 'block' }}>
+                            Allowable slip timestamp after order creation (5–1440m, default: 120m)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* CBE Port Selector & Circuit Breaker Threshold */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+                        <div>
+                          <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '5px', fontWeight: 600 }}>
+                            CBE Confirmation Gateway Port
+                          </label>
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                            <button
+                              type="button"
+                              className={`port-choice-pill ${(settings.receipt_cbe_port || '100') === '100' ? 'active' : ''}`}
+                              disabled={!canSee('settings.write')}
+                              onClick={() => setSettings({ ...settings, receipt_cbe_port: '100' })}
+                            >
+                              Port 100 (Direct Gateway)
+                            </button>
+                            <button
+                              type="button"
+                              className={`port-choice-pill ${settings.receipt_cbe_port === '443' ? 'active' : ''}`}
+                              disabled={!canSee('settings.write')}
+                              onClick={() => setSettings({ ...settings, receipt_cbe_port: '443' })}
+                            >
+                              Port 443 (HTTPS Fallback)
+                            </button>
+                          </div>
+                          <span style={{ fontSize: '10.5px', color: 'var(--admin-text-muted)', marginTop: '4px', display: 'block' }}>
+                            Port 100 provides direct bank ingress; Port 443 routes through reverse proxy.
+                          </span>
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '5px', fontWeight: 600 }}>
+                            Circuit Breaker: Error Threshold
+                          </label>
+                          <input
+                            type="number"
+                            min="2"
+                            max="20"
+                            value={settings.receipt_circuit_breaker_threshold || '5'}
+                            onChange={(e) => setSettings({ ...settings, receipt_circuit_breaker_threshold: e.target.value })}
+                            disabled={!canSee('settings.write')}
+                            style={{
+                              width: '100%',
+                              background: 'var(--admin-input-bg)',
+                              border: '1px solid var(--admin-border)',
+                              borderRadius: 'var(--admin-radius-md)',
+                              padding: '10px 12px',
+                              color: 'var(--admin-text-pure)',
+                              fontSize: '13px',
+                              fontFamily: 'var(--font-admin-mono)',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <span style={{ fontSize: '10.5px', color: 'var(--admin-text-muted)', marginTop: '3px', display: 'block' }}>
+                            Consecutive failures before open (2–20, default: 5)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Cooldown Duration & Proxy URL */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+                        <div>
+                          <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '5px', fontWeight: 600 }}>
+                            Circuit Breaker: Cooldown Duration (Sec)
+                          </label>
+                          <input
+                            type="number"
+                            min="10"
+                            max="600"
+                            value={settings.receipt_circuit_breaker_cooldown_sec || '60'}
+                            onChange={(e) => setSettings({ ...settings, receipt_circuit_breaker_cooldown_sec: e.target.value })}
+                            disabled={!canSee('settings.write')}
+                            style={{
+                              width: '100%',
+                              background: 'var(--admin-input-bg)',
+                              border: '1px solid var(--admin-border)',
+                              borderRadius: 'var(--admin-radius-md)',
+                              padding: '10px 12px',
+                              color: 'var(--admin-text-pure)',
+                              fontSize: '13px',
+                              fontFamily: 'var(--font-admin-mono)',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <span style={{ fontSize: '10.5px', color: 'var(--admin-text-muted)', marginTop: '3px', display: 'block' }}>
+                            Cooldown in open circuit state (10–600s, default: 60s)
+                          </span>
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '5px', fontWeight: 600 }}>
+                            Ethiopian Egress Proxy URL (Optional)
+                          </label>
+                          <input
+                            type="text"
+                            value={settings.receipt_ethiopia_proxy_url || ''}
+                            onChange={(e) => setSettings({ ...settings, receipt_ethiopia_proxy_url: e.target.value })}
+                            disabled={!canSee('settings.write')}
+                            placeholder="e.g. socks5://user:pass@proxy.et:1080"
+                            style={{
+                              width: '100%',
+                              background: 'var(--admin-input-bg)',
+                              border: '1px solid var(--admin-border)',
+                              borderRadius: 'var(--admin-radius-md)',
+                              padding: '10px 12px',
+                              color: 'var(--admin-text-pure)',
+                              fontSize: '13px',
+                              fontFamily: 'var(--font-admin-mono)',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <span style={{ fontSize: '10.5px', color: 'var(--admin-text-muted)', marginTop: '3px', display: 'block' }}>
+                            Optional residential proxy to unblock georestricted bank gateways
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
+              {/* Rate Engine & Exchange Multipliers Card */}
               <div className="bento-card" style={{ marginBottom: '22px' }}>
                 <h3 style={{ fontSize: '15.5px', fontWeight: 800, color: 'var(--admin-text-pure)', margin: '0 0 16px 0' }}>
                   Rate Engine &amp; Exchange Multipliers
@@ -2807,6 +3531,7 @@ export const AdminDashboard: React.FC = () => {
                       type="text"
                       value={settings.etb_per_star || ''}
                       onChange={(e) => setSettings({ ...settings, etb_per_star: e.target.value })}
+                      disabled={!canSee('settings.write')}
                       style={{ width: '100%', background: 'var(--admin-input-bg)', border: '1px solid var(--admin-border)', borderRadius: 'var(--admin-radius-md)', padding: '10px 12px', color: 'var(--admin-text-pure)', fontSize: '13px', fontFamily: 'var(--font-admin-mono)', boxSizing: 'border-box' }}
                     />
                   </div>
@@ -2816,20 +3541,28 @@ export const AdminDashboard: React.FC = () => {
                       type="text"
                       value={settings.etb_per_usd || ''}
                       onChange={(e) => setSettings({ ...settings, etb_per_usd: e.target.value })}
+                      disabled={!canSee('settings.write')}
                       style={{ width: '100%', background: 'var(--admin-input-bg)', border: '1px solid var(--admin-border)', borderRadius: 'var(--admin-radius-md)', padding: '10px 12px', color: 'var(--admin-text-pure)', fontSize: '13px', fontFamily: 'var(--font-admin-mono)', boxSizing: 'border-box' }}
                     />
                   </div>
                 </div>
               </div>
 
-              <button
-                className="btn-primary-pill"
-                style={{ opacity: settingsBusy ? 0.7 : 1 }}
-                disabled={settingsBusy}
-                onClick={handleSaveSettings}
-              >
-                <span>{settingsBusy ? 'Saving…' : 'Save Store Settings'}</span>
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <button
+                  className="btn-primary-pill"
+                  style={{ opacity: settingsBusy || !canSee('settings.write') ? 0.6 : 1 }}
+                  disabled={settingsBusy || !canSee('settings.write')}
+                  onClick={handleSaveSettings}
+                >
+                  <span>{settingsBusy ? 'Saving…' : 'Save Store Settings'}</span>
+                </button>
+                {!canSee('settings.write') && (
+                  <span style={{ fontSize: '12px', color: 'var(--admin-text-muted)' }}>
+                    Settings modification requires <code>settings.write</code> permission.
+                  </span>
+                )}
+              </div>
             </div>
           )}
         </main>
@@ -3486,6 +4219,29 @@ export const AdminDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 6. Bank Receipt Verification Audit Evidence Modal (ADR-002) */}
+      <AuditEvidenceModal
+        order={auditOrder}
+        isOpen={isAuditModalOpen}
+        onClose={() => {
+          setIsAuditModalOpen(false);
+          setAuditOrder(null);
+        }}
+        onReverify={handleReverifyOrder}
+        isReverifying={auditOrder ? reverifyingOrderIds.has(auditOrder.id) : false}
+        onViewSlip={(ord) => {
+          setSelectedOrder(ord);
+          setModalType('receipt');
+        }}
+        onApprove={handleApprove}
+        onReject={(ord) => {
+          setSelectedOrder(ord);
+          setModalType('reject');
+        }}
+        canDecide={canSee('orders.decide')}
+        showToast={showToast}
+      />
     </div>
   );
 };

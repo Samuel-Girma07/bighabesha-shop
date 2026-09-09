@@ -83,6 +83,19 @@ export function seedDatabase(db: Database.Database): void {
       wallet_gas_bps: '30',
       gemini_instructions:
         'After payment, you will receive a one-time activation link.\n\n1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.',
+      // Ethiopian Bank Receipt Verification Engine (all 18 dashboard verification settings)
+      receipt_auto_verify_enabled: '1',
+      receipt_recency_before_mins: '120',
+      receipt_recency_after_mins: '120',
+      receipt_circuit_breaker_threshold: '5',
+      receipt_circuit_breaker_cooldown_sec: '60',
+      receipt_retention_days_raw_payloads: '14',
+      receipt_retention_days_unverified: '30',
+      receipt_retention_days_verified: '365',
+      receipt_cbe_beneficiaries: '["0000000000000"]',
+      receipt_telebirr_beneficiaries: '["0000000000"]',
+      receipt_abyssinia_beneficiaries: '["0000000000000"]',
+      receipt_ethiopia_proxy_url: '',
     };
 
     for (const [key, value] of Object.entries(defaultSettings)) {

@@ -54,6 +54,7 @@ import { claimIdempotencyKey, recordIdempotentResult, isFirstDelivery } from './
 import { getConfig } from '../config/env.js';
 import { logger } from '../logger/index.js';
 import { adminRouter, setAdminBotInstance } from './admin.js';
+import { receiptsRouter, adminReceiptsRouter } from './receipts.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -392,6 +393,7 @@ function buildCatalogPayload() {
     keyGenerator: telegramUserKey,
     skip: (req) =>
       req.path === '/api/health' ||
+      req.path === '/health' ||
       !req.path.startsWith('/api'),
     handler: jsonRateLimitHandler('Too many requests from this address. Please try again later.'),
   });
@@ -405,6 +407,14 @@ function buildCatalogPayload() {
     express.json({ limit: RECEIPT_BODY_LIMIT, verify: captureRawBody }),
     receiptLimiter,
     handleReceiptUpload(bot)
+  );
+
+  app.use(
+    '/api/receipts',
+    cors(buildCorsOptions(config)),
+    express.json({ limit: RECEIPT_BODY_LIMIT, verify: captureRawBody }),
+    receiptLimiter,
+    receiptsRouter
   );
 
   app.use(cors(buildCorsOptions(config)));
@@ -452,7 +462,7 @@ function buildCatalogPayload() {
   // The write probe is throttled to at most one write per 10s so aggressive
   // external monitors (1s polling) don't generate constant WAL churn.
   let lastHeartbeatWriteMs = 0;
-  app.get('/api/health', (_req: Request, res: Response) => {
+  app.get(['/api/health', '/health'], (_req: Request, res: Response) => {
     const checks: Record<string, unknown> = {
       status: 'ok',
       timestamp: new Date().toISOString(),
@@ -879,6 +889,7 @@ function buildCatalogPayload() {
   // 8. Mount Web Admin Dashboard API Routes (with auth brute-force limits)
   app.use('/api/admin/auth/login', adminLoginLimiter);
   app.use('/api/admin/auth/verify-2fa', adminOtpLimiter);
+  app.use('/api/admin/receipts', adminApiLimiter, adminReceiptsRouter);
   app.use('/api/admin', adminApiLimiter, adminRouter);
 
   // 9. SPA HTML Fallback for direct browser links (/admin, etc.)

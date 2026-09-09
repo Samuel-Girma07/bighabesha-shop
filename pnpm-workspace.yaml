@@ -5,7 +5,11 @@ packages:
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+  sharp: true
+  '@resvg/resvg-js': true
 
 onlyBuiltDependencies:
   - better-sqlite3
   - esbuild
+  - sharp
+  - '@resvg/resvg-js'

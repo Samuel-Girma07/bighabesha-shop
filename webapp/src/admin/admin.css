@@ -2820,3 +2820,834 @@
     max-width: 96vw;
   }
 }
+
+/* ============================================================================
+   AUTOMATED BANK RECEIPT VERIFICATION ENGINE STYLES (ADR-002)
+   ========================================================================== */
+
+/* ── 1. Auto-Verified Badges ────────────────────────────────────────── */
+.auto-verified-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: var(--admin-radius-sm);
+  background: var(--admin-emerald-dim);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: var(--admin-emerald);
+  font-size: 11px;
+  font-weight: 700;
+  transition: all 0.18s ease;
+  user-select: none;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.1);
+  width: fit-content;
+}
+
+.auto-verified-badge:hover {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: var(--admin-emerald);
+  box-shadow: 0 0 14px var(--admin-emerald-glow);
+  transform: translateY(-1px);
+}
+
+.auto-verified-badge.md {
+  padding: 4px 10px;
+  font-size: 12px;
+  gap: 8px;
+}
+
+.auto-verified-trigger-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  line-height: inherit;
+}
+
+.auto-verified-trigger-btn:focus-visible {
+  outline: 2px solid var(--admin-emerald);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.auto-verified-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--admin-emerald);
+  box-shadow: 0 0 6px var(--admin-emerald);
+  flex-shrink: 0;
+  animation: pulse-emerald 2s infinite ease-in-out;
+}
+
+@keyframes pulse-emerald {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+.auto-verified-title {
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.auto-verified-ref {
+  font-family: var(--font-admin-mono);
+  font-size: 10.5px;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--admin-text-pure);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+[data-theme="light"] .auto-verified-badge {
+  background: rgba(6, 95, 70, 0.1);
+  border-color: rgba(6, 95, 70, 0.3);
+  color: #065F46;
+}
+
+[data-theme="light"] .auto-verified-dot {
+  background: #065F46;
+  box-shadow: 0 0 6px #065F46;
+}
+
+[data-theme="light"] .auto-verified-ref {
+  background: rgba(28, 38, 52, 0.08);
+  color: var(--admin-text-pure);
+}
+
+.auto-verified-copy-btn {
+  font-size: 10px;
+  opacity: 0.7;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auto-verified-copy-btn:hover {
+  opacity: 1;
+  transform: scale(1.15);
+}
+
+.auto-verified-copy-btn:focus-visible {
+  outline: 2px solid var(--admin-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+  opacity: 1;
+}
+
+/* ── 2. Diagnostic Indicator Badges ─────────────────────────────────── */
+.diagnostic-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  font-family: var(--font-admin-mono);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  width: fit-content;
+  user-select: none;
+  line-height: inherit;
+}
+
+.diagnostic-badge:focus-visible {
+  outline: 2px solid var(--admin-accent);
+  outline-offset: 2px;
+}
+
+.diagnostic-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.diagnostic-badge.warning {
+  color: var(--admin-amber);
+  background: var(--admin-amber-dim);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.12);
+}
+
+.diagnostic-badge.warning:hover {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: var(--admin-amber);
+}
+
+.diagnostic-badge.danger {
+  color: var(--admin-ruby);
+  background: var(--admin-ruby-dim);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.12);
+}
+
+.diagnostic-badge.danger:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: var(--admin-ruby);
+}
+
+.diagnostic-badge.neutral {
+  color: var(--admin-text-muted);
+  background: var(--admin-pill-bg);
+  border: 1px solid var(--admin-border);
+}
+
+.diagnostic-badge.neutral:hover {
+  border-color: var(--admin-border-hover);
+  color: var(--admin-text-main);
+}
+
+[data-theme="light"] .diagnostic-badge.warning {
+  box-shadow: none;
+  background: rgba(133, 77, 14, 0.1);
+  border-color: rgba(133, 77, 14, 0.3);
+  color: #854D0E;
+}
+
+[data-theme="light"] .diagnostic-badge.danger {
+  box-shadow: none;
+  background: rgba(153, 27, 27, 0.1);
+  border-color: rgba(153, 27, 27, 0.3);
+  color: #991B1B;
+}
+
+/* ── 3. Inline Re-verify Action Button ──────────────────────────────── */
+.reverify-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--admin-radius-pill);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-admin-ui);
+  background: var(--admin-cyan-dim);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  color: var(--admin-cyan);
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.reverify-btn:hover:not(:disabled) {
+  background: rgba(6, 182, 212, 0.22);
+  border-color: var(--admin-cyan);
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.25);
+  transform: translateY(-1px);
+}
+
+.reverify-btn:focus-visible {
+  outline: 2px solid var(--admin-cyan);
+  outline-offset: 2px;
+}
+
+.reverify-btn:disabled,
+.reverify-btn.busy {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.reverify-btn.md {
+  padding: 6px 14px;
+  font-size: 12px;
+  gap: 7px;
+}
+
+.reverify-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: reverify-spin 0.65s linear infinite;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+@keyframes reverify-spin {
+  to { transform: rotate(360deg); }
+}
+
+[data-theme="light"] .reverify-btn {
+  background: rgba(8, 133, 153, 0.1);
+  border-color: rgba(8, 133, 153, 0.3);
+  color: #088599;
+}
+
+[data-theme="light"] .reverify-btn:hover:not(:disabled) {
+  background: rgba(8, 133, 153, 0.18);
+  border-color: #088599;
+}
+
+/* ── 4. Verification Engine Settings Components ─────────────────────── */
+.verification-engine-card {
+  border: 1px solid var(--admin-border);
+  background: var(--admin-card-bg);
+  position: relative;
+  overflow: hidden;
+}
+
+.verification-engine-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--admin-accent), var(--admin-cyan), var(--admin-emerald));
+}
+
+.engine-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--admin-radius-pill);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.engine-status-indicator.active {
+  color: var(--admin-emerald);
+  background: var(--admin-emerald-dim);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.engine-status-indicator.paused {
+  color: var(--admin-amber);
+  background: var(--admin-amber-dim);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.engine-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.engine-dot.active {
+  background: var(--admin-emerald);
+  box-shadow: 0 0 6px var(--admin-emerald);
+}
+
+.engine-dot.paused {
+  background: var(--admin-amber);
+}
+
+/* Master Toggle Switch */
+.toggle-switch-btn {
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  border: none;
+  background: var(--admin-switcher-bg);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.22s ease, box-shadow 0.22s ease;
+  padding: 2px;
+}
+
+.toggle-switch-btn.on {
+  background: var(--admin-emerald);
+  box-shadow: 0 0 10px var(--admin-emerald-glow);
+}
+
+.toggle-switch-btn.off {
+  background: var(--admin-pill-bg);
+  border: 1px solid var(--admin-border);
+}
+
+.toggle-switch-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toggle-switch-handle {
+  width: 20px;
+  height: 20px;
+  background: #FFFFFF;
+  border-radius: 50%;
+  display: block;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.toggle-switch-btn.on .toggle-switch-handle {
+  transform: translateX(20px);
+}
+
+.toggle-switch-btn.off .toggle-switch-handle {
+  transform: translateX(0);
+}
+
+.validation-error-text {
+  font-size: 10.5px;
+  color: var(--admin-ruby);
+  font-weight: 600;
+}
+
+.port-choice-pill {
+  padding: 6px 12px;
+  border-radius: var(--admin-radius-sm);
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-admin-ui);
+  background: var(--admin-pill-bg);
+  border: 1px solid var(--admin-border);
+  color: var(--admin-text-muted);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.port-choice-pill.active {
+  background: var(--admin-accent-dim);
+  border-color: var(--admin-accent);
+  color: var(--admin-accent-text);
+  box-shadow: 0 0 10px var(--admin-accent-glow);
+}
+
+.port-choice-pill:hover:not(.active):not(:disabled) {
+  border-color: var(--admin-border-hover);
+  color: var(--admin-text-pure);
+}
+
+/* ── 5. Audit Evidence Modal Layout & 4-Pillar Security Gates ───────── */
+.audit-modal-container {
+  max-width: 860px;
+  width: 95vw;
+}
+
+.audit-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-height: 72vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.audit-loading-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 20px;
+  color: var(--admin-text-muted);
+  font-size: 13px;
+}
+
+.audit-error-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--admin-ruby-dim);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--admin-radius-sm);
+  color: var(--admin-ruby);
+  font-size: 12.5px;
+}
+
+.audit-section {
+  background: var(--admin-card-bg);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius-md);
+  padding: 16px;
+}
+
+.audit-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.audit-section-title {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--admin-text-pure);
+  letter-spacing: 0.2px;
+}
+
+.audit-gate-badge {
+  padding: 2px 8px;
+  border-radius: var(--admin-radius-pill);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.audit-gate-badge.passed {
+  color: var(--admin-emerald);
+  background: var(--admin-emerald-dim);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.audit-gate-badge.failed {
+  color: var(--admin-amber);
+  background: var(--admin-amber-dim);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+/* 4-Pillars Grid */
+.audit-pillars-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 680px) {
+  .audit-pillars-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.audit-pillar-card {
+  background: var(--admin-canvas);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius-sm);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.18s ease;
+}
+
+.audit-pillar-card.passed {
+  border-left: 3px solid var(--admin-emerald);
+}
+
+.audit-pillar-card.failed {
+  border-left: 3px solid var(--admin-ruby);
+}
+
+.audit-pillar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audit-pillar-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.audit-pillar-title-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.audit-pillar-name {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--admin-text-pure);
+}
+
+.audit-pillar-status {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.audit-pillar-status.passed {
+  color: var(--admin-emerald);
+  background: var(--admin-emerald-dim);
+}
+
+.audit-pillar-status.failed {
+  color: var(--admin-ruby);
+  background: var(--admin-ruby-dim);
+}
+
+.audit-pillar-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+}
+
+.audit-pillar-field {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.audit-field-label {
+  color: var(--admin-text-muted);
+}
+
+.audit-field-val {
+  color: var(--admin-text-main);
+  text-align: right;
+  font-weight: 600;
+}
+
+.audit-field-val.mono {
+  font-family: var(--font-admin-mono);
+}
+
+.audit-pillar-detail {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--admin-text-muted);
+  border-top: 1px dashed var(--admin-border-subtle);
+  padding-top: 4px;
+}
+
+/* Bento Transaction Grid */
+.audit-bento-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 680px) {
+  .audit-bento-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.audit-bento-item {
+  background: var(--admin-canvas);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.audit-bento-label {
+  font-size: 10.5px;
+  color: var(--admin-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.audit-bento-val-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.audit-bento-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--admin-text-pure);
+}
+
+.audit-bento-val.mono {
+  font-family: var(--font-admin-mono);
+  font-size: 12px;
+}
+
+.audit-bento-val.highlight {
+  color: var(--admin-emerald);
+}
+
+.audit-badge-sub {
+  font-size: 10.5px;
+  color: var(--admin-text-muted);
+  background: var(--admin-pill-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.audit-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--admin-pill-bg);
+  border: 1px solid var(--admin-border);
+  color: var(--admin-text-muted);
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.audit-copy-btn:hover {
+  color: var(--admin-text-pure);
+  border-color: var(--admin-border-hover);
+}
+
+/* Upstream Telemetry Row */
+.audit-telemetry-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+}
+
+@media (max-width: 680px) {
+  .audit-telemetry-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.audit-telemetry-chip {
+  background: var(--admin-canvas);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius-sm);
+  padding: 8px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+}
+
+.telemetry-label {
+  color: var(--admin-text-muted);
+}
+
+.telemetry-val {
+  font-weight: 700;
+  color: var(--admin-text-pure);
+}
+
+.telemetry-val.good {
+  color: var(--admin-emerald);
+}
+
+.telemetry-val.warn {
+  color: var(--admin-amber);
+}
+
+.audit-toggle-raw-btn {
+  background: none;
+  border: none;
+  color: var(--admin-accent);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.audit-toggle-raw-btn:hover {
+  text-decoration: underline;
+}
+
+.audit-raw-payload-box {
+  margin-top: 10px;
+  background: #080A0E;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius-sm);
+  overflow: hidden;
+}
+
+[data-theme="light"] .audit-raw-payload-box {
+  background: #E1E6EC;
+}
+
+.audit-raw-payload-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--admin-border-subtle);
+  font-size: 11px;
+  color: var(--admin-text-muted);
+}
+
+.audit-raw-pre {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: var(--font-admin-mono);
+  font-size: 11px;
+  color: var(--admin-emerald);
+  overflow-x: auto;
+  max-height: 220px;
+  line-height: 1.45;
+}
+
+[data-theme="light"] .audit-raw-pre {
+  color: #0E8560;
+}
+
+.audit-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.audit-copy-btn:focus-visible,
+.audit-toggle-raw-btn:focus-visible {
+  outline: 2px solid var(--admin-accent);
+  outline-offset: 2px;
+}
+
+[data-theme="light"] .audit-gate-badge.passed {
+  color: #065F46;
+  background: rgba(6, 95, 70, 0.1);
+  border-color: rgba(6, 95, 70, 0.3);
+}
+
+[data-theme="light"] .audit-gate-badge.failed {
+  color: #854D0E;
+  background: rgba(133, 77, 14, 0.1);
+  border-color: rgba(133, 77, 14, 0.3);
+}
+
+[data-theme="light"] .audit-pillar-status.passed {
+  color: #065F46;
+  background: rgba(6, 95, 70, 0.1);
+}
+
+[data-theme="light"] .audit-pillar-status.failed {
+  color: #991B1B;
+  background: rgba(153, 27, 27, 0.1);
+}
+
+[data-theme="light"] .audit-bento-val.highlight {
+  color: #065F46;
+}
+
+[data-theme="light"] .telemetry-val.good {
+  color: #065F46;
+}
+
+[data-theme="light"] .telemetry-val.warn {
+  color: #854D0E;
+}
+
+
