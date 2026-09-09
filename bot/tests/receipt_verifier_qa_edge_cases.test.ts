@@ -49,6 +49,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const migrationsDir = path.join(__dirname, '../src/db/migrations');
 
+process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ';
+process.env.ADMIN_IDS = process.env.ADMIN_IDS || '12345678,87654321';
+
 describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial Suite', () => {
   let db: Database.Database;
 

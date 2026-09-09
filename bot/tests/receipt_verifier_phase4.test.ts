@@ -35,6 +35,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const migrationsDir = path.join(__dirname, '../src/db/migrations');
 
+const TEST_BOT_TOKEN = '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ';
+const TEST_ADMIN_IDS = '12345678,87654321';
+process.env.BOT_TOKEN = process.env.BOT_TOKEN || TEST_BOT_TOKEN;
+process.env.ADMIN_IDS = process.env.ADMIN_IDS || TEST_ADMIN_IDS;
+
 // Helper to make HTTP requests against ephemeral server without touching global.fetch
 function makeRequest(
   server: http.Server,
@@ -113,7 +118,14 @@ async function generateQrPng(text: string): Promise<Buffer> {
 
 // Helper to generate valid Telegram initData
 function createValidInitData(userId: number, botToken?: string): string {
-  const token = botToken || getConfig().BOT_TOKEN;
+  let token = botToken;
+  if (!token) {
+    try {
+      token = getConfig().BOT_TOKEN;
+    } catch {
+      token = TEST_BOT_TOKEN;
+    }
+  }
   const user = JSON.stringify({ id: userId, first_name: 'Test', username: 'testuser' });
   const authDate = Math.floor(Date.now() / 1000).toString();
   const params = new URLSearchParams();

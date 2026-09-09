@@ -51,6 +51,10 @@ jobs:
           echo "Production asset packaging verified successfully."
 
       - name: Execute Bot Test Suite (Receipt Verifier, Security Gate, Rails, E-commerce)
+        env:
+          BOT_TOKEN: '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ'
+          ADMIN_IDS: '12345678,87654321'
+          NODE_ENV: test
         run: pnpm --filter bot test
 
       - name: Execute WebApp Test Suite

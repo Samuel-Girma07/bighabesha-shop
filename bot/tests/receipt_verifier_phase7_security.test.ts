@@ -17,6 +17,9 @@ import { ReceiptIngestionService } from '../src/services/receipt_verifier/ingest
 import { CBE_PERMITTED_HOSTNAMES } from '../src/services/receipt_verifier/constants.js';
 import { validateVerificationSettings } from '../src/services/settings.service.js';
 
+process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ';
+process.env.ADMIN_IDS = process.env.ADMIN_IDS || '12345678,87654321';
+
 describe('Phase 7: SAST & SCA Security Hardening Suite', () => {
   // ============================================================================
   // 1. SSRF & Private IP Range Filtering (CWE-918)
