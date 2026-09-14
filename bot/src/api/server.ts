@@ -49,7 +49,7 @@ import { escapeHtml } from '../utils/html.js';
 import { isUsernameRequired } from '../bot/handlers/gate.js';
 import { notifyAdminsNewReceipt } from '../bot/handlers/checkout.js';
 import { getDatabase, prepared } from '../db/index.js';
-import { cachedSync } from '../services/cache.service.js';
+import { cachedSync, invalidate } from '../services/cache.service.js';
 import { claimIdempotencyKey, recordIdempotentResult, isFirstDelivery } from './idempotency.js';
 import { getConfig } from '../config/env.js';
 import { logger } from '../logger/index.js';
@@ -865,6 +865,7 @@ function buildCatalogPayload() {
     }
     const order = created;
     recordIdempotentResult(idempotencyKey, order.id);
+    invalidate('admin:overview');
 
     res.status(201).json({ order, payUrl: undefined, saleApplied: resolved.saleApplied === true });
   });

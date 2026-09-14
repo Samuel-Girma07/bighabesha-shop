@@ -721,6 +721,10 @@ adminRouter.post('/orders/:id/approve', requireAdminAuth, requirePermission('ord
     const { order, autoDeliveredItem } = approveReceipt(orderId, adminId);
     recordAudit({ adminId, action: 'order.approve', targetType: 'order', targetId: orderId, changes: { newStatus: order.status, autoDelivered: Boolean(autoDeliveredItem) }, ip: req.ip });
 
+    invalidate('admin:overview');
+    invalidate('userstats:' + order.user_id);
+    invalidate('bootstrap:catalog');
+
     let finalOrder = order;
 
     if (!autoDeliveredItem && isResellerEligible(order)) {
@@ -764,6 +768,9 @@ adminRouter.post('/orders/:id/reject', requireAdminAuth, requirePermission('orde
     const order = rejectReceipt(orderId, adminId, reason || 'Payment receipt not accepted.');
     recordAudit({ adminId, action: 'order.reject', targetType: 'order', targetId: orderId, changes: { reason: order.rejection_reason }, ip: req.ip });
 
+    invalidate('admin:overview');
+    invalidate('userstats:' + order.user_id);
+
     if (botInstance) {
       const rejectText = `<b>Order #${escapeHtml(order.id)} Update</b>\n\n` +
         `Your transfer receipt was not accepted.\n` +
@@ -790,6 +797,9 @@ adminRouter.post('/orders/:id/fulfill', requireAdminAuth, requirePermission('ord
   try {
     const order = fulfillOrderWithProof(orderId, adminId, { text: proofNote || 'Delivered via Fragment official rails.' });
     recordAudit({ adminId, action: 'order.fulfill', targetType: 'order', targetId: orderId, ip: req.ip });
+
+    invalidate('admin:overview');
+    invalidate('userstats:' + order.user_id);
 
     if (botInstance) {
       if (order.fulfillment_payload) {
@@ -887,6 +897,11 @@ adminRouter.post(['/stock', '/stock/bulk'], requireAdminAuth, requirePermission(
     return;
   }
 
+  if (addedCount > 0) {
+    invalidate('bootstrap:catalog');
+    invalidate('admin:overview');
+  }
+
   res.json({
     success: true,
     addedCount,
@@ -901,6 +916,8 @@ adminRouter.delete('/stock/:id', requireAdminAuth, requirePermission('stock.mana
   const itemId = req.params.id as string;
   const deleted = deleteStockItem(itemId);
   if (deleted) {
+    invalidate('bootstrap:catalog');
+    invalidate('admin:overview');
     recordAudit({ adminId: (req as any).adminSession?.adminId ?? 'unknown', action: 'stock.delete', targetType: 'stock_item', targetId: String(itemId), ip: req.ip });
   }
   if (!deleted) {

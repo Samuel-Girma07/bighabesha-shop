@@ -7,6 +7,7 @@ import { ensureAdminRow } from '../auth/permissions.js';
 import { getOrderById } from '../services/orders.service.js';
 import { isResellerEligible, deliverWithReseller } from '../services/reseller.service.js';
 import { getReceiptOrchestrator } from '../services/receipt_verifier/index.js';
+import { invalidate } from '../services/cache.service.js';
 import { getAuditsForOrder } from '../db/receipt_evidence.dao.js';
 import { RFC7807_BASE_URL } from '../services/receipt_verifier/constants.js';
 import {
@@ -465,6 +466,11 @@ adminReceiptsRouter.post(
       const result = await orchestrator.reverifyOrder(orderId, adminId);
       if (result.success) {
         const order = getOrderById(orderId);
+        invalidate('admin:overview');
+        if (order) {
+          invalidate('userstats:' + order.user_id);
+          invalidate('bootstrap:catalog');
+        }
         if (order && isResellerEligible(order)) {
           void deliverWithReseller(order.id, adminId).catch((err) => {
             logger.warn({ orderId, err }, 'Async reseller fulfillment after re-verification failed');

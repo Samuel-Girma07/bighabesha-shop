@@ -7,6 +7,7 @@ import { assertPositiveIntegerETB, PricingError } from './pricing.service.js';
 import { getNumericSetting } from './settings.service.js';
 import { adjustUserStats } from './loyalty.service.js';
 import { redeemPromoInTx, releasePromoRedemption } from './promo.service.js';
+import { invalidate } from './cache.service.js';
 
 export type ActivePaymentRail = 'telebirr' | 'cbe' | 'abyssinia';
 export type PaymentRail = ActivePaymentRail | 'chapa' | 'wallet_pay' | 'ton_connect';
@@ -279,6 +280,7 @@ export function createOrder(input: CreateOrderInput): Order {
   }
 
   logger.info({ orderId, userId: input.userId, productId: input.productId, amountETB: input.amountETB, promo: createdOrderId.promoCode }, 'Order created');
+  invalidate('admin:overview');
   const created = getOrderById(orderId);
   if (!created) throw new Error(`Failed to retrieve newly created order ${orderId}`);
   return created;
@@ -408,6 +410,7 @@ export function updateOrderStatus(
 
   logger.info({ orderId, previousStatus: current.status, newStatus: status }, 'Order status updated');
   if (!updated) throw new Error(`Failed to fetch updated order ${orderId}`);
+  invalidate('admin:overview');
   return updated;
 }
 
@@ -443,8 +446,10 @@ function runFulfillmentHooks(before: Order, toStatus: OrderStatus, orderId: stri
     if (becameFulfilled) {
       adjustUserStats(before.user_id, before.amount_etb, +1);
       creditReferralCommissions(before);
+      invalidate('userstats:' + before.user_id);
     } else if (unfulfilledViaRefund) {
       adjustUserStats(before.user_id, -before.amount_etb, -1);
+      invalidate('userstats:' + before.user_id);
     } else if (toStatus === 'cancelled') {
       releasePromoRedemption(orderId);
       const db = getDatabase();
@@ -453,6 +458,7 @@ function runFulfillmentHooks(before: Order, toStatus: OrderStatus, orderId: stri
         SET status = 'available', order_id = NULL, allocated_at = NULL
         WHERE order_id = ?
       `).run(orderId);
+      invalidate('bootstrap:catalog');
     }
   } catch (err) {
     logger.error({ err, orderId }, 'Post-transition hook failure');

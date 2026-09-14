@@ -1,6 +1,7 @@
 import { getDatabase } from '../db/index.js';
 import { logger } from '../logger/index.js';
 import { getNumericSetting } from './settings.service.js';
+import { invalidate } from './cache.service.js';
 
 export interface StockItem {
   id: number;
@@ -38,6 +39,8 @@ export function addStockLink(productId: string, rawLink: string): StockItem {
   const result = stmt.run(productId, link);
   const item = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(result.lastInsertRowid) as StockItem;
   logger.info({ productId, itemId: item.id }, 'Single stock item added');
+  invalidate('bootstrap:catalog');
+  invalidate('admin:overview');
   return item;
 }
 
@@ -45,6 +48,10 @@ export function deleteStockItem(id: number | string): boolean {
   try {
     const db = getDatabase();
     const result = db.prepare("DELETE FROM stock_items WHERE id = ? AND status = 'available'").run(id);
+    if (result.changes > 0) {
+      invalidate('bootstrap:catalog');
+      invalidate('admin:overview');
+    }
     return result.changes > 0;
   } catch (err) {
     logger.error({ err, id }, 'Failed to delete stock item');
@@ -122,6 +129,8 @@ export function importStockCSV(productId: string, csvContent: string): CSVImport
   if (validLinks.length > 0) {
     insertTx(validLinks);
     logger.info({ productId, importedCount: result.imported }, 'CSV stock import completed');
+    invalidate('bootstrap:catalog');
+    invalidate('admin:overview');
   }
 
   return result;
@@ -221,6 +230,11 @@ export function allocateStock(
   // first write — eliminating upgrade-deadlock windows between concurrent
   // writers and serializing read-then-claim sequences across processes.
   tx.immediate();
+
+  if (allocatedItem) {
+    invalidate('bootstrap:catalog');
+    invalidate('admin:overview');
+  }
 
   const threshold = getNumericSetting('low_stock_threshold', 5);
   const shouldAlertLowStock = remainingCount <= threshold;
