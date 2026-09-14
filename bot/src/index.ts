@@ -10,6 +10,7 @@ import { syncAdminsFromEnv } from './auth/permissions.js';
 import { prewarmAllBanners } from './services/banner_generator.service.js';
 import { tryAcquireLease } from './db/lease.js';
 import { startResellerRetrySweeper, stopResellerRetrySweeper } from './services/reseller.service.js';
+import { cleanupInterruptedBroadcasts } from './services/broadcast.service.js';
 
 async function main() {
   // Process-level safety nets. Express 5 routes async-handler rejections into
@@ -31,6 +32,7 @@ async function main() {
     // Initialize database
     initDatabase(config.DATABASE_PATH);
     syncAdminsFromEnv();
+    cleanupInterruptedBroadcasts();
 
     // Sync any existing receipt images from Backblaze B2 into local container
     try {
@@ -60,7 +62,7 @@ async function main() {
       logger.info('Node operating as follower: HTTP API active; sweepers and Telegram polling standby');
     }
 
-    leaderHeartbeatTimer = setInterval(() => {
+    leaderHeartbeatTimer = setInterval(async () => {
       const nowLeader = tryAcquireLease('process:leader', LEADER_LEASE_TTL);
       if (nowLeader && !isLeader) {
         isLeader = true;
@@ -73,6 +75,13 @@ async function main() {
             logger.info({ botId: botInfo.id, username: botInfo.username }, 'Promoted bot started polling');
           },
         }).catch((err) => logger.error({ err }, 'Promoted bot polling failed'));
+      } else if (!nowLeader && isLeader) {
+        isLeader = false;
+        logger.warn('Node lost leader lease (demoted): stopping sweepers and Telegram polling');
+        await bot.stop().catch((err) => logger.warn({ err }, 'Error stopping bot during demotion'));
+        stopLifecycleJobs();
+        stopPeriodicCleanup();
+        stopResellerRetrySweeper();
       }
     }, 15_000);
     if (leaderHeartbeatTimer.unref) leaderHeartbeatTimer.unref();
@@ -84,7 +93,10 @@ async function main() {
     const apiServer = startApiServer(bot, config.PORT);
 
     // Graceful shutdown handlers
+    let isShuttingDown = false;
     const shutdown = async (signal: string) => {
+      if (isShuttingDown) return;
+      isShuttingDown = true;
       logger.info({ signal }, 'Shutting down gracefully...');
       try {
         if (leaderHeartbeatTimer) clearInterval(leaderHeartbeatTimer);
@@ -94,9 +106,7 @@ async function main() {
         stopResellerRetrySweeper();
 
         if (isLeader) {
-          try {
-            bot.stop();
-          } catch {}
+          await bot.stop().catch((err) => logger.warn({ err }, 'Error stopping bot'));
         }
 
         // Drain background reconciliation sweeps

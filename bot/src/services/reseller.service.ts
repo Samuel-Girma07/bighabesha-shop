@@ -344,7 +344,7 @@ export async function retryFailedResellerDeliveries(api?: Api<RawApi>): Promise<
       const db = getDatabase();
       const waitingOrdersCount = (db.prepare(`
         SELECT COUNT(*) as count FROM orders
-        WHERE status IN ('delivery_failed', 'pending_fulfillment')
+        WHERE (status IN ('delivery_failed', 'pending_fulfillment') OR (status = 'processing' AND updated_at <= datetime('now', '-2 minutes')))
           AND product_id = 'telegram_premium'
       `).get() as { count: number }).count;
 
@@ -366,13 +366,25 @@ export async function retryFailedResellerDeliveries(api?: Api<RawApi>): Promise<
     }
 
     const db = getDatabase();
+    const nowMs = Date.now();
     const failedOrders = db.prepare(`
       SELECT * FROM orders
-      WHERE status = 'delivery_failed'
-        AND product_id = 'telegram_premium'
+      WHERE product_id = 'telegram_premium'
+        AND (
+          status = 'delivery_failed'
+          OR (
+            status = 'processing'
+            AND updated_at <= datetime('now', '-2 minutes')
+            AND NOT EXISTS (
+              SELECT 1 FROM job_leases
+              WHERE name = 'reseller:order:' || orders.id
+                AND expires_at > ?
+            )
+          )
+        )
       ORDER BY created_at ASC
       LIMIT 25
-    `).all() as Order[];
+    `).all(nowMs) as Order[];
 
     let fulfilled = 0;
     let failed = 0;
@@ -407,11 +419,27 @@ export async function retryFailedResellerDeliveries(api?: Api<RawApi>): Promise<
 }
 
 let sweeperTimer: NodeJS.Timeout | null = null;
+let isSweeperRunning = false;
+
+export function isResellerSweeperRunning(): boolean {
+  return isSweeperRunning;
+}
 
 export function startResellerRetrySweeper(api?: any, intervalMs: number = 5 * 60 * 1000): NodeJS.Timeout {
   if (sweeperTimer) clearInterval(sweeperTimer);
-  sweeperTimer = setInterval(() => {
-    void retryFailedResellerDeliveries(api);
+  sweeperTimer = setInterval(async () => {
+    if (isSweeperRunning) {
+      logger.warn('Previous reseller retry sweep is still running; skipping iteration');
+      return;
+    }
+    isSweeperRunning = true;
+    try {
+      await retryFailedResellerDeliveries(api);
+    } catch (err) {
+      logger.error({ err }, 'Reseller retry sweep iteration failed');
+    } finally {
+      isSweeperRunning = false;
+    }
   }, intervalMs);
   if (sweeperTimer.unref) sweeperTimer.unref();
   return sweeperTimer;
@@ -422,5 +450,6 @@ export function stopResellerRetrySweeper(): void {
     clearInterval(sweeperTimer);
     sweeperTimer = null;
   }
+  isSweeperRunning = false;
 }
 

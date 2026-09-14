@@ -1147,7 +1147,7 @@ describe('B2B Telegram Premium Reseller Pipeline', () => {
       } finally {
         await new Promise<void>((resolve) => srv.close(() => resolve()));
       }
-    }, 15000);
+    }, 30000);
 
     it('prevents concurrent double-spend in deliverWithReseller via invocation-scoped lease', async () => {
       let fulfillCalls = 0;

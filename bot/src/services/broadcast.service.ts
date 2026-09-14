@@ -2,6 +2,7 @@ import { Api, RawApi } from 'grammy';
 import crypto from 'crypto';
 import { getDatabase } from '../db/index.js';
 import { logger } from '../logger/index.js';
+import { splitTelegramCaption } from '../utils/html.js';
 
 export interface BroadcastTarget {
   id: number;
@@ -127,7 +128,7 @@ export function getBroadcastJob(jobId: string): BroadcastJob | undefined {
       total: row.sent + row.failed,
       sent: row.sent,
       failed: row.failed,
-      done: row.status === 'completed' || row.status === 'failed',
+      done: row.status === 'completed' || row.status === 'failed' || row.status === 'interrupted',
       startedAt: new Date(row.created_at).getTime(),
       finishedAt: row.status !== 'running' ? new Date(row.updated_at).getTime() : undefined,
       targetLanguage: row.target_lang || 'all',
@@ -148,7 +149,7 @@ export function listBroadcastJobs(): BroadcastJob[] {
         total: row.sent + row.failed,
         sent: row.sent,
         failed: row.failed,
-        done: row.status === 'completed' || row.status === 'failed',
+        done: row.status === 'completed' || row.status === 'failed' || row.status === 'interrupted',
         startedAt: new Date(row.created_at).getTime(),
         finishedAt: row.status !== 'running' ? new Date(row.updated_at).getTime() : undefined,
         targetLanguage: row.target_lang || 'all',
@@ -161,6 +162,32 @@ export function listBroadcastJobs(): BroadcastJob[] {
   return [...broadcastJobs.values()].sort((a, b) => b.startedAt - a.startedAt);
 }
 
+/**
+ * Marks any dangling broadcasts left in 'running' state (e.g. from an ungraceful crash/restart)
+ * as 'interrupted'.
+ */
+export function cleanupInterruptedBroadcasts(): number {
+  try {
+    const db = getDatabase();
+    try {
+      const info = db.prepare("UPDATE broadcast_jobs SET status = 'interrupted', updated_at = CURRENT_TIMESTAMP WHERE status = 'running'").run();
+      if (info.changes > 0) {
+        logger.info({ interruptedCount: info.changes }, 'Marked dangling running broadcasts as interrupted');
+      }
+      return info.changes;
+    } catch (sqlErr: any) {
+      if (sqlErr?.message?.includes('CHECK constraint failed')) {
+        const info = db.prepare("UPDATE broadcast_jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE status = 'running'").run();
+        return info.changes;
+      }
+      throw sqlErr;
+    }
+  } catch (err) {
+    logger.warn({ err }, 'Failed to cleanup interrupted broadcasts');
+    return 0;
+  }
+}
+
 async function sendBroadcastMessage(
   api: Api<RawApi>,
   targetId: number,
@@ -168,7 +195,13 @@ async function sendBroadcastMessage(
   photoFileId?: string
 ): Promise<void> {
   if (photoFileId) {
-    await api.sendPhoto(targetId, photoFileId, { caption: messageText, parse_mode: 'HTML' });
+    const { caption, overflow } = splitTelegramCaption(messageText, 1024);
+    if (overflow) {
+      await api.sendPhoto(targetId, photoFileId, { caption, parse_mode: 'HTML' });
+      await api.sendMessage(targetId, overflow, { parse_mode: 'HTML' });
+    } else {
+      await api.sendPhoto(targetId, photoFileId, { caption, parse_mode: 'HTML' });
+    }
   } else {
     await api.sendMessage(targetId, messageText, { parse_mode: 'HTML' });
   }

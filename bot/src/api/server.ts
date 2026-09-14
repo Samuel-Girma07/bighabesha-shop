@@ -900,7 +900,19 @@ function buildCatalogPayload() {
     });
   }
 
+  // 10. Centralized Express error-handling middleware
+  app.use(centralizedErrorHandler);
+
   return app;
+}
+
+export function centralizedErrorHandler(err: any, _req: Request, res: Response, _next: NextFunction): void {
+  if (res.headersSent) {
+    return _next(err);
+  }
+  logger.error({ err }, 'Unhandled API error in Express pipeline');
+  const status = typeof err.status === 'number' ? err.status : (typeof err.statusCode === 'number' ? err.statusCode : 500);
+  res.status(status).json({ error: err.message || 'Internal server error' });
 }
 
 export function createApiServer(bot: Bot): http.Server {

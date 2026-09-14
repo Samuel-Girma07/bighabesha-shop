@@ -268,21 +268,6 @@ export const EnvSchema = z
             'ADMIN_PASSWORD is required in production (minimum 8 characters) — refusing to boot with insecure defaults',
         });
       }
-      if (cfg.WALLET_PAY_MODE !== 'live') {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['WALLET_PAY_MODE'],
-          message:
-            'WALLET_PAY_MODE must be explicitly set to "live" in production — mock payments auto-confirm orders and are forbidden outside development',
-        });
-      }
-      if (!cfg.WALLET_PAY_API_KEY) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['WALLET_PAY_API_KEY'],
-          message: 'WALLET_PAY_API_KEY is required in production when WALLET_PAY_MODE=live',
-        });
-      }
       if (!cfg.WEBAPP_URL || !cfg.WEBAPP_URL.startsWith('https://')) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

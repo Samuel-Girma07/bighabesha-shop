@@ -241,9 +241,8 @@ describe('Low #8: SQLite WAL + busy_timeout configuration', () => {
 
   it('initializes connections with WAL mode, a short busy_timeout and FK enforcement', () => {
     expect(db.pragma('journal_mode', { simple: true })).toBe('wal');
-    // A25: better-sqlite3 blocks the event loop while waiting on a write lock,
-    // so the timeout is deliberately short and retries happen in withWriteRetry.
-    expect(Number(db.pragma('busy_timeout', { simple: true }))).toBe(250);
+    // DEFECT-06: busy_timeout increased to 5000ms to absorb transient file locks.
+    expect(Number(db.pragma('busy_timeout', { simple: true }))).toBe(5000);
     expect(Number(db.pragma('wal_autocheckpoint', { simple: true }))).toBe(1000);
     expect(Number(db.pragma('foreign_keys', { simple: true }))).toBe(1);
     expect(Number(db.pragma('synchronous', { simple: true }))).toBeGreaterThan(0); // NORMAL or better

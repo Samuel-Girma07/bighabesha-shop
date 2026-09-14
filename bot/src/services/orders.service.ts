@@ -447,6 +447,12 @@ function runFulfillmentHooks(before: Order, toStatus: OrderStatus, orderId: stri
       adjustUserStats(before.user_id, -before.amount_etb, -1);
     } else if (toStatus === 'cancelled') {
       releasePromoRedemption(orderId);
+      const db = getDatabase();
+      db.prepare(`
+        UPDATE stock_items
+        SET status = 'available', order_id = NULL, allocated_at = NULL
+        WHERE order_id = ?
+      `).run(orderId);
     }
   } catch (err) {
     logger.error({ err, orderId }, 'Post-transition hook failure');

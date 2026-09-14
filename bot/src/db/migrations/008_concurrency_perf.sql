@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS job_leases (
 CREATE TABLE IF NOT EXISTS broadcast_jobs (
     id          TEXT PRIMARY KEY,
     admin_id    INTEGER NOT NULL,
-    status      TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running','completed','failed')),
+    status      TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running','completed','failed','interrupted')),
     target_lang TEXT,
     sent        INTEGER NOT NULL DEFAULT 0,
     failed      INTEGER NOT NULL DEFAULT 0,

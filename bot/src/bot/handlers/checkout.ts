@@ -11,7 +11,7 @@ import { isAdmin } from './admin.js';
 import { getConfig } from '../../config/env.js';
 import { getDatabase } from '../../db/index.js';
 import { getUserById } from '../../services/users.service.js';
-import { escapeHtml } from '../../utils/html.js';
+import { escapeHtml, splitTelegramCaption, formatFulfillmentDeliveryMessage } from '../../utils/html.js';
 import { logger } from '../../logger/index.js';
 
 const VALID_PAYMENT_RAILS: PaymentRail[] = ['wallet_pay', 'chapa', 'ton_connect', 'telebirr', 'cbe', 'abyssinia'];
@@ -246,6 +246,30 @@ export async function handleManualRail(ctx: Context, rail: 'telebirr' | 'cbe' | 
     return;
   }
 
+  if (!userId || (order.user_id !== userId && !isAdmin(userId))) {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({
+        text: isAmharic ? 'ይህንን ትዕዛዝ የማየት ፍቃድ የለዎትም።' : 'Unauthorized to access this order.',
+        show_alert: true,
+      }).catch(() => {});
+    } else {
+      await ctx.reply(isAmharic ? 'ይህንን ትዕዛዝ የማየት ፍቃድ የለዎትም።' : 'Unauthorized to access this order.');
+    }
+    return;
+  }
+
+  if (order.status !== 'awaiting_payment') {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({
+        text: isAmharic ? 'ይህ ትዕዛዝ ክፍያ በመጠባበቅ ላይ አይደለም።' : `Order is ${order.status} and cannot change payment method.`,
+        show_alert: true,
+      }).catch(() => {});
+    } else {
+      await ctx.reply(isAmharic ? 'ይህ ትዕዛዝ ክፍያ በመጠባበቅ ላይ አይደለም።' : `Order is ${order.status} and cannot change payment method.`);
+    }
+    return;
+  }
+
   // Rail switch without status regression (receipts on pending_approval survive)
   updateOrderMeta(orderId, { payment_rail: rail });
 
@@ -342,6 +366,28 @@ export async function performAdminApprove(ctx: Context, orderId: string): Promis
     return;
   }
 
+  const existingOrder = getOrderById(orderId);
+  if (!existingOrder) {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: 'Order not found.', show_alert: true }).catch(() => {});
+    } else {
+      await ctx.reply('Order not found.');
+    }
+    return;
+  }
+
+  if (existingOrder.status !== 'pending_approval') {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({
+        text: `⚠️ Order is already ${existingOrder.status.toUpperCase()} and cannot be approved again.`,
+        show_alert: true,
+      }).catch(() => {});
+    } else {
+      await ctx.reply(`⚠️ Order is already ${existingOrder.status.toUpperCase()} and cannot be approved again.`);
+    }
+    return;
+  }
+
   try {
     const { order, autoDeliveredItem } = approveReceipt(orderId, adminId);
 
@@ -372,20 +418,12 @@ export async function performAdminApprove(ctx: Context, orderId: string): Promis
 
     // Notify the buyer
     if (autoDeliveredItem) {
-      const rawTemplate = getSetting(
-        'gemini_instructions',
-        'After payment, you will receive a one-time activation link.\n\n1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.'
-      );
-      const deliveryText = `<b>Payment Confirmed — Order #${order.id}</b>\n\n` +
-        `Activation Link:\n<code>${autoDeliveredItem.payload}</code>\n\n` +
-        `<b>Instructions:</b>\n${rawTemplate}\n\n` +
-        `<i>Thank you for choosing Bighabesha Shop.</i>`;
-
+      const deliveryText = formatFulfillmentDeliveryMessage(order.id, autoDeliveredItem.payload);
       await ctx.api.sendMessage(order.user_id, deliveryText, { parse_mode: 'HTML' }).catch((err) => {
         logger.error({ err, userId: order.user_id }, 'Failed to deliver payload to buyer');
       });
     } else {
-      const notifyText = `<b>Payment Verified for Order #${order.id}</b>\n\n` +
+      const notifyText = `<b>Payment Verified for Order #${escapeHtml(order.id)}</b>\n\n` +
         `Your order has been queued for fulfillment to <b>@${escapeHtml(order.username || 'your account')}</b>.\n` +
         `You will receive a notification once the transfer is completed.`;
 
@@ -409,13 +447,25 @@ async function performResellerDelivery(ctx: Context, order: Order, adminId: numb
   const adminUsername = ctx.from?.username ? `@${escapeHtml(ctx.from.username)}` : `Admin (${adminId})`;
   const outcome = await deliverWithReseller(order.id, adminId, ctx.api);
 
+  if (!outcome.delivered && outcome.error === 'Order is already being processed') {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({
+        text: '⚠️ Order is already being processed by another worker.',
+        show_alert: true,
+      }).catch(() => {});
+    } else {
+      await ctx.reply('⚠️ Order is already being processed by another worker.');
+    }
+    return;
+  }
+
   const statusText = outcome.delivered
-    ? `<b>Order <code>${order.id}</code> Approved by ${adminUsername}</b>\n` +
+    ? `<b>Order <code>${escapeHtml(order.id)}</code> Approved by ${adminUsername}</b>\n` +
       `• Status: FULFILLED\n` +
       `• Amount: ${formatPriceETB(order.amount_etb)}\n` +
       `• Delivered via <b>${escapeHtml(outcome.order.reseller_provider || 'reseller')}</b>` +
       (outcome.order.reseller_tx_id ? `\n• Provider Tx: <code>${escapeHtml(outcome.order.reseller_tx_id)}</code>` : '')
-    : `<b>Order <code>${order.id}</code> — Delivery Failed</b>\n` +
+    : `<b>Order <code>${escapeHtml(order.id)}</code> — Delivery Failed</b>\n` +
       `• Approved by ${adminUsername}\n` +
       `• Amount: ${formatPriceETB(order.amount_etb)}\n` +
       `• Error: ${escapeHtml(outcome.error || 'Unknown')}`;
@@ -432,14 +482,14 @@ async function performResellerDelivery(ctx: Context, order: Order, adminId: numb
 
   if (outcome.delivered) {
     const targetUsername = outcome.order.target_username || outcome.order.username || 'your account';
-    const notifyText = `<b>Payment Confirmed — Order #${order.id}</b>\n\n` +
+    const notifyText = `<b>Payment Confirmed — Order #${escapeHtml(order.id)}</b>\n\n` +
       `🎉 Your <b>Telegram Premium</b> has been activated on <b>@${escapeHtml(targetUsername)}</b>.\n\n` +
       `<i>Thank you for choosing Bighabesha Shop!</i>`;
     await ctx.api.sendMessage(order.user_id, notifyText, { parse_mode: 'HTML' }).catch((err) => {
       logger.error({ err, userId: order.user_id }, 'Failed to notify buyer of successful delivery');
     });
   } else {
-    const notifyText = `<b>Payment Verified for Order #${order.id}</b>\n\n` +
+    const notifyText = `<b>Payment Verified for Order #${escapeHtml(order.id)}</b>\n\n` +
       `Your order has been approved but delivery encountered a temporary issue.\n` +
       `Our team is resolving it — you will receive an update shortly.`;
     await ctx.api.sendMessage(order.user_id, notifyText, { parse_mode: 'HTML' }).catch((err) => {
@@ -522,6 +572,8 @@ export async function notifyAdminsNewReceipt(ctx: Context, order: Order): Promis
     .text('✅ Approve & Deliver', `admin_approve_${order.id}`)
     .text('Reject', `admin_reject_${order.id}`);
 
+  const { caption: photoCaption, overflow: photoOverflow } = splitTelegramCaption(caption, 1024);
+
   for (const adminId of config.ADMIN_IDS) {
     let sentPhoto = false;
     if (order.receipt_file_id) {
@@ -531,18 +583,24 @@ export async function notifyAdminsNewReceipt(ctx: Context, order: Order): Promis
         const diskReceipt = resolveStoredReceiptPath(order.receipt_file_id);
         if (diskReceipt) {
           await ctx.api.sendPhoto(adminId, new InputFile(diskReceipt), {
-            caption,
+            caption: photoCaption,
             parse_mode: 'HTML',
             reply_markup: keyboard,
           });
           sentPhoto = true;
+          if (photoOverflow) {
+            await ctx.api.sendMessage(adminId, photoOverflow, { parse_mode: 'HTML' }).catch(() => {});
+          }
         } else {
           await ctx.api.sendPhoto(adminId, order.receipt_file_id, {
-            caption,
+            caption: photoCaption,
             parse_mode: 'HTML',
             reply_markup: keyboard,
           });
           sentPhoto = true;
+          if (photoOverflow) {
+            await ctx.api.sendMessage(adminId, photoOverflow, { parse_mode: 'HTML' }).catch(() => {});
+          }
         }
       } catch (photoErr) {
         logger.warn({ err: photoErr, adminId, orderId: order.id }, 'Failed to send photo receipt, falling back to text');
