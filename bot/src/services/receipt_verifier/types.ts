@@ -436,6 +436,12 @@ export interface ReceiptSubmission {
   directReference?: string;
   /** Optional user note or SMS caption */
   note?: string;
+  /** Optional administrative audit note (distinct from user note so not parsed as bank text) */
+  auditNote?: string;
+  /** Optional existing file path on disk (avoids redundant re-persistence on reverify) */
+  existingFilePath?: string;
+  /** Optional existing SHA-256 hash of the receipt file */
+  existingFileHash?: string;
   /** Client IP address for rate limiting and audit */
   ipAddress?: string;
 }

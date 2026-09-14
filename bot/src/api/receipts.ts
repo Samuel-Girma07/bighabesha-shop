@@ -5,6 +5,7 @@ import { validateTelegramInitData } from './auth.js';
 import { requireAdminAuth, requirePermission } from './admin.js';
 import { ensureAdminRow } from '../auth/permissions.js';
 import { getOrderById } from '../services/orders.service.js';
+import { isResellerEligible, deliverWithReseller } from '../services/reseller.service.js';
 import { getReceiptOrchestrator } from '../services/receipt_verifier/index.js';
 import { getAuditsForOrder } from '../db/receipt_evidence.dao.js';
 import { RFC7807_BASE_URL } from '../services/receipt_verifier/constants.js';
@@ -463,6 +464,12 @@ adminReceiptsRouter.post(
     try {
       const result = await orchestrator.reverifyOrder(orderId, adminId);
       if (result.success) {
+        const order = getOrderById(orderId);
+        if (order && isResellerEligible(order)) {
+          void deliverWithReseller(order.id, adminId).catch((err) => {
+            logger.warn({ orderId, err }, 'Async reseller fulfillment after re-verification failed');
+          });
+        }
         res.status(200).json(result);
       } else {
         const statusCode = result.error?.status || 422;

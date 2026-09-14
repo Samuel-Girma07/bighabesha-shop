@@ -125,6 +125,12 @@ export class GramixAdapter extends HttpResellerProviderBase {
     try {
       response = await this.getJson<GramixBalanceResponse>('wallets/balance');
     } catch (err) {
+      if (err instanceof HttpError && err.status === 401) {
+        throw new ProviderUnavailableError(
+          this.name,
+          'Gramix API key unauthorized or invalid (HTTP 401). Check GRAMIX_API_KEY.'
+        );
+      }
       throw this.toUnavailable(err);
     }
 
@@ -144,6 +150,12 @@ export class GramixAdapter extends HttpResellerProviderBase {
   private mapFulfillError(err: unknown, params: ResellerFulfillParams): Error {
     if (err instanceof HttpError) {
       const body = err.body ?? '';
+      if (err.status === 401) {
+        return new ProviderUnavailableError(
+          this.name,
+          'Gramix API key unauthorized or invalid (HTTP 401). Check GRAMIX_API_KEY.'
+        );
+      }
       if (err.status === 403 || err.status === 402 || /insufficient|balance|funds/i.test(body)) {
         return new InsufficientFloatError(this.name);
       }

@@ -6,6 +6,7 @@ import { setSetting, getSetting } from '../../services/settings.service.js';
 import { isAdmin, renderAdminProducts, renderAdminRates, renderAdminSettings, renderAdminStock } from './admin.js';
 import { submitReceipt, rejectReceipt, getOrderById, fulfillOrderWithProof, refundOrder, sanitizeUsername, InvalidUsernameError, Order } from '../../services/orders.service.js';
 import { notifyAdminsNewReceipt, initiateCheckout } from './checkout.js';
+import { getUserById } from '../../services/users.service.js';
 import { previewBroadcastDraft } from './broadcast.js';
 import { renderAdminOrdersQueue } from './admin_queue.js';
 import { escapeHtml, splitTelegramCaption, formatFulfillmentDeliveryMessage } from '../../utils/html.js';
@@ -253,7 +254,7 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
     return true;
   }
 
-  // Direct reference or SMS text for user_receipt_upload
+  // Strictly reject plain text when user is in receipt upload mode (must upload photo/screenshot/document)
   if (session.type === 'user_receipt_upload') {
     const { orderId } = session.data as { orderId: string };
     const targetOrder = getOrderById(orderId);
@@ -267,30 +268,29 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
       await ctx.reply(`⚠️ Cannot submit receipt: order is already <b>${escapeHtml(targetOrder.status)}</b>.`, { parse_mode: 'HTML' });
       return true;
     }
-    clearPendingAction(userId);
 
-    try {
-      const orchestrator = await getOrchestrator();
-      const result = await orchestrator.processSubmission({
-        orderId,
-        userId,
-        source: 'sms_forward',
-        directReference: text,
-        note: text,
-      });
-
-      if (result.success) {
-        await sendVerificationSuccessReply(ctx, orderId, targetOrder, result);
-        return true;
-      }
-
-      await sendVerificationFallbackReply(ctx, orderId, `text:${Date.now()}`, text);
-      return true;
-    } catch (err: unknown) {
-      logger.error({ err, orderId }, 'Failed to process submitted reference text');
-      await sendVerificationFallbackReply(ctx, orderId, `text:${Date.now()}`, text);
+    if (text === '/cancel' || text.toLowerCase() === 'cancel') {
+      clearPendingAction(userId);
+      await ctx.reply('❌ Receipt upload cancelled.');
       return true;
     }
+
+    // Keep the pending action armed so user can still upload photo/doc
+    setPendingAction(userId, session, 15);
+
+    const user = getUserById(userId);
+    const isAmharic = user?.language_code === 'am' || ctx.from?.language_code?.startsWith('am');
+
+    const rejectionMsg = isAmharic
+      ? `⚠️ <b>እባክዎ የደረሰኝ ፎቶ ወይም ዶክመንት (PDF) ይላኩ</b>\n\n` +
+        `ጽሑፍ እንደ ክፍያ ማረጋገጫ ተቀባይነት የለውም። እባክዎ የተላለፈበትን ማረጋገጫ ፎቶ፣ ስክሪንሾት ወይም ዶክመንት (PDF) ይላኩ።\n\n` +
+        `<i>ለመሰረዝ <b>/cancel</b> ይፃፉ።</i>`
+      : `⚠️ <b>Please upload a receipt photo or document (PDF)</b>\n\n` +
+        `Plain text messages cannot be accepted as payment receipts. Please send a photo, screenshot, or PDF file of your transfer confirmation.\n\n` +
+        `<i>Type <b>/cancel</b> to abort.</i>`;
+
+    await ctx.reply(rejectionMsg, { parse_mode: 'HTML' });
+    return true;
   }
 
 

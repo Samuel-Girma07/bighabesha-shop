@@ -344,11 +344,11 @@ export async function promptReceiptUpload(ctx: Context, orderId: string): Promis
   const text = isAmharic
     ? `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
       `📤 <b>የክፍያ ደረሰኝ መላኪያ — ትዕዛዝ <code>${order.id}</code></b>\n\n` +
-      `እባክዎ የተላለፈበትን ማረጋገጫ ፎቶ / ስክሪንሾት / ዶክመንት (QR ኮድ ያለበትን) ወይም የትራንዛክሽን ቁጥሩን በዚህ ቻት ውስጥ ይላኩ።\n\n` +
+      `እባክዎ የተላለፈበትን ማረጋገጫ ፎቶ / ስክሪንሾት / ዶክመንት (QR ኮድ ያለበትን) በዚህ ቻት ውስጥ ይላኩ።\n\n` +
       `⚡ <i>አውቶሜትድ ሲስተማችን የደረሰኙን QR ኮድ አንብቦ በሰከንዶች ውስጥ አረጋግጦ ወዲያውኑ ያስረክባል።</i>`
     : `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
       `📤 <b>Upload Transfer Slip — Order <code>${order.id}</code></b>\n\n` +
-      `Please send a photo / screenshot / document of your transaction confirmation (with QR code) or transaction code in this chat.\n\n` +
+      `Please send a photo / screenshot / document of your transaction confirmation (with QR code) in this chat.\n\n` +
       `⚡ <i>Our automated verification engine will scan the QR code and fulfill your order instantly.</i>`;
 
   const keyboard = new InlineKeyboard().text(isAmharic ? '« ተመለስ' : '« Cancel', `pay_manual_${order.payment_rail}_${order.id}`);
