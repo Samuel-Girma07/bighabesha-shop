@@ -5,7 +5,7 @@ import { validateTelegramInitData } from './auth.js';
 import { requireAdminAuth, requirePermission } from './admin.js';
 import { ensureAdminRow } from '../auth/permissions.js';
 import { getOrderById } from '../services/orders.service.js';
-import { isResellerEligible, deliverWithReseller } from '../services/reseller.service.js';
+import { isResellerEligible, deliverWithReseller, triggerAutoResellerDelivery } from '../services/reseller.service.js';
 import { getReceiptOrchestrator } from '../services/receipt_verifier/index.js';
 import { invalidate } from '../services/cache.service.js';
 import { getAuditsForOrder } from '../db/receipt_evidence.dao.js';
@@ -19,6 +19,13 @@ import {
   ReceiptVerificationError,
 } from '../services/receipt_verifier/types.js';
 import { logger } from '../logger/index.js';
+import { notifyAdminsVerificationFallback } from '../bot/handlers/checkout.js';
+import type { Bot } from 'grammy';
+
+let botInstance: Bot | null = null;
+export function setReceiptsBotInstance(bot: Bot): void {
+  botInstance = bot;
+}
 
 export const receiptsRouter: Router = Router();
 export const adminReceiptsRouter: Router = Router();
@@ -260,8 +267,18 @@ receiptsRouter.post('/verify', async (req: Request, res: Response): Promise<void
     });
 
     if (result.success) {
+      if (isResellerEligible(order)) {
+        void triggerAutoResellerDelivery(order.id, botInstance?.api).catch((err) => {
+          logger.warn({ orderId: order.id, err }, 'Async reseller fulfillment after webapp verification failed');
+        });
+      }
       res.status(200).json(result);
     } else {
+      if (botInstance) {
+        void notifyAdminsVerificationFallback(botInstance, order, result).catch((err) => {
+          logger.warn({ orderId: order.id, err }, 'Failed sending fallback alert to admins for webapp submission');
+        });
+      }
       const statusCode = result.error?.status || 422;
       res.setHeader('Content-Type', 'application/problem+json');
       res.status(statusCode).json(result.error);
@@ -472,7 +489,9 @@ adminReceiptsRouter.post(
           invalidate('bootstrap:catalog');
         }
         if (order && isResellerEligible(order)) {
-          void deliverWithReseller(order.id, adminId).catch((err) => {
+          // Use the notifying wrapper so the buyer gets an activation/delay notice and admins get a
+          // failure alert card on this path too (previously this route delivered silently).
+          void triggerAutoResellerDelivery(order.id, botInstance?.api, { actorAdminId: adminId }).catch((err) => {
             logger.warn({ orderId, err }, 'Async reseller fulfillment after re-verification failed');
           });
         }

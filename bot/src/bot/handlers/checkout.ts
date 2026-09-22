@@ -1,9 +1,10 @@
-import { Context, InlineKeyboard, InputFile } from 'grammy';
+import { Context, InlineKeyboard, InputFile, Api, RawApi } from 'grammy';
 import { getProductById, formatPriceETB } from '../../services/catalog.service.js';
 import { getAvailableStockCount } from '../../services/stock.service.js';
 import { resolveStoredReceiptPath } from '../../services/receipts.service.js';
 import { createOrder, getOrderById, updateOrderMeta, updateOrderStatus, approveReceipt, PaymentRail, Order } from '../../services/orders.service.js';
-import { isResellerEligible, deliverWithReseller, deliveryFailedKeyboard } from '../../services/reseller.service.js';
+import { isResellerEligible, deliverWithReseller, deliveryFailedKeyboard, triggerAutoResellerDelivery } from '../../services/reseller.service.js';
+import type { VerificationResult } from '../../services/receipt_verifier/types.js';
 import { resolveOrderPrice, PricingError } from '../../services/pricing.service.js';
 import { getSetting } from '../../services/settings.service.js';
 import { setPendingAction } from '../session.js';
@@ -434,7 +435,13 @@ export async function performAdminApprove(ctx: Context, orderId: string): Promis
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     logger.error({ err, orderId }, 'Error during admin approval');
-    await ctx.reply(`Could not approve order: ${escapeHtml(message)}`);
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({
+        text: `❌ Approval Failed: ${message}`,
+        show_alert: true,
+      }).catch(() => {});
+    }
+    await ctx.reply(`❌ <b>Approval Failed:</b> ${escapeHtml(message)}`, { parse_mode: 'HTML' });
   }
 }
 
@@ -618,4 +625,238 @@ export async function notifyAdminsNewReceipt(ctx: Context, order: Order): Promis
       }
     }
   }
+}
+
+/**
+ * Interactive Alert Card for when automated receipt verification fails or flags potential fraud.
+ * Implements Phase 2: Diagnostic Error Taxonomy, 4-Pillar breakdown, and actionable keyboard.
+ */
+export async function notifyAdminsVerificationFallback(
+  ctxOrApi: Context | { api: Api<RawApi> },
+  order: Order,
+  result: VerificationResult,
+  overrideReceiptFileId?: string
+): Promise<void> {
+  const api = 'api' in ctxOrApi ? ctxOrApi.api : (ctxOrApi as Context).api;
+  const config = getConfig();
+  const product = getProductById(order.product_id);
+  const productName = product ? product.name : order.product_id;
+
+  const failureCode = result.error?.code || 'INTERNAL_ENGINE_ERROR';
+  const isSecurityFail = [
+    'RECEIPT_ALREADY_USED',
+    'BENEFICIARY_MISMATCH',
+    'AMOUNT_MISMATCH',
+    'RECEIPT_EXPIRED',
+  ].includes(failureCode);
+
+  const icon = isSecurityFail ? '🚨' : (failureCode === 'QR_DECODE_FAILED' ? '⚠️' : '🌐');
+  const banner = isSecurityFail
+    ? 'SECURITY GATE FAILURE (POTENTIAL FRAUD / REPLAY)'
+    : (failureCode === 'QR_DECODE_FAILED' ? 'QR DECODE FAILED (UNREADABLE / NO QR)' : 'UPSTREAM BANK PORTAL FAILURE');
+
+  let gateBreakdown = '';
+  if (result.securityGateResult?.evaluations) {
+    const evals = result.securityGateResult.evaluations;
+    const p1 = evals.find((e) => e.pillar === 'anti_replay');
+    const p2 = evals.find((e) => e.pillar === 'beneficiary_whitelist');
+    const p3 = evals.find((e) => e.pillar === 'exact_amount');
+    const p4 = evals.find((e) => e.pillar === 'recency_window');
+
+    gateBreakdown =
+      `\n<b>4-Pillar Security Evaluation:</b>\n` +
+      `${p1?.passed ? '✅' : '❌'} Anti-Replay: ${escapeHtml(p1?.details || 'N/A')}\n` +
+      `${p2?.passed ? '✅' : '❌'} Beneficiary: ${escapeHtml(p2?.details || 'N/A')}\n` +
+      `${p3?.passed ? '✅' : '❌'} Amount Parity: ${escapeHtml(p3?.details || 'N/A')}\n` +
+      `${p4?.passed ? '✅' : '❌'} Recency Window: ${escapeHtml(p4?.details || 'N/A')}\n`;
+  }
+
+  const caption =
+    `${icon} <b>${banner}</b>\n\n` +
+    `• <b>Order ID:</b> <code>#${escapeHtml(order.id)}</code>\n` +
+    `• <b>Buyer:</b> @${escapeHtml(order.username || 'unknown')} (ID: <code>${order.user_id}</code>)\n` +
+    (order.target_username ? `• <b>Target:</b> @${escapeHtml(order.target_username)}\n` : '') +
+    `• <b>Product:</b> ${escapeHtml(productName)}\n` +
+    `• <b>Payable:</b> <b>${formatPriceETB(order.amount_etb)}</b>\n` +
+    `• <b>Rail:</b> ${(result.bank || order.payment_rail || 'unknown').toUpperCase()}\n` +
+    (typeof result.extractedData?.confidence === 'number'
+      ? `• <b>Decode Confidence:</b> ${(result.extractedData.confidence * 100).toFixed(0)}% ` +
+        `<i>(QR/OCR read quality — not a fraud score)</i>\n`
+      : '') +
+    `• <b>Extracted Ref:</b> <code>${escapeHtml(result.transactionReference || 'None / Unreadable')}</code>\n` +
+    gateBreakdown +
+    `\n<b>Diagnostic Code:</b> <code>${escapeHtml(failureCode)}</code>\n` +
+    `<b>Detail:</b> <i>${escapeHtml(result.error?.detail || 'Verification gate rejected submission.')}</i>\n` +
+    (result.error?.remediation_hint ? `<b>Remediation:</b> <i>${escapeHtml(result.error.remediation_hint)}</i>\n` : '') +
+    `\n<i>Select an action to resolve this order:</i>`;
+
+  const keyboard = new InlineKeyboard()
+    .text('🔄 Re-Verify', `admin_reverify_${order.id}`)
+    .text('🔍 Evidence', `admin_view_evidence_${order.id}`)
+    .row()
+    .text('⚠️ Force Approve', `admin_approve_${order.id}`)
+    .text('❌ Reject', `admin_reject_${order.id}`);
+
+  const { caption: photoCaption, overflow: photoOverflow } = splitTelegramCaption(caption, 1024);
+  const fileIdToUse = overrideReceiptFileId || order.receipt_file_id;
+
+  for (const adminId of config.ADMIN_IDS) {
+    let sentPhoto = false;
+    if (fileIdToUse) {
+      try {
+        const diskReceipt = resolveStoredReceiptPath(fileIdToUse);
+        if (diskReceipt) {
+          await api.sendPhoto(adminId, new InputFile(diskReceipt), {
+            caption: photoCaption,
+            parse_mode: 'HTML',
+            reply_markup: keyboard,
+          });
+          sentPhoto = true;
+          if (photoOverflow) {
+            await api.sendMessage(adminId, photoOverflow, { parse_mode: 'HTML' }).catch(() => {});
+          }
+        } else {
+          await api.sendPhoto(adminId, fileIdToUse, {
+            caption: photoCaption,
+            parse_mode: 'HTML',
+            reply_markup: keyboard,
+          });
+          sentPhoto = true;
+          if (photoOverflow) {
+            await api.sendMessage(adminId, photoOverflow, { parse_mode: 'HTML' }).catch(() => {});
+          }
+        }
+      } catch (photoErr) {
+        logger.warn({ err: photoErr, adminId, orderId: order.id }, 'Failed to send photo in fallback alert, falling back to text');
+      }
+    }
+
+    if (!sentPhoto) {
+      try {
+        await api.sendMessage(adminId, caption, {
+          parse_mode: 'HTML',
+          reply_markup: keyboard,
+        });
+      } catch (err) {
+        logger.error({ err, adminId, orderId: order.id }, 'Failed to send fallback alert to admin via text');
+      }
+    }
+  }
+}
+
+/**
+ * Admin [Re-Verify] callback: re-runs the automated verification engine on demand.
+ */
+export async function handleAdminReverify(ctx: Context, orderId: string): Promise<void> {
+  const adminId = ctx.from?.id;
+  if (!adminId) return;
+
+  if (!isAdmin(adminId, 'orders.decide')) {
+    logger.warn({ adminId, orderId }, 'Admin without orders.decide attempted receipt re-verification');
+    await ctx
+      .answerCallbackQuery({ text: '❌ You do not have permission to re-verify orders.', show_alert: true })
+      .catch(() => {});
+    return;
+  }
+
+  const order = getOrderById(orderId);
+  if (!order) {
+    await ctx.answerCallbackQuery({ text: 'Order not found.', show_alert: true });
+    return;
+  }
+
+  await ctx.answerCallbackQuery({ text: '🔄 Running automated bank re-verification...' });
+
+  try {
+    const { getReceiptOrchestrator } = await import('../../services/receipt_verifier/index.js');
+    const orchestrator = getReceiptOrchestrator();
+    const result = await orchestrator.reverifyOrder(orderId, adminId);
+
+    if (result.success) {
+      const refreshedOrder = getOrderById(orderId) || order;
+      if (isResellerEligible(refreshedOrder) && ctx.api) {
+        void triggerAutoResellerDelivery(refreshedOrder.id, ctx.api).catch((err) => {
+          logger.error({ err, orderId: refreshedOrder.id }, 'Unhandled error in triggerAutoResellerDelivery after re-verification');
+        });
+      }
+
+      const statusText =
+        `✅ <b>Order <code>${escapeHtml(order.id)}</code> Re-Verified Successfully!</b>\n\n` +
+        `• <b>Bank:</b> ${(result.bank || order.payment_rail || 'bank').toUpperCase()}\n` +
+        `• <b>Ref:</b> <code>${escapeHtml(result.transactionReference || 'n/a')}</code>\n` +
+        `• <b>Verified Amount:</b> ${formatPriceETB(result.bankPayload?.amountEtb || order.amount_etb)}\n` +
+        `• <b>Status:</b> ${refreshedOrder.status.toUpperCase()}`;
+
+      if (ctx.callbackQuery?.message) {
+        if (ctx.callbackQuery.message.photo) {
+          await ctx.editMessageCaption({ caption: statusText, parse_mode: 'HTML' }).catch(() => {});
+        } else {
+          await ctx.editMessageText(statusText, { parse_mode: 'HTML' }).catch(() => {});
+        }
+      } else {
+        await ctx.reply(statusText, { parse_mode: 'HTML' });
+      }
+    } else {
+      const errDetail = result.error?.detail || 'Re-verification failed';
+      await ctx.answerCallbackQuery({ text: `❌ Failed: ${errDetail}`, show_alert: true }).catch(() => {});
+      await notifyAdminsVerificationFallback(ctx, order, result);
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ err, orderId }, 'Admin re-verification failed with error');
+    await ctx.answerCallbackQuery({ text: `❌ Re-verify error: ${msg}`, show_alert: true }).catch(() => {});
+  }
+}
+
+/**
+ * Displays full JSON raw audit trail and bank HTML/PDF attributes in chat.
+ */
+export async function renderAdminEvidenceDetail(ctx: Context, orderId: string): Promise<void> {
+  const adminId = ctx.from?.id;
+  if (!adminId) return;
+
+  if (!isAdmin(adminId, 'orders.view')) {
+    logger.warn({ adminId, orderId }, 'Admin without orders.view attempted evidence viewing');
+    await ctx
+      .answerCallbackQuery({ text: '❌ You do not have permission to view verification evidence.', show_alert: true })
+      .catch(() => {});
+    return;
+  }
+
+  const { getReceiptOrchestrator } = await import('../../services/receipt_verifier/index.js');
+  const orchestrator = getReceiptOrchestrator();
+  const audit = await orchestrator.getAuditRecord(orderId);
+
+  if (!audit) {
+    await ctx.answerCallbackQuery({ text: 'No audit evidence recorded for this order.', show_alert: true });
+    return;
+  }
+
+  const evals = audit.securityGateEvaluations || [];
+  const evalText = evals.length > 0
+    ? evals.map((e) => `${e.passed ? '✅' : '❌'} ${e.pillar}: ${e.details}`).join('\n')
+    : 'None evaluated';
+
+  const detailText =
+    `📋 <b>Verification Audit Evidence — Order <code>${escapeHtml(orderId)}</code></b>\n\n` +
+    `• <b>Status:</b> <code>${escapeHtml(audit.status)}</code>\n` +
+    `• <b>Bank:</b> ${audit.bank.toUpperCase()}\n` +
+    `• <b>Ref:</b> <code>${escapeHtml(audit.normalizedReference || audit.rawReference || 'n/a')}</code>\n` +
+    `• <b>Order Amount:</b> ${formatPriceETB(audit.amountEtb || 0)}\n` +
+    `• <b>Verified Amount:</b> ${audit.verifiedAmountEtb ? formatPriceETB(audit.verifiedAmountEtb) : 'N/A'}\n` +
+    `• <b>Beneficiary:</b> <code>${escapeHtml(audit.beneficiaryAccount || 'N/A')}</code>\n` +
+    `• <b>Source:</b> <code>${escapeHtml(audit.source)}</code>\n` +
+    `• <b>Error Code:</b> <code>${escapeHtml(audit.errorCode || 'NONE')}</code>\n\n` +
+    `<b>Pillar Evaluations:</b>\n${evalText}\n\n` +
+    `<i>Captured at: ${escapeHtml(audit.createdAt ? new Date(audit.createdAt).toLocaleString('en-US') : 'unknown')}</i>`;
+
+  const keyboard = new InlineKeyboard()
+    .text('🔄 Re-Verify', `admin_reverify_${orderId}`)
+    .text('⚠️ Force Approve', `admin_approve_${orderId}`)
+    .row()
+    .text('❌ Reject', `admin_reject_${orderId}`)
+    .text('Back to Queue', 'admin_orders_queue');
+
+  await ctx.reply(detailText, { parse_mode: 'HTML', reply_markup: keyboard });
+  await ctx.answerCallbackQuery().catch(() => {});
 }

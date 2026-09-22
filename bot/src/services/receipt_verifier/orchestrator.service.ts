@@ -30,6 +30,7 @@ import {
   DEFAULT_RECENCY_AFTER_MINUTES,
   RFC7807_BASE_URL,
   DEFAULT_ERROR_INSTANCE,
+  parseUtcTimestamp,
 } from './constants.js';
 import {
   IReceiptOrchestrator,
@@ -153,7 +154,7 @@ export class ReceiptOrchestrator implements IReceiptOrchestrator {
           userId: order.user_id,
           netPayableEtb,
           paymentRail: bankPayload.bank,
-          orderCreatedAt: new Date(order.created_at),
+          orderCreatedAt: parseUtcTimestamp(order.created_at),
         },
         bankPayload
       );

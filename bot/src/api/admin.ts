@@ -27,6 +27,9 @@ import {
   KNOWN_SETTING_KEYS,
   validateVerificationSettings,
 } from '../services/settings.service.js';
+import { refreshReceiptOrchestratorSettings } from '../services/receipt_verifier/index.js';
+import { containsCircuitBreakerSettingKey } from '../services/receipt_verifier/constants.js';
+
 import { getAllUsers } from '../services/users.service.js';
 import {
   getBroadcastTargets,
@@ -43,6 +46,7 @@ import { forecastForStockProduct } from '../services/analytics.service.js';
 import { monthlyPnl } from '../services/profit.service.js';
 import { createPromoCode, listPromoCodes } from '../services/promo.service.js';
 import { isResellerEligible, deliverWithReseller } from '../services/reseller.service.js';
+import { ReceiptAlreadyUsedError } from '../services/receipt_verifier/types.js';
 
 export const adminRouter: Router = Router();
 
@@ -717,9 +721,11 @@ adminRouter.post('/orders/:id/approve', requireAdminAuth, requirePermission('ord
   const orderId = req.params.id as string;
   const adminId = (req as any).adminSession.adminId;
 
+  const { reference } = req.body || {};
+
   try {
-    const { order, autoDeliveredItem } = approveReceipt(orderId, adminId);
-    recordAudit({ adminId, action: 'order.approve', targetType: 'order', targetId: orderId, changes: { newStatus: order.status, autoDelivered: Boolean(autoDeliveredItem) }, ip: req.ip });
+    const { order, autoDeliveredItem } = approveReceipt(orderId, adminId, { reference });
+    recordAudit({ adminId, action: 'order.approve', targetType: 'order', targetId: orderId, changes: { newStatus: order.status, autoDelivered: Boolean(autoDeliveredItem), reference }, ip: req.ip });
 
     invalidate('admin:overview');
     invalidate('userstats:' + order.user_id);
@@ -752,6 +758,14 @@ adminRouter.post('/orders/:id/approve', requireAdminAuth, requirePermission('ord
   } catch (err: any) {
     if (err instanceof OutOfStockError) {
       res.status(409).json({ error: err.message });
+      return;
+    }
+    if (err instanceof ReceiptAlreadyUsedError) {
+      res.status(409).json({
+        error: err.message,
+        code: 'RECEIPT_ALREADY_USED',
+        problemDetails: err.problemDetails,
+      });
       return;
     }
     res.status(400).json({ error: err.message });
@@ -972,6 +986,12 @@ adminRouter.put('/settings', requireAdminAuth, requirePermission('settings.write
 
   // Invalidate cached bootstrap catalog so public settings refresh immediately in memory
   invalidate('bootstrap:catalog');
+  // Re-apply admin-tunable verification settings (circuit breaker threshold / cooldown) to the
+  // live adapter instances so operators do not need a process restart for changes to take effect.
+  if (containsCircuitBreakerSettingKey(changedKeys)) {
+    refreshReceiptOrchestratorSettings();
+  }
+
 
   recordAudit({
     adminId: (req as any).adminSession?.adminId ?? 'unknown',

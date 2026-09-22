@@ -20,8 +20,8 @@ export class CircuitBreaker {
   private state: CircuitBreakerState = 'CLOSED';
   private failureCount: number = 0;
   private lastFailureTime: number = 0;
-  private readonly failureThreshold: number;
-  private readonly cooldownMs: number;
+  private failureThreshold: number;
+  private cooldownMs: number;
   private readonly name: string;
 
   constructor(options: CircuitBreakerOptions = {}) {
@@ -109,5 +109,41 @@ export class CircuitBreaker {
     this.state = 'CLOSED';
     this.failureCount = 0;
     this.lastFailureTime = 0;
+  }
+
+  /**
+   * Applies admin-tunable runtime configuration without discarding the breaker's current state
+   * or failure counters. Non-integer / out-of-range values are ignored so a bad setting cannot
+   * disable protection (e.g. threshold 0 or a negative cooldown).
+   */
+  public applyConfig(options: CircuitBreakerOptions): void {
+    const { failureThreshold, cooldownMs } = options;
+
+    if (
+      typeof failureThreshold === 'number' &&
+      Number.isInteger(failureThreshold) &&
+      failureThreshold >= 1
+    ) {
+      this.failureThreshold = failureThreshold;
+    }
+
+    if (typeof cooldownMs === 'number' && Number.isFinite(cooldownMs) && cooldownMs >= 0) {
+      this.cooldownMs = cooldownMs;
+    }
+
+    logger.info(
+      { name: this.name, failureThreshold: this.failureThreshold, cooldownMs: this.cooldownMs },
+      'Circuit breaker runtime configuration applied'
+    );
+  }
+
+  /** Configured consecutive-failure count required before the breaker trips OPEN. */
+  public getFailureThreshold(): number {
+    return this.failureThreshold;
+  }
+
+  /** Configured cooldown window in milliseconds before a HALF_OPEN probe is permitted. */
+  public getCooldownMs(): number {
+    return this.cooldownMs;
   }
 }

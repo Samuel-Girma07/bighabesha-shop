@@ -3,9 +3,10 @@ import { getPendingAction, setPendingAction, clearPendingAction } from '../sessi
 import { formatPriceETB, updateVariantPrice, getProductById } from '../../services/catalog.service.js';
 import { addStockLink, importStockCSV, getTotalStockCount } from '../../services/stock.service.js';
 import { setSetting, getSetting } from '../../services/settings.service.js';
+import { isCircuitBreakerSettingKey } from '../../services/receipt_verifier/constants.js';
 import { isAdmin, renderAdminProducts, renderAdminRates, renderAdminSettings, renderAdminStock } from './admin.js';
 import { submitReceipt, rejectReceipt, getOrderById, fulfillOrderWithProof, refundOrder, sanitizeUsername, InvalidUsernameError, Order } from '../../services/orders.service.js';
-import { notifyAdminsNewReceipt, initiateCheckout } from './checkout.js';
+import { notifyAdminsNewReceipt, notifyAdminsVerificationFallback, initiateCheckout } from './checkout.js';
 import { getUserById } from '../../services/users.service.js';
 import { previewBroadcastDraft } from './broadcast.js';
 import { renderAdminOrdersQueue } from './admin_queue.js';
@@ -15,6 +16,7 @@ import { parseBankSms, matchSmsToOrders } from '../../services/sms_parser.servic
 import { getDatabase } from '../../db/index.js';
 import { renderPaymentRailSelection } from './checkout.js';
 import { getConfig } from '../../config/env.js';
+import { isResellerEligible, triggerAutoResellerDelivery } from '../../services/reseller.service.js';
 import type { ReceiptMimeType, VerificationResult, IReceiptOrchestrator } from '../../services/receipt_verifier/types.js';
 
 const MAX_RECEIPT_BUFFER_SIZE_BYTES = 10 * 1024 * 1024;
@@ -90,20 +92,92 @@ async function sendVerificationSuccessReply(
   }
 }
 
+function formatBuyerFailureReply(result: VerificationResult, order: Order): string {
+  const failureCode = result.error?.code;
+  const orderId = order.id;
+
+  switch (failureCode) {
+    case 'RECEIPT_ALREADY_USED':
+      return (
+        `⚠️ <b>Payment Verification Notice (Order #${escapeHtml(orderId)})</b>\n\n` +
+        `This payment receipt / transaction reference has already been used for a previous order.\n\n` +
+        `Our administrators have been notified with the transaction details for manual review. ` +
+        `If you believe this is an error, please contact support.`
+      );
+
+    case 'BENEFICIARY_MISMATCH':
+      return (
+        `⚠️ <b>Payment Verification Notice (Order #${escapeHtml(orderId)})</b>\n\n` +
+        `Automated verification detected that this transfer was sent to an account that does not match our official store accounts.\n\n` +
+        `Our administrators have been notified and will verify the transfer details manually.`
+      );
+
+    case 'AMOUNT_MISMATCH': {
+      const paidEtb = result.bankPayload?.amountEtb;
+      const amountDetails = paidEtb
+        ? `Transferred amount detected: <b>${formatPriceETB(paidEtb)}</b> (Order required: <b>${formatPriceETB(order.amount_etb)}</b>).\n\n`
+        : `The transferred amount does not match the required order total (${formatPriceETB(order.amount_etb)}).\n\n`;
+      return (
+        `⚠️ <b>Payment Verification Notice (Order #${escapeHtml(orderId)})</b>\n\n` +
+        amountDetails +
+        `Our administrators have been notified for manual review.`
+      );
+    }
+
+    case 'RECEIPT_EXPIRED':
+      return (
+        `⚠️ <b>Payment Verification Notice (Order #${escapeHtml(orderId)})</b>\n\n` +
+        `The timestamp on this receipt appears to be outside the accepted transaction window.\n\n` +
+        `Our administrators have been notified and will review your receipt manually.`
+      );
+
+    case 'QR_DECODE_FAILED':
+      return (
+        `⚠️ <b>Receipt Received — Manual Review Required (Order #${escapeHtml(orderId)})</b>\n\n` +
+        `We could not automatically read the QR code on your receipt screenshot (it may be blurry, cropped, or not contain a valid bank QR).\n\n` +
+        `Your receipt has been submitted to our administrators for manual review. You will receive an update shortly.`
+      );
+
+    case 'BANK_PORTAL_UNAVAILABLE':
+    case 'PORTAL_GEOBLOCKED':
+      return (
+        `⚠️ <b>Receipt Received — Bank Portal Inactive (Order #${escapeHtml(orderId)})</b>\n\n` +
+        `The bank confirmation service is temporarily unavailable or taking too long to respond.\n\n` +
+        `Your receipt has been forwarded to our administrators for manual verification. You will be notified as soon as it is approved!`
+      );
+
+    default: {
+      const detail = result.error?.detail || 'Verification could not be completed automatically.';
+      return (
+        `⚠️ <b>Receipt Received — Pending Manual Review (Order #${escapeHtml(orderId)})</b>\n\n` +
+        `Automated verification could not confirm your transfer (${escapeHtml(detail)}).\n\n` +
+        `Our administrators have been notified and will review your receipt shortly.`
+      );
+    }
+  }
+}
+
 async function sendVerificationFallbackReply(
   ctx: Context,
   orderId: string,
   receiptRefOrFileId: string,
-  note?: string
+  note?: string,
+  result?: VerificationResult
 ): Promise<void> {
   const updatedOrder = submitReceipt(orderId, receiptRefOrFileId, note);
-  await ctx.reply(
-    `✅ <b>Receipt Received! (Order #${escapeHtml(updatedOrder.id)})</b>\n\n` +
-      `Thank you! Our administrators have been notified and will verify your transfer shortly.\n` +
-      `You will receive a message with your subscription / coins as soon as it is approved.`,
-    { parse_mode: 'HTML' }
-  );
-  await notifyAdminsNewReceipt(ctx, updatedOrder);
+  if (result) {
+    const buyerMsg = formatBuyerFailureReply(result, updatedOrder);
+    await ctx.reply(buyerMsg, { parse_mode: 'HTML' });
+    await notifyAdminsVerificationFallback(ctx, updatedOrder, result, receiptRefOrFileId);
+  } else {
+    await ctx.reply(
+      `✅ <b>Receipt Received! (Order #${escapeHtml(updatedOrder.id)})</b>\n\n` +
+        `Thank you! Our administrators have been notified and will verify your transfer shortly.\n` +
+        `You will receive a message with your subscription / coins as soon as it is approved.`,
+      { parse_mode: 'HTML' }
+    );
+    await notifyAdminsNewReceipt(ctx, updatedOrder);
+  }
 }
 
 
@@ -473,6 +547,14 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
 
       clearPendingAction(userId);
       setSetting(settingKey, text);
+
+      // Circuit breaker thresholds are cached in the live adapter instances; re-apply them so the
+      // operator's change takes effect immediately instead of on the next process restart.
+      if (isCircuitBreakerSettingKey(settingKey)) {
+        const { refreshReceiptOrchestratorSettings } = await import('../../services/receipt_verifier/index.js');
+        refreshReceiptOrchestratorSettings();
+      }
+
       await ctx.reply(`✅ Setting <code>${escapeHtml(settingKey)}</code> has been updated to: <b>${escapeHtml(text)}</b>`, { parse_mode: 'HTML' });
 
       if (settingKey.startsWith('cbe') || settingKey.startsWith('telebirr') || settingKey.startsWith('abyssinia') || settingKey === 'low_stock_threshold') {
@@ -588,10 +670,15 @@ export async function handlePhotoInput(ctx: Context): Promise<boolean> {
 
       if (result.success) {
         await sendVerificationSuccessReply(ctx, orderId, targetOrder, result);
+        if (isResellerEligible(targetOrder) && ctx.api) {
+          void triggerAutoResellerDelivery(targetOrder.id, ctx.api).catch((err) => {
+            logger.error({ err, orderId: targetOrder.id }, 'Unhandled error in triggerAutoResellerDelivery for photo receipt');
+          });
+        }
         return true;
       }
 
-      await sendVerificationFallbackReply(ctx, orderId, largestPhoto.file_id, caption);
+      await sendVerificationFallbackReply(ctx, orderId, largestPhoto.file_id, caption, result);
       return true;
     } catch (err: unknown) {
       logger.error({ err, orderId }, 'Failed to process submitted receipt');
@@ -662,10 +749,15 @@ export async function handleDocumentInput(ctx: Context): Promise<boolean> {
 
       if (result.success) {
         await sendVerificationSuccessReply(ctx, orderId, targetOrder, result);
+        if (isResellerEligible(targetOrder) && ctx.api) {
+          void triggerAutoResellerDelivery(targetOrder.id, ctx.api).catch((err) => {
+            logger.error({ err, orderId: targetOrder.id }, 'Unhandled error in triggerAutoResellerDelivery for document receipt');
+          });
+        }
         return true;
       }
 
-      await sendVerificationFallbackReply(ctx, orderId, doc.file_id, caption);
+      await sendVerificationFallbackReply(ctx, orderId, doc.file_id, caption, result);
       return true;
     } catch (err: unknown) {
       logger.error({ err, orderId }, 'Failed to process submitted document receipt');

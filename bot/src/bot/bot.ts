@@ -41,6 +41,8 @@ import {
   promptAdminReject,
   handleRetryDelivery,
   renderPaymentRailSelection,
+  handleAdminReverify,
+  renderAdminEvidenceDetail,
 } from './handlers/checkout.js';
 import { isUsernameRequired, hasPublicUsername, renderUsernameGate, handleGateRecheck, renderRecipientSelection, handleRecipientSelf, handleRecipientGift } from './handlers/gate.js';
 import { renderMyOrders, renderOrderDetail, renderLanguageMenu, handleSetLanguage } from './handlers/orders.js';
@@ -546,6 +548,12 @@ export function createBot(token: string): Bot {
     } else if (data.startsWith('admin_refund_')) {
       const orderId = data.replace('admin_refund_', '');
       await promptQueueRefund(ctx, orderId);
+    } else if (data.startsWith('admin_reverify_')) {
+      const orderId = data.replace('admin_reverify_', '');
+      await handleAdminReverify(ctx, orderId);
+    } else if (data.startsWith('admin_view_evidence_')) {
+      const orderId = data.replace('admin_view_evidence_', '');
+      await renderAdminEvidenceDetail(ctx, orderId);
     } else if (data === 'action_sold_out' || data.startsWith('sold_out_')) {
       await ctx.answerCallbackQuery({
         text: '⚠️ Sold Out: This product is currently unavailable. Please check back soon!',

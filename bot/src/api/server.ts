@@ -54,7 +54,7 @@ import { claimIdempotencyKey, recordIdempotentResult, isFirstDelivery } from './
 import { getConfig } from '../config/env.js';
 import { logger } from '../logger/index.js';
 import { adminRouter, setAdminBotInstance } from './admin.js';
-import { receiptsRouter, adminReceiptsRouter } from './receipts.js';
+import { receiptsRouter, adminReceiptsRouter, setReceiptsBotInstance } from './receipts.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -192,8 +192,9 @@ export function createExpressApp(bot: Bot): express.Express {
   const app = express();
   const config = getConfig();
 
-  // Bind bot instance to admin routes for sending Telegram 2FA codes and buyer notifications
+  // Bind bot instance to admin and receipts routes for sending Telegram 2FA codes and buyer notifications
   setAdminBotInstance(bot);
+  setReceiptsBotInstance(bot);
 
   const trustProxy = resolveTrustProxySetting(config.TRUST_PROXY);
   if (trustProxy !== undefined) {

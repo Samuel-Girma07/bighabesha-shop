@@ -6,6 +6,8 @@ import {
   DEFAULT_RECENCY_BEFORE_MINUTES,
   DEFAULT_RECENCY_AFTER_MINUTES,
   DEFAULT_AMOUNT_TOLERANCE_ETB,
+  parseEthiopianBankTimestamp,
+  parseUtcTimestamp,
 } from './constants.js';
 import {
   ISecurityGate,
@@ -122,9 +124,11 @@ export class SecurityGateService implements ISecurityGate {
       minutesAfter: getNumericSetting('receipt_recency_after_mins', DEFAULT_RECENCY_AFTER_MINUTES),
     };
 
-    const passed = this.assertRecency(order.orderCreatedAt, bankPayload.transactionTimestamp, recencyConfig);
+    const orderDate = parseUtcTimestamp(order.orderCreatedAt);
+    const txDate = parseEthiopianBankTimestamp(bankPayload.transactionTimestamp);
+    const passed = this.assertRecency(orderDate, txDate, recencyConfig);
     const diffMinutes = Math.round(
-      (bankPayload.transactionTimestamp.getTime() - order.orderCreatedAt.getTime()) / MILLISECONDS_IN_MINUTE
+      (txDate.getTime() - orderDate.getTime()) / MILLISECONDS_IN_MINUTE
     );
 
     return {
@@ -208,8 +212,11 @@ export class SecurityGateService implements ISecurityGate {
     const beforeMins = windowMinutes?.minutesBefore ?? DEFAULT_RECENCY_BEFORE_MINUTES;
     const afterMins = windowMinutes?.minutesAfter ?? DEFAULT_RECENCY_AFTER_MINUTES;
 
-    const orderTime = orderCreatedAt.getTime();
-    const txTime = txTimestamp.getTime();
+    const orderDate = parseUtcTimestamp(orderCreatedAt);
+    const txDate = parseEthiopianBankTimestamp(txTimestamp);
+
+    const orderTime = orderDate.getTime();
+    const txTime = txDate.getTime();
 
     const minAllowed = orderTime - beforeMins * MILLISECONDS_IN_MINUTE;
     const maxAllowed = orderTime + afterMins * MILLISECONDS_IN_MINUTE;
