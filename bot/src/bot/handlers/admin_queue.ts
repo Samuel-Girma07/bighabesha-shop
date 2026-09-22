@@ -6,6 +6,7 @@ import { setPendingAction } from '../session.js';
 import { escapeHtml, formatFulfillmentDeliveryMessage } from '../../utils/html.js';
 import { logger } from '../../logger/index.js';
 import { isResellerEligible, deliverWithReseller } from '../../services/reseller.service.js';
+import { safeEditMessage } from '../utils/safe_edit.js';
 
 export async function renderAdminOrdersQueue(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
@@ -21,11 +22,7 @@ export async function renderAdminOrdersQueue(ctx: Context): Promise<void> {
 
     keyboard.text('« Back to Admin Menu', 'admin_menu');
 
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-    } else {
-      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-    }
+  await safeEditMessage(ctx, text, keyboard);
     return;
   }
 
@@ -49,11 +46,7 @@ export async function renderAdminOrdersQueue(ctx: Context): Promise<void> {
 
   keyboard.text('« Back to Admin Menu', 'admin_menu');
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function renderAdminQueueOrderDetail(ctx: Context, orderId: string): Promise<void> {
@@ -99,11 +92,7 @@ export async function renderAdminQueueOrderDetail(ctx: Context, orderId: string)
     .row()
     .text('« Back to Queue', 'admin_orders_queue');
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function promptQueueProof(ctx: Context, orderId: string): Promise<void> {
@@ -121,11 +110,7 @@ export async function promptQueueProof(ctx: Context, orderId: string): Promise<v
 
   const keyboard = new InlineKeyboard().text('❌ Cancel', `admin_queue_detail_${orderId}`);
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function executeDirectFulfill(ctx: Context, orderId: string): Promise<void> {
@@ -194,11 +179,7 @@ export async function promptQueueRefund(ctx: Context, orderId: string): Promise<
 
   const keyboard = new InlineKeyboard().text('❌ Cancel', `admin_queue_detail_${orderId}`);
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function handleAdminQueueResellerDeliver(ctx: Context, orderId: string): Promise<void> {
@@ -252,11 +233,7 @@ export async function handleAdminQueueResellerDeliver(ctx: Context, orderId: str
       });
 
       const keyboard = new InlineKeyboard().text('« Back to Queue', 'admin_orders_queue');
-      if (ctx.callbackQuery?.message) {
-        await ctx.editMessageText(successText, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => {});
-      } else {
-        await ctx.reply(successText, { parse_mode: 'HTML', reply_markup: keyboard });
-      }
+      await safeEditMessage(ctx, successText, keyboard);
     } else {
       if (outcome.error === 'Order is already being processed') {
         if (ctx.callbackQuery) {
@@ -291,11 +268,7 @@ export async function handleAdminQueueResellerDeliver(ctx: Context, orderId: str
         .row()
         .text('« Back to Queue', 'admin_orders_queue');
 
-      if (ctx.callbackQuery?.message) {
-        await ctx.editMessageText(failText, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => {});
-      } else {
-        await ctx.reply(failText, { parse_mode: 'HTML', reply_markup: keyboard });
-      }
+      await safeEditMessage(ctx, failText, keyboard);
     }
   } catch (err: any) {
     logger.error({ err, orderId }, 'Unexpected exception during reseller delivery');

@@ -14,47 +14,15 @@ import { getDatabase } from '../../db/index.js';
 import { getUserById } from '../../services/users.service.js';
 import { escapeHtml, splitTelegramCaption, formatFulfillmentDeliveryMessage } from '../../utils/html.js';
 import { logger } from '../../logger/index.js';
+import { safeEditMessage } from '../utils/safe_edit.js';
+
+// Re-exported for backward compatibility with modules that imported it from here.
+export { safeEditMessage };
 
 const VALID_PAYMENT_RAILS: PaymentRail[] = ['wallet_pay', 'chapa', 'ton_connect', 'telebirr', 'cbe', 'abyssinia'];
 
 export function isValidPaymentRail(rail: string): rail is PaymentRail {
   return (VALID_PAYMENT_RAILS as string[]).includes(rail);
-}
-
-/**
- * Universal safe message editor: handles both photo caption edits and text edits,
- * falling back gracefully to reply if Telegram rejects message in-place modification.
- */
-export async function safeEditMessage(
-  ctx: Context,
-  text: string,
-  keyboard?: InlineKeyboard
-): Promise<void> {
-  const parse_mode = 'HTML' as const;
-  const reply_markup = keyboard;
-
-  if (ctx.callbackQuery?.message) {
-    const msg = ctx.callbackQuery.message;
-    if (msg.photo || msg.video || msg.document || msg.audio) {
-      try {
-        await ctx.editMessageCaption({ caption: text, parse_mode, reply_markup });
-        return;
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.warn({ err: message }, 'Failed to editMessageCaption, attempting reply');
-      }
-    } else {
-      try {
-        await ctx.editMessageText(text, { parse_mode, reply_markup });
-        return;
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.warn({ err: message }, 'Failed to editMessageText, attempting reply');
-      }
-    }
-  }
-
-  await ctx.reply(text, { parse_mode, reply_markup });
 }
 
 export async function initiateCheckout(
@@ -188,7 +156,6 @@ export async function renderPaymentRailSelection(ctx: Context, order: Order, pro
     .text(isAmharic ? `📱 ቴሌብር` : `📱 Telebirr`, `pay_manual_telebirr_${order.id}`)
     .text(isAmharic ? `🏦 የኢትዮጵያ ንግድ ባንክ (CBE)` : `🏦 CBE Bank`, `pay_manual_cbe_${order.id}`)
     .row()
-    .text(isAmharic ? `🏛 አቢሲኒያ ባንክ` : `🏛 Bank of Abyssinia`, `pay_manual_abyssinia_${order.id}`)
     .text(isAmharic ? `🏷 የቅናሽ ኮድ${discount > 0 ? ' ✓' : ''}` : `🏷 Promo Code${discount > 0 ? ' ✓' : ''}`, `promo_prompt_${order.id}`)
     .row()
     .text(isAmharic ? '« ትዕዛዝ ሰርዝ' : '« Cancel Order', 'nav_shop');
@@ -199,7 +166,7 @@ export async function renderPaymentRailSelection(ctx: Context, order: Order, pro
 /** Chapa hosted checkout (deprecated). */
 export async function handleChapaPayment(ctx: Context, orderId: string): Promise<void> {
   await ctx.answerCallbackQuery({
-    text: 'Card (Chapa) payments are discontinued. Please choose Telebirr, CBE Bank, or Bank of Abyssinia.',
+    text: 'Card (Chapa) payments are discontinued. Please choose Telebirr or CBE Bank.',
     show_alert: true,
   }).catch(() => {});
   const order = getOrderById(orderId);
@@ -212,7 +179,7 @@ export async function handleChapaPayment(ctx: Context, orderId: string): Promise
 /** TON Connect instructions (deprecated). */
 export async function handleTonConnect(ctx: Context, orderId: string): Promise<void> {
   await ctx.answerCallbackQuery({
-    text: 'TON Connect payments are discontinued. Please choose Telebirr, CBE Bank, or Bank of Abyssinia.',
+    text: 'TON Connect payments are discontinued. Please choose Telebirr or CBE Bank.',
     show_alert: true,
   }).catch(() => {});
   const order = getOrderById(orderId);
@@ -225,7 +192,7 @@ export async function handleTonConnect(ctx: Context, orderId: string): Promise<v
 /** Wallet Pay checkout (deprecated). */
 export async function handleWalletPay(ctx: Context, orderId: string): Promise<void> {
   await ctx.answerCallbackQuery({
-    text: 'Wallet Pay is discontinued. Please choose Telebirr, CBE Bank, or Bank of Abyssinia.',
+    text: 'Wallet Pay is discontinued. Please choose Telebirr or CBE Bank.',
     show_alert: true,
   }).catch(() => {});
   const order = getOrderById(orderId);
@@ -302,8 +269,8 @@ export async function handleManualRail(ctx: Context, rail: 'telebirr' | 'cbe' | 
       `• <b>የሂሳብ / ስልክ ቁጥር፦</b> <code>${escapeHtml(accountNum)}</code> <i>(ለመቅዳት ይጫኑ)</i>\n` +
       `• <b>የሂሳብ ስም፦</b> <b>${escapeHtml(accountName)}</b>\n` +
       `• <b>የትራንስፈር ማስታወሻ (Reason)፦</b> <code>${order.id}</code>\n\n` +
-      `<blockquote>⚡ <b>ፈጣን አውቶሜትድ ማረጋገጫ፦</b>\nየከፈሉበትን ደረሰኝ (QR ኮድ ያለበትን ስክሪንሾት ወይም PDF) በመላክ በሰከንዶች ውስጥ ያረጋግጡ እና ትዕዛዝዎን ወዲያውኑ ይቀበሉ!</blockquote>\n\n` +
-      `<blockquote>📸 የከፈሉበትን ደረሰኝ ስክሪንሾት በማንሳት ከታች <b>[የክፍያ ደረሰኝ ላክ]</b> የሚለውን ይጫኑ።</blockquote>`
+      `<blockquote>⚡ <b>ፈጣን አውቶሜትድ ማረጋገጫ፦</b>\n1️⃣ ትክክለኛውን መጠን ወደ ላይኛው ሂሳብ ያስተላልፉ።\n2️⃣ ከባንክ / ከቴሌብር የማረጋገጫ <b>SMS</b> ይደርስዎታል።\n3️⃣ ያንን SMS እዚህ ይላኩ — አግብረው (forward) ወይም ሙሉውን ጽሑፍ ቅድተው ይላኩ፣ ወይም የትራንዛክሽን ቁጥሩን ብቻ ይፃፉ።\nትራንዛክሽኑን በቀጥታ ከባንክ እናረጋግጣለን እና ትዕዛዝዎን ወዲያውኑ እናስረክባለን!</blockquote>\n\n` +
+      `<blockquote>💬 ከከፈሉ በኋላ ከታች <b>[የማረጋገጫ SMS ላክ]</b> የሚለውን ተጭነው የደረሰዎትን SMS ይላኩ። ፎቶ / ስክሪንሾት አይቀበሉም።</blockquote>`
     : `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
       `🏦 <b>Payment via ${escapeHtml(railTitle)}</b>\n\n` +
       `Please transfer exactly <b>${formatPriceETB(netAmount)}</b> to:\n\n` +
@@ -311,11 +278,11 @@ export async function handleManualRail(ctx: Context, rail: 'telebirr' | 'cbe' | 
       `• <b>Account / Phone:</b> <code>${escapeHtml(accountNum)}</code> <i>(Tap to copy)</i>\n` +
       `• <b>Account Name:</b> <b>${escapeHtml(accountName)}</b>\n` +
       `• <b>Payment Reference:</b> <code>${order.id}</code>\n\n` +
-      `<blockquote>⚡ <b>Instant Verification:</b>\nUpload your receipt screenshot (with QR code) or PDF for instant automated verification and delivery!</blockquote>\n\n` +
-      `<blockquote>📸 Take a screenshot of your transfer confirmation, then tap <b>[Upload Transfer Receipt]</b> below.</blockquote>`;
+      `<blockquote>⚡ <b>Instant Automatic Verification:</b>\n1️⃣ Transfer the exact amount to the account above.\n2️⃣ You will receive a confirmation <b>SMS</b> from the bank / Telebirr.\n3️⃣ Send that SMS here — forward it or copy-paste the full text, or just type the transaction reference number.\nWe verify the transaction directly with the bank and deliver your order instantly!</blockquote>\n\n` +
+      `<blockquote>💬 After paying, tap <b>[Send Confirmation SMS]</b> below and send the SMS you received. Photos / screenshots are not accepted.</blockquote>`;
 
   const keyboard = new InlineKeyboard()
-    .text(isAmharic ? '📸 የክፍያ ደረሰኝ ላክ' : '📸 Upload Transfer Receipt', `receipt_prompt_${order.id}`)
+    .text(isAmharic ? '💬 የማረጋገጫ SMS ላክ' : '💬 Send Confirmation SMS', `receipt_prompt_${order.id}`)
     .row()
     .text(isAmharic ? '« የክፍያ ዘዴ ቀይር' : '« Change Payment Method', `checkout_back_${order.id}`);
 
@@ -339,18 +306,24 @@ export async function promptReceiptUpload(ctx: Context, orderId: string): Promis
 
   setPendingAction(userId, {
     type: 'user_receipt_upload',
-    data: { orderId: order.id },
+    data: { orderId: order.id, attempts: 0 },
   });
 
   const text = isAmharic
     ? `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
-      `📤 <b>የክፍያ ደረሰኝ መላኪያ — ትዕዛዝ <code>${order.id}</code></b>\n\n` +
-      `እባክዎ የተላለፈበትን ማረጋገጫ ፎቶ / ስክሪንሾት / ዶክመንት (QR ኮድ ያለበትን) በዚህ ቻት ውስጥ ይላኩ።\n\n` +
-      `⚡ <i>አውቶሜትድ ሲስተማችን የደረሰኙን QR ኮድ አንብቦ በሰከንዶች ውስጥ አረጋግጦ ወዲያውኑ ያስረክባል።</i>`
+      `📤 <b>የክፍያ ማረጋገጫ ይላኩ — ትዕዛዝ <code>${order.id}</code></b>\n\n` +
+      `ከከፈሉ በኋላ ከባንክ / ከቴሌብር የደረሰዎትን <b>የማረጋገጫ SMS</b> ይላኩ፦\n` +
+      `• SMS ዑን እዚህ ቻት <b>አግብረው (forward)</b> ወይም ሙሉ ጽሑፉን ቅድተው ይላኩ\n` +
+      `• ወይም የትራንዛክሽን ቁጥሩን ብቻ ይፃፉ (ለ CBE ምሳሌ፦ <code>FT26...</code>)\n\n` +
+      `⚡ <i>ትራንዛክሽኑን በቀጥታ ከባንክ እናረጋግጣለን እና ትዕዛዝዎን በራስ-ሰር እናስረክባለን። እስከ 3 ጊዜ መሞከር ይችላሉ።</i>\n` +
+      `📷 <i>ፎቶዎች እና ስክሪንሾቶች አይቀበሉም — የ SMS ጽሑፍ ብቻ።</i>`
     : `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
-      `📤 <b>Upload Transfer Slip — Order <code>${order.id}</code></b>\n\n` +
-      `Please send a photo / screenshot / document of your transaction confirmation (with QR code) in this chat.\n\n` +
-      `⚡ <i>Our automated verification engine will scan the QR code and fulfill your order instantly.</i>`;
+      `📤 <b>Send Payment Confirmation — Order <code>${order.id}</code></b>\n\n` +
+      `After paying, send the <b>confirmation SMS</b> you received from the bank / Telebirr:\n` +
+      `• <b>Forward</b> the SMS to this chat, or copy-paste its full text\n` +
+      `• Or simply type the transaction reference number (e.g. <code>FT26...</code> for CBE)\n\n` +
+      `⚡ <i>We verify the transaction directly with the bank and deliver your order automatically. You have up to 3 attempts.</i>\n` +
+      `📷 <i>Photos and screenshots are no longer accepted — SMS text only.</i>`;
 
   const keyboard = new InlineKeyboard().text(isAmharic ? '« ተመለስ' : '« Cancel', `pay_manual_${order.payment_rail}_${order.id}`);
 

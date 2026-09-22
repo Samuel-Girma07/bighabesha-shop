@@ -52,7 +52,7 @@ import { getOrderById, approveReceipt, updateOrderStatus, InvalidOrderTransition
 import { findThreadByTopic, insertSupportMessage, SUPPORT_MAX_MESSAGE_LENGTH } from '../services/support.service.js';
 import { setPendingAction } from './session.js';
 import { getProductById, formatPriceETB } from '../services/catalog.service.js';
-import { isUserRegistered } from '../services/users.service.js';
+import { isUserRegistered, getUserById } from '../services/users.service.js';
 import { getConfig } from '../config/env.js';
 import { escapeHtml, formatFulfillmentDeliveryMessage } from '../utils/html.js';
 import { previewUserText } from '../logger/index.js';
@@ -488,7 +488,7 @@ export function createBot(token: string): Bot {
       data.startsWith('pay_ton_')
     ) {
       await ctx.answerCallbackQuery({
-        text: 'This payment method has been discontinued. Please choose Telebirr, CBE Bank, or Bank of Abyssinia.',
+        text: 'This payment method has been discontinued. Please choose Telebirr or CBE Bank.',
         show_alert: true,
       });
       const orderId = data.split('_').pop();
@@ -510,17 +510,6 @@ export function createBot(token: string): Bot {
         setPendingAction(userId, { type: 'promo_entry', data: { orderId } });
         await ctx.reply(
           `🏷 <b>Enter Promo Code</b>\n\nSend the code for order <code>${escapeHtml(orderId)}</code> in your next message.\n<i>Example: WELCOME10</i>`,
-          { parse_mode: 'HTML' }
-        );
-      }
-    } else if (data.startsWith('sms_verify_')) {
-      const orderId = data.replace('sms_verify_', '');
-      const userId = ctx.from?.id;
-      if (userId) {
-        setPendingAction(userId, { type: 'user_sms_forward', data: { orderId } });
-        await ctx.reply(
-          `📱 <b>CBE SMS Verification</b>\n\nForward the CBE debit SMS for order <code>${escapeHtml(orderId)}</code> in your next message.\n\n` +
-          `<i>We match the amount automatically — an administrator still verifies every payment.</i>`,
           { parse_mode: 'HTML' }
         );
       }
@@ -555,8 +544,12 @@ export function createBot(token: string): Bot {
       const orderId = data.replace('admin_view_evidence_', '');
       await renderAdminEvidenceDetail(ctx, orderId);
     } else if (data === 'action_sold_out' || data.startsWith('sold_out_')) {
+      const soldOutUser = userId ? getUserById(userId) : null;
+      const soldOutIsAm = (soldOutUser?.language_code || (ctx.from?.language_code?.startsWith('am') ? 'am' : 'en')) === 'am';
       await ctx.answerCallbackQuery({
-        text: '⚠️ Sold Out: This product is currently unavailable. Please check back soon!',
+        text: soldOutIsAm
+          ? '⚠️ አልቋል፦ ይህ ምርት በአሁኑ ጊዜ በክምችት ውስጥ የለም። እባክዎ በቅርቡ ተመልሰው ይመልከቱ!'
+          : '⚠️ Sold Out: This product is currently unavailable. Please check back soon!',
         show_alert: true,
       }).catch(() => {});
     } else if (data === 'admin_menu') {

@@ -106,7 +106,7 @@ export function formatWelcomeMessage(): string {
     `• <b>Gemini Pro (18 Months)</b> — Instant activation link with 2TB storage\n` +
     `• <b>Telegram Premium</b> — 3, 6, 12-month direct gifts to @username\n` +
     `• <b>Telegram Stars</b> — Flexible packages & custom amounts\n\n` +
-    `<i>⚡ Automated instant delivery via Telebirr, CBE, Abyssinia, Stars & Crypto.</i>`
+    `<i>⚡ Automated instant delivery via Telebirr & CBE Bank.</i>`
   );
 }
 
@@ -128,7 +128,7 @@ export function formatBankPaymentInstructions(options: {
     `• <b>Account / Phone:</b> <code>${escapeHtml(accountNum)}</code> <i>(Tap to copy)</i>\n` +
     `• <b>Account Name:</b> <b>${escapeHtml(accountName)}</b>\n` +
     `• <b>Payment Reference:</b> <code>${escapeHtml(orderId)}</code>\n\n` +
-    `<blockquote>📸 Take a screenshot of your transfer confirmation, then tap <b>[Upload Transfer Receipt]</b> below.</blockquote>`
+    `<blockquote>📸 After paying, forward the confirmation SMS or send the transaction reference here to verify your payment.</blockquote>`
   );
 }
 

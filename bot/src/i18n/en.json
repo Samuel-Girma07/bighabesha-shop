@@ -1,6 +1,6 @@
 {
   "start": {
-    "welcome": "*Welcome to Bighabesha Shop*\n\nDigital subscriptions and official Telegram services for Ethiopia.\n\n*Catalog:*\n• *Gemini Pro (18 Months)* — Instant automated delivery\n• *Telegram Premium* — 3, 6, or 12-month subscriptions\n• *Telegram Stars* — Packages & custom amounts\n\n*Supported Payment Rails:*\n• Telebirr, CBE Bank, Bank of Abyssinia\n• Telegram Stars (XTR)\n• Wallet Pay (TON / USDT)\n\nSelect an option below to proceed:",
+    "welcome": "*Welcome to Bighabesha Shop*\n\nDigital subscriptions and official Telegram services for Ethiopia.\n\n*Catalog:*\n• *Gemini Pro (18 Months)* — Instant automated delivery\n• *Telegram Premium* — 3, 6, or 12-month subscriptions\n• *Telegram Stars* — Packages & custom amounts\n\n*Supported Payment Rails:*\n• Telebirr, CBE Bank\n• Telegram Stars (XTR)\n• Wallet Pay (TON / USDT)\n\nSelect an option below to proceed:",
     "language_select": "*Please select your preferred language:*"
   },
   "menu": {
@@ -49,9 +49,9 @@
     "abyssinia_btn": "🏛 Bank of Abyssinia",
     "promo_btn": "🏷 Promo Code",
     "cancel_btn": "« Cancel Order",
-    "upload_receipt_btn": "📸 Upload Transfer Receipt",
+    "upload_receipt_btn": "💬 Send Confirmation SMS",
     "change_rail_btn": "« Change Payment Method",
-    "upload_prompt": "Please send a photo / screenshot / document of your transaction confirmation in this chat."
+    "upload_prompt": "After paying, send the confirmation SMS you received from the bank / Telebirr: forward it to this chat, paste the full text, or type only the transaction reference number. Photos and screenshots are no longer accepted."
   },
   "orders": {
     "status_delivered": "Delivered",

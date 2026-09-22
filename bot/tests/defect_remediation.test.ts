@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import path from 'path';
 import crypto from 'crypto';
 import http from 'http';
@@ -17,6 +17,7 @@ import { getLedgerBalance } from '../src/services/referral.service.js';
 import { isKnownSettingKey, getSetting, setSetting } from '../src/services/settings.service.js';
 import { setPendingAction } from '../src/bot/session.js';
 import { handleTextInput } from '../src/bot/handlers/input.js';
+import { setReceiptOrchestratorForTest, resetReceiptOrchestrator } from '../src/services/receipt_verifier/index.js';
 import { createApiServer } from '../src/api/server.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -323,7 +324,38 @@ describe('Domain Defect Remediation Suite', () => {
         paymentRail: 'cbe',
       });
 
-      setPendingAction(1001, { type: 'user_sms_forward', data: { orderId: order2.id } }, 10);
+      setPendingAction(1001, { type: 'user_receipt_upload', data: { orderId: order2.id, attempts: 0 } }, 10);
+
+      // The anti-replay pillar rejects the duplicate reference inside the orchestrator pipeline
+      setReceiptOrchestratorForTest({
+        processSubmission: vi.fn(async () => ({
+          success: false,
+          status: 'rejected' as const,
+          orderId: order2.id,
+          bank: 'cbe' as const,
+          transactionReference: 'FT260904003',
+          extractedData: {
+            bank: 'cbe' as const,
+            rawReference: 'FT260904003',
+            normalizedReference: 'FT260904003',
+            extractedAt: new Date(),
+            confidence: 0.9,
+            decodeMethod: 'sms_regex' as const,
+          },
+          error: {
+            type: 'https://example.test/problems/receipt-already-used',
+            title: 'Receipt Already Used',
+            status: 409,
+            detail: 'This transaction reference has already been consumed by a previous order.',
+            instance: '/',
+            code: 'RECEIPT_ALREADY_USED',
+            timestamp: new Date().toISOString(),
+          },
+          needsAdminReview: true,
+          verifiedAt: new Date(),
+          processingDurationMs: 1,
+        })),
+      } as any);
 
       let replyMsg = '';
       const mockCtx: any = {
@@ -332,12 +364,19 @@ describe('Domain Defect Remediation Suite', () => {
         reply: async (msg: string) => {
           replyMsg = msg;
         },
+        api: {
+          sendMessage: vi.fn(async () => ({})),
+          sendPhoto: vi.fn(async () => ({})),
+        },
       };
 
-      const handled = await handleTextInput(mockCtx);
-      expect(handled).toBe(true);
-      expect(replyMsg).toContain('Transaction Reference Already Used');
-      expect(replyMsg).toContain('already been matched to a previous order');
+      try {
+        const handled = await handleTextInput(mockCtx);
+        expect(handled).toBe(true);
+        expect(replyMsg).toContain('already been used for a previous order');
+      } finally {
+        resetReceiptOrchestrator();
+      }
     });
   });
 

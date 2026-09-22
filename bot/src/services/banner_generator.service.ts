@@ -232,7 +232,7 @@ export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'star
         <text x="125" y="114" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="700" fill="#10B981">SECURE SETTLEMENT</text>
 
         <text x="100" y="210" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="54" font-weight="800" fill="#FFFFFF">Payment Rails &amp; Verification</text>
-        <text x="100" y="260" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="24" font-weight="500" fill="#94A3B8">Instant verification via bank receipt upload or Telegram Stars &amp; Crypto</text>
+        <text x="100" y="260" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="24" font-weight="500" fill="#94A3B8">Instant verification via CBE / Telebirr SMS transaction reference</text>
 
         <g transform="translate(100, 330)">
           <rect x="0" y="0" width="230" height="150" rx="16" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
@@ -245,15 +245,10 @@ export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'star
           <text x="274" y="74" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">Mobile Money</text>
           <text x="274" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">${s.telebirrAccount}</text>
 
-          <rect x="500" y="0" width="230" height="150" rx="16" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
-          <text x="524" y="44" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="800" fill="#F59E0B">Abyssinia</text>
-          <text x="524" y="74" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">Bank of Abyssinia</text>
-          <text x="524" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">Verified Account</text>
-
-          <rect x="750" y="0" width="250" height="150" rx="16" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
-          <text x="774" y="44" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="800" fill="#38BDF8">Stars &amp; TON</text>
-          <text x="774" y="74" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">Native In-Chat Pay</text>
-          <text x="774" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#10B981">Auto-Settlement</text>
+          <rect x="500" y="0" width="500" height="150" rx="16" fill="#16202E" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
+          <text x="524" y="44" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="800" fill="#38BDF8">SMS Verification</text>
+          <text x="524" y="74" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="500" fill="#94A3B8">Forward the bank SMS or send the transaction reference</text>
+          <text x="524" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#10B981">Auto-Verified 24/7</text>
         </g>
       </svg>`;
     }
