@@ -109,8 +109,8 @@ export function matchSmsToOrders(
 ): SmsMatchResult {
   if (parsed.reference) {
     const existingMatched = db.prepare(`
-      SELECT id FROM receipt_evidence WHERE UPPER(TRIM(reference)) = UPPER(TRIM(?)) AND matched = 1
-    `).get(parsed.reference);
+      SELECT id FROM receipt_evidence WHERE reference = ? COLLATE NOCASE AND matched = 1
+    `).get(parsed.reference.trim());
     if (existingMatched) {
       return { matched: false, reason: 'reference_already_used' };
     }

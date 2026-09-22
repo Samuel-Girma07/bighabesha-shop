@@ -6,6 +6,7 @@ import { getNumericSetting } from './settings.service.js';
 export interface LifecycleResult {
   remindersSent: number;
   expiredCancelled: number;
+  pendingDispatches?: Promise<unknown>[];
 }
 
 /**
@@ -21,6 +22,7 @@ export function runLifecycleSweep(bot?: { api: { sendMessage: (id: number, text:
 
   // --- 1. Abandoned checkout reminders (exactly once per order) ------------
   let remindersSent = 0;
+  const pendingDispatches: Promise<unknown>[] = [];
   const remindable = db.prepare(`
     SELECT id, user_id, username FROM orders
     WHERE status = 'awaiting_payment'
@@ -32,21 +34,32 @@ export function runLifecycleSweep(bot?: { api: { sendMessage: (id: number, text:
 
   for (const order of remindable) {
     try {
-      if (bot && bot.botInfo?.username) {
-        const deepLink = `https://t.me/${bot.botInfo.username}?start=resume_${order.id}`;
-        bot.api
+      if (bot) {
+        const linkSnippet = bot.botInfo?.username
+          ? `\nTap to finish checkout securely:\nhttps://t.me/${bot.botInfo.username}?start=resume_${order.id}`
+          : '';
+        const dispatch = bot.api
           .sendMessage(
             order.user_id,
-            `⏰ <b>Complete your order</b>\n\nOrder <code>${order.id}</code> is still awaiting payment.\nTap to finish checkout securely:\n${deepLink}`,
+            `⏰ <b>Complete your order</b>\n\nOrder <code>${order.id}</code> is still awaiting payment.${linkSnippet}`,
             { parse_mode: 'HTML', disable_web_page_preview: true }
           )
-          .catch(() => {});
+          .then(() => {
+            db.prepare('UPDATE orders SET reminded_at = CURRENT_TIMESTAMP WHERE id = ?').run(order.id);
+          })
+          .catch((err: any) => {
+            logger.warn({ err, orderId: order.id }, 'Failed to deliver abandoned checkout reminder to buyer');
+          });
+        pendingDispatches.push(dispatch);
+        remindersSent++;
+      } else {
+        // Headless / test invocation without bot instance
+        db.prepare('UPDATE orders SET reminded_at = CURRENT_TIMESTAMP WHERE id = ?').run(order.id);
+        remindersSent++;
       }
-      remindersSent++;
     } catch {
       // Notification failures never block the bookkeeping below.
     }
-    db.prepare('UPDATE orders SET reminded_at = CURRENT_TIMESTAMP WHERE id = ?').run(order.id);
   }
 
   // --- 2. TTL sweeper: cancel long-abandoned unpaid orders -----------------

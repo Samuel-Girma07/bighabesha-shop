@@ -2,9 +2,11 @@ import * as cheerio from 'cheerio';
 import { logger } from '../../../logger/index.js';
 import { CircuitBreaker } from '../circuit_breaker.js';
 import { BaseBankAdapter } from './base.adapter.js';
+import { resolveCircuitBreakerConfig } from '../breaker_config.js';
 import {
   CBE_PERMITTED_HOSTNAMES,
   DEFAULT_BANK_NETWORK_TIMEOUT_MS,
+  parseEthiopianBankTimestamp,
 } from '../constants.js';
 import {
   SupportedBank,
@@ -33,8 +35,8 @@ const CBE_BEN_NAME_PATTERN = /(?:credited\s*to|receiver(?:\s*name)?|beneficiary(
 const CBE_SENDER_NAME_PATTERN = /(?:debited\s*from|payer(?:\s*name)?|sender(?:\s*name)?)\s*[:=]?\s*([^\r\n;0-9:]{1,80}?)(?:\r?\n|$|;|\baccount\b)/i;
 const CBE_SENDER_ACC_PATTERN = /(?:debited\s*account|payer\s*account|from\s*account)\s*[:=]?\s*([0-9*]{8,16})/i;
 
-const CBE_DATE_ISO_PATTERN = /([0-9]{4}-[0-9]{2}-[0-9]{2}(?:[\sT][0-9]{2}:[0-9]{2}:[0-9]{2})?)/;
-const CBE_DATE_SLASH_PATTERN = /([0-9]{2}\/[0-9]{2}\/[0-9]{4}(?:[\sT][0-9]{2}:[0-9]{2}:[0-9]{2})?)/;
+const CBE_DATE_ISO_PATTERN = /([0-9]{4}-[0-9]{2}-[0-9]{2}(?:[\sT][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[zZ]|[+-][0-9]{2}:?[0-9]{2})?)?)/;
+const CBE_DATE_SLASH_PATTERN = /([0-9]{2}\/[0-9]{2}\/[0-9]{4}(?:[\sT][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[zZ]|[+-][0-9]{2}:?[0-9]{2})?)?)/;
 
 const PDF_HEADER_MAGIC = '%PDF-';
 
@@ -46,10 +48,21 @@ export class CbeBankAdapter extends BaseBankAdapter {
   public readonly bankRail: SupportedBank = 'cbe';
 
   constructor(circuitBreaker?: CircuitBreaker) {
+    const { failureThreshold, cooldownMs } = resolveCircuitBreakerConfig();
     super(
-      circuitBreaker || new CircuitBreaker({ name: 'cbe_adapter', failureThreshold: 3, cooldownMs: 60_000 }),
+      circuitBreaker || new CircuitBreaker({ name: 'cbe_adapter', failureThreshold, cooldownMs }),
       DEFAULT_BANK_NETWORK_TIMEOUT_MS
     );
+  }
+
+  /**
+   * Re-reads admin-tunable circuit breaker settings (threshold + cooldown, stored in seconds)
+   * and applies them to the live breaker without discarding its current state. Invoked by the
+   * orchestrator façade after an Admin Dashboard settings change, so no process restart is needed.
+   */
+  public applyRuntimeSettings(): void {
+    const { failureThreshold, cooldownMs } = resolveCircuitBreakerConfig();
+    this.circuitBreaker.applyConfig({ failureThreshold, cooldownMs });
   }
 
   public canHandle(reference: ExtractedReceiptReference): boolean {
@@ -79,13 +92,33 @@ export class CbeBankAdapter extends BaseBankAdapter {
       operation: async (signal) => {
         logger.info({ targetUrl, ref: reference.normalizedReference }, 'Querying upstream CBE portal');
 
-        const response = await fetch(targetUrl, {
-          signal,
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
-            Accept: 'text/html,application/pdf,application/xhtml+xml,*/*',
-          },
-        });
+        let response: Response;
+        try {
+          response = await fetch(targetUrl, {
+            signal,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
+              Accept: 'text/html,application/pdf,application/xhtml+xml,*/*',
+            },
+          });
+        } catch (fetchErr: unknown) {
+          // Port 100 Outbound Firewall Resilience: Fallback to standard HTTPS port 443
+          // Do not attempt fallback if the request was aborted (timeout or cancellation)
+          const isAbort = signal.aborted || this.isAbortError(fetchErr);
+          if (!isAbort && targetUrl.includes(':100/')) {
+            const fallbackUrl = targetUrl.replace(':100/', '/');
+            logger.warn({ targetUrl, fallbackUrl, err: fetchErr }, 'CBE Port 100 query failed, attempting standard HTTPS port 443 fallback');
+            response = await fetch(fallbackUrl, {
+              signal,
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
+                Accept: 'text/html,application/pdf,application/xhtml+xml,*/*',
+              },
+            });
+          } else {
+            throw fetchErr;
+          }
+        }
 
         if (!response.ok) {
           throw new Error(`Upstream CBE responded with HTTP ${response.status} ${response.statusText}`);
@@ -267,10 +300,7 @@ export class CbeBankAdapter extends BaseBankAdapter {
   private extractTimestamp(text: string): Date {
     const dateMatch = text.match(CBE_DATE_ISO_PATTERN) || text.match(CBE_DATE_SLASH_PATTERN);
     if (dateMatch) {
-      const parsed = new Date(dateMatch[1]);
-      if (!isNaN(parsed.getTime())) {
-        return parsed;
-      }
+      return parseEthiopianBankTimestamp(dateMatch[1]);
     }
     return new Date();
   }

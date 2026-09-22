@@ -49,12 +49,12 @@ import { escapeHtml } from '../utils/html.js';
 import { isUsernameRequired } from '../bot/handlers/gate.js';
 import { notifyAdminsNewReceipt } from '../bot/handlers/checkout.js';
 import { getDatabase, prepared } from '../db/index.js';
-import { cachedSync } from '../services/cache.service.js';
+import { cachedSync, invalidate } from '../services/cache.service.js';
 import { claimIdempotencyKey, recordIdempotentResult, isFirstDelivery } from './idempotency.js';
 import { getConfig } from '../config/env.js';
 import { logger } from '../logger/index.js';
 import { adminRouter, setAdminBotInstance } from './admin.js';
-import { receiptsRouter, adminReceiptsRouter } from './receipts.js';
+import { receiptsRouter, adminReceiptsRouter, setReceiptsBotInstance } from './receipts.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -192,8 +192,9 @@ export function createExpressApp(bot: Bot): express.Express {
   const app = express();
   const config = getConfig();
 
-  // Bind bot instance to admin routes for sending Telegram 2FA codes and buyer notifications
+  // Bind bot instance to admin and receipts routes for sending Telegram 2FA codes and buyer notifications
   setAdminBotInstance(bot);
+  setReceiptsBotInstance(bot);
 
   const trustProxy = resolveTrustProxySetting(config.TRUST_PROXY);
   if (trustProxy !== undefined) {
@@ -865,6 +866,7 @@ function buildCatalogPayload() {
     }
     const order = created;
     recordIdempotentResult(idempotencyKey, order.id);
+    invalidate('admin:overview');
 
     res.status(201).json({ order, payUrl: undefined, saleApplied: resolved.saleApplied === true });
   });
@@ -900,7 +902,19 @@ function buildCatalogPayload() {
     });
   }
 
+  // 10. Centralized Express error-handling middleware
+  app.use(centralizedErrorHandler);
+
   return app;
+}
+
+export function centralizedErrorHandler(err: any, _req: Request, res: Response, _next: NextFunction): void {
+  if (res.headersSent) {
+    return _next(err);
+  }
+  logger.error({ err }, 'Unhandled API error in Express pipeline');
+  const status = typeof err.status === 'number' ? err.status : (typeof err.statusCode === 'number' ? err.statusCode : 500);
+  res.status(status).json({ error: err.message || 'Internal server error' });
 }
 
 export function createApiServer(bot: Bot): http.Server {

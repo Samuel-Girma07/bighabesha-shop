@@ -105,12 +105,15 @@ export async function deliverWithReseller(
       throw new ProviderUnavailableError('reseller', 'No reseller provider configured');
     }
 
+    const actorType = adminId === 0 ? 'system' : 'admin';
+    const actorIdStr = adminId === 0 ? 'auto_verifier' : String(adminId);
+
     // Ensure order is transitioned into processing before invoking provider or failing delivery
     if (order.status !== 'processing') {
       updateOrderStatus(orderId, 'processing', {
         reseller_provider: provider.name,
         reseller_error: null,
-      }, { actorType: 'admin', actorId: String(adminId), note: `Delivery started via ${provider.name}` });
+      }, { actorType, actorId: actorIdStr, note: `Delivery started via ${provider.name}` });
     }
 
     const rawTarget = order.target_username || order.username;
@@ -119,7 +122,7 @@ export async function deliverWithReseller(
       const updated = updateOrderStatus(orderId, 'delivery_failed', {
         reseller_provider: provider.name,
         reseller_error: 'No target @username recorded for this order.',
-      }, { actorType: 'admin', actorId: String(adminId) });
+      }, { actorType, actorId: actorIdStr });
       return { order: updated, delivered: false, error: 'No target username' };
     }
 
@@ -128,7 +131,7 @@ export async function deliverWithReseller(
       const updated = updateOrderStatus(orderId, 'delivery_failed', {
         reseller_provider: provider.name,
         reseller_error: 'Could not determine Premium term (months) from variant.',
-      }, { actorType: 'admin', actorId: String(adminId) });
+      }, { actorType, actorId: actorIdStr });
       return { order: updated, delivered: false, error: 'Unknown premium term' };
     }
 
@@ -145,7 +148,7 @@ export async function deliverWithReseller(
         reseller_tx_id: result.providerTxId || null,
         fulfillment_payload: `Telegram Premium ${months}M activated on @${targetUsername}`,
         fulfillment_proof: result.providerTxId ? `Provider tx ${result.providerTxId}` : null,
-      }, { actorType: 'admin', actorId: String(adminId), note: `Delivered via ${fulfillingProvider}` });
+      }, { actorType, actorId: actorIdStr, note: `Delivered via ${fulfillingProvider}` });
 
       logger.info(
         { orderId, provider: fulfillingProvider, providerTxId: result.providerTxId, months },
@@ -164,7 +167,7 @@ export async function deliverWithReseller(
       const message = describeResellerError(err);
       const failed = updateOrderStatus(orderId, 'delivery_failed', {
         reseller_error: message,
-      }, { actorType: 'admin', actorId: String(adminId), note: `Delivery failed via ${provider.name}` });
+      }, { actorType, actorId: actorIdStr, note: `Delivery failed via ${provider.name}` });
 
       logger.warn({ orderId, provider: provider.name, err: message }, 'Reseller delivery failed');
 
@@ -199,6 +202,93 @@ export function deliveryFailedKeyboard(orderId: string): InlineKeyboard {
     .row()
     .text('↩️ Refund', `admin_refund_${orderId}`)
     .text('❌ Reject', `admin_reject_${orderId}`);
+}
+
+/**
+ * Broadcasts an immediate failure alert to all admins with interactive retry/refund action buttons.
+ */
+export async function notifyAdminsResellerFailure(
+  api: Api<RawApi>,
+  order: Order,
+  errorMessage: string
+): Promise<void> {
+  const config = getConfig();
+  const targetUsername = order.target_username || order.username || 'unknown';
+  const months = getPremiumMonths(order) || 3;
+  const alertText =
+    `🚨 <b>AUTOMATED RESELLER DELIVERY FAILED</b>\n\n` +
+    `• <b>Order ID:</b> <code>#${escapeHtml(order.id)}</code>\n` +
+    `• <b>Buyer:</b> @${escapeHtml(order.username || 'unknown')} (<code>${order.user_id}</code>)\n` +
+    `• <b>Target:</b> <b>@${escapeHtml(targetUsername)}</b>\n` +
+    `• <b>Product:</b> Telegram Premium (${months}M)\n` +
+    `• <b>Amount:</b> <b>${order.amount_etb.toLocaleString('en-US')} ETB</b>\n` +
+    `• <b>Error:</b> <i>${escapeHtml(errorMessage)}</i>\n\n` +
+    `<i>Take action below to retry delivery or refund:</i>`;
+
+  const keyboard = deliveryFailedKeyboard(order.id);
+
+  for (const adminId of config.ADMIN_IDS) {
+    try {
+      await api.sendMessage(adminId, alertText, {
+        parse_mode: 'HTML',
+        reply_markup: keyboard,
+      });
+    } catch (err) {
+      logger.error({ err, adminId, orderId: order.id }, 'Failed to send reseller failure alert to admin');
+    }
+  }
+}
+
+/**
+ * Drives background asynchronous reseller delivery for an auto-verified Telegram Premium order.
+ * Safe to fire-and-forget so that the buyer receives immediate receipt verification acknowledgment.
+ * - On success: informs buyer that Telegram Premium has been activated.
+ * - On failure: alerts all admins with interactive action keyboard and notifies buyer of temporary delay.
+ *
+ * @param options.actorAdminId Optional admin who triggered the delivery (defaults to 0 = automated
+ *   system actor). Pass the real admin id when an administrator action kicked the delivery off so
+ *   the order timeline keeps accurate attribution instead of recording `auto_verifier`.
+ */
+export async function triggerAutoResellerDelivery(
+  orderId: string,
+  api?: Api<RawApi>,
+  options?: { actorAdminId?: number }
+): Promise<DeliverOutcome> {
+  const outcome = await deliverWithReseller(orderId, options?.actorAdminId ?? 0, api);
+
+  if (outcome.delivered) {
+    if (api) {
+      const order = outcome.order;
+      const targetUsername = order.target_username || order.username || 'your account';
+      const months = getPremiumMonths(order) || 3;
+      const successMsg =
+        `🎉 <b>Telegram Premium Activated!</b>\n\n` +
+        `• <b>Order ID:</b> <code>#${escapeHtml(order.id)}</code>\n` +
+        `• <b>Recipient:</b> <b>@${escapeHtml(targetUsername)}</b>\n` +
+        `• <b>Duration:</b> <b>${months} Months</b>\n\n` +
+        `<i>Thank you for choosing Bighabesha Shop! 🇪🇹</i>`;
+
+      await api.sendMessage(order.user_id, successMsg, { parse_mode: 'HTML' }).catch((err) => {
+        logger.warn({ err, userId: order.user_id, orderId }, 'Failed to send activation notice to buyer');
+      });
+    }
+  } else {
+    logger.error({ orderId, error: outcome.error }, 'Automated reseller delivery failed');
+    if (api) {
+      await notifyAdminsResellerFailure(api, outcome.order, outcome.error || 'Unknown error');
+
+      const delayNotice =
+        `⏳ <b>Payment Confirmed — Order #${escapeHtml(outcome.order.id)}</b>\n\n` +
+        `Your payment was verified, but automated delivery is experiencing a brief delay.\n` +
+        `Our team has been alerted and is completing your activation.`;
+
+      await api.sendMessage(outcome.order.user_id, delayNotice, { parse_mode: 'HTML' }).catch((err) => {
+        logger.warn({ err, userId: outcome.order.user_id, orderId }, 'Failed to send delay notice to buyer');
+      });
+    }
+  }
+
+  return outcome;
 }
 
 /**
@@ -344,7 +434,7 @@ export async function retryFailedResellerDeliveries(api?: Api<RawApi>): Promise<
       const db = getDatabase();
       const waitingOrdersCount = (db.prepare(`
         SELECT COUNT(*) as count FROM orders
-        WHERE status IN ('delivery_failed', 'pending_fulfillment')
+        WHERE (status IN ('delivery_failed', 'pending_fulfillment') OR (status = 'processing' AND updated_at <= datetime('now', '-2 minutes')))
           AND product_id = 'telegram_premium'
       `).get() as { count: number }).count;
 
@@ -366,13 +456,25 @@ export async function retryFailedResellerDeliveries(api?: Api<RawApi>): Promise<
     }
 
     const db = getDatabase();
+    const nowMs = Date.now();
     const failedOrders = db.prepare(`
       SELECT * FROM orders
-      WHERE status = 'delivery_failed'
-        AND product_id = 'telegram_premium'
+      WHERE product_id = 'telegram_premium'
+        AND (
+          status = 'delivery_failed'
+          OR (
+            status IN ('processing', 'pending_fulfillment')
+            AND updated_at <= datetime('now', '-2 minutes')
+            AND NOT EXISTS (
+              SELECT 1 FROM job_leases
+              WHERE name = 'reseller:order:' || orders.id
+                AND expires_at > ?
+            )
+          )
+        )
       ORDER BY created_at ASC
       LIMIT 25
-    `).all() as Order[];
+    `).all(nowMs) as Order[];
 
     let fulfilled = 0;
     let failed = 0;
@@ -407,11 +509,27 @@ export async function retryFailedResellerDeliveries(api?: Api<RawApi>): Promise<
 }
 
 let sweeperTimer: NodeJS.Timeout | null = null;
+let isSweeperRunning = false;
+
+export function isResellerSweeperRunning(): boolean {
+  return isSweeperRunning;
+}
 
 export function startResellerRetrySweeper(api?: any, intervalMs: number = 5 * 60 * 1000): NodeJS.Timeout {
   if (sweeperTimer) clearInterval(sweeperTimer);
-  sweeperTimer = setInterval(() => {
-    void retryFailedResellerDeliveries(api);
+  sweeperTimer = setInterval(async () => {
+    if (isSweeperRunning) {
+      logger.warn('Previous reseller retry sweep is still running; skipping iteration');
+      return;
+    }
+    isSweeperRunning = true;
+    try {
+      await retryFailedResellerDeliveries(api);
+    } catch (err) {
+      logger.error({ err }, 'Reseller retry sweep iteration failed');
+    } finally {
+      isSweeperRunning = false;
+    }
   }, intervalMs);
   if (sweeperTimer.unref) sweeperTimer.unref();
   return sweeperTimer;
@@ -422,5 +540,6 @@ export function stopResellerRetrySweeper(): void {
     clearInterval(sweeperTimer);
     sweeperTimer = null;
   }
+  isSweeperRunning = false;
 }
 

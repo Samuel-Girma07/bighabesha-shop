@@ -119,7 +119,10 @@ export class IStarAdapter extends HttpResellerProviderBase {
       if (err.status === 402 || /insufficient|balance|wallet|funds/i.test(body)) {
         return new InsufficientFloatError(this.name);
       }
-      if (err.status === 404 || (err.status === 400 && /user|username|recipient|target/i.test(body))) {
+      if (err.status === 404) {
+        return new ProviderUnavailableError(this.name, 'iStar route not found (HTTP 404)');
+      }
+      if (err.status === 400 && /user|username|recipient|target/i.test(body)) {
         return new InvalidTargetUserError(this.name, params.targetUsername);
       }
     }

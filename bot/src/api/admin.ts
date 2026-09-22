@@ -23,11 +23,13 @@ import {
   getAllSettings,
   setSetting,
   setSettings,
-  getSetting,
   isKnownSettingKey,
   KNOWN_SETTING_KEYS,
   validateVerificationSettings,
 } from '../services/settings.service.js';
+import { refreshReceiptOrchestratorSettings } from '../services/receipt_verifier/index.js';
+import { containsCircuitBreakerSettingKey } from '../services/receipt_verifier/constants.js';
+
 import { getAllUsers } from '../services/users.service.js';
 import {
   getBroadcastTargets,
@@ -38,12 +40,13 @@ import {
 } from '../services/broadcast.service.js';
 import { recordAudit, listAuditLogs } from '../services/audit.service.js';
 import { csvCell, guardExcelString } from '../utils/csv.js';
+import { escapeHtml, formatFulfillmentDeliveryMessage } from '../utils/html.js';
 import { ensureAdminRow, roleHasPermission, type AdminRole, type Permission } from '../auth/permissions.js';
 import { forecastForStockProduct } from '../services/analytics.service.js';
 import { monthlyPnl } from '../services/profit.service.js';
 import { createPromoCode, listPromoCodes } from '../services/promo.service.js';
-import { escapeHtml } from '../utils/html.js';
 import { isResellerEligible, deliverWithReseller } from '../services/reseller.service.js';
+import { ReceiptAlreadyUsedError } from '../services/receipt_verifier/types.js';
 
 export const adminRouter: Router = Router();
 
@@ -80,18 +83,62 @@ export const otpLockoutConfig = {
   maxAttempts: 5,
   lockoutMs: 15 * 60 * 1000,
 };
-const otpFailures = new Map<number, { count: number; lockedUntil: number }>();
+function getAdminOtpFailure(adminId: number): { count: number; lockedUntil: number; updatedAt?: string } | null {
+  try {
+    const db = getDatabase();
+    const row = db.prepare('SELECT count, locked_until, updated_at FROM admin_otp_failures WHERE admin_id = ?').get(adminId) as { count: number; locked_until: number; updated_at: string } | undefined;
+    if (!row) return null;
+    return { count: row.count, lockedUntil: row.locked_until, updatedAt: row.updated_at };
+  } catch (err) {
+    logger.warn({ err, adminId }, 'Failed to query admin_otp_failures');
+    return null;
+  }
+}
 
 function registerOtpFailure(adminId: number): void {
-  if (otpFailures.size > 1000) otpFailures.clear(); // hard bound; admins are few
-  const rec = otpFailures.get(adminId) ?? { count: 0, lockedUntil: 0 };
-  rec.count += 1;
-  if (rec.count >= otpLockoutConfig.maxAttempts) {
-    rec.lockedUntil = Date.now() + otpLockoutConfig.lockoutMs;
-    rec.count = 0;
-    logger.warn({ adminId }, 'Admin OTP verification locked after repeated failures');
+  try {
+    const db = getDatabase();
+    const existing = getAdminOtpFailure(adminId);
+    let baseCount = 0;
+    if (existing) {
+      const nowMs = Date.now();
+      const isLocked = existing.lockedUntil > nowMs;
+      const updatedMs = existing.updatedAt ? new Date(existing.updatedAt.replace(' ', 'T') + 'Z').getTime() : 0;
+      const isRecent = (nowMs - updatedMs) < otpLockoutConfig.lockoutMs;
+      if (isLocked || isRecent) {
+        baseCount = existing.count;
+      }
+    }
+    const currentCount = baseCount + 1;
+    let lockedUntil = existing?.lockedUntil ?? 0;
+    let count = currentCount;
+
+    if (currentCount >= otpLockoutConfig.maxAttempts) {
+      lockedUntil = Date.now() + otpLockoutConfig.lockoutMs;
+      count = 0;
+      logger.warn({ adminId }, 'Admin OTP verification locked after repeated failures');
+    }
+
+    db.prepare(`
+      INSERT INTO admin_otp_failures (admin_id, count, locked_until, updated_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(admin_id) DO UPDATE SET
+        count = excluded.count,
+        locked_until = excluded.locked_until,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(adminId, count, lockedUntil);
+  } catch (err) {
+    logger.error({ err, adminId }, 'Failed to record admin OTP failure');
   }
-  otpFailures.set(adminId, rec);
+}
+
+function clearOtpFailures(adminId: number): void {
+  try {
+    const db = getDatabase();
+    db.prepare('DELETE FROM admin_otp_failures WHERE admin_id = ?').run(adminId);
+  } catch (err) {
+    logger.warn({ err, adminId }, 'Failed to clear admin OTP failures');
+  }
 }
 
 // Step 1: Login with Master Password -> Generates Telegram 2FA Code
@@ -210,7 +257,7 @@ adminRouter.post('/auth/verify-2fa', (req: Request, res: Response): void => {
 
   // Identity-keyed brute-force gate (independent of request IP).
   const nowMs = Date.now();
-  const failureRec = otpFailures.get(targetId);
+  const failureRec = getAdminOtpFailure(targetId);
   if (failureRec && failureRec.lockedUntil > nowMs) {
     const waitMin = Math.ceil((failureRec.lockedUntil - nowMs) / 60_000);
     res.status(429).json({ error: `Too many incorrect codes. Try again in ${waitMin} minute(s).` });
@@ -238,7 +285,7 @@ adminRouter.post('/auth/verify-2fa', (req: Request, res: Response): void => {
   }
 
   // Correct code — clear the failure counter and consume the OTP.
-  otpFailures.delete(targetId);
+  clearOtpFailures(targetId);
   db.prepare('DELETE FROM admin_otps WHERE admin_id = ?').run(targetId);
   recordAudit({ adminId: targetId, action: 'auth.2fa.success', targetType: 'auth', targetId: String(targetId), ip: req.ip });
 
@@ -674,9 +721,15 @@ adminRouter.post('/orders/:id/approve', requireAdminAuth, requirePermission('ord
   const orderId = req.params.id as string;
   const adminId = (req as any).adminSession.adminId;
 
+  const { reference } = req.body || {};
+
   try {
-    const { order, autoDeliveredItem } = approveReceipt(orderId, adminId);
-    recordAudit({ adminId, action: 'order.approve', targetType: 'order', targetId: orderId, changes: { newStatus: order.status, autoDelivered: Boolean(autoDeliveredItem) }, ip: req.ip });
+    const { order, autoDeliveredItem } = approveReceipt(orderId, adminId, { reference });
+    recordAudit({ adminId, action: 'order.approve', targetType: 'order', targetId: orderId, changes: { newStatus: order.status, autoDelivered: Boolean(autoDeliveredItem), reference }, ip: req.ip });
+
+    invalidate('admin:overview');
+    invalidate('userstats:' + order.user_id);
+    invalidate('bootstrap:catalog');
 
     let finalOrder = order;
 
@@ -691,19 +744,11 @@ adminRouter.post('/orders/:id/approve', requireAdminAuth, requirePermission('ord
       finalOrder = outcome.order;
     } else if (botInstance) {
       if (autoDeliveredItem) {
-        const rawTemplate = getSetting(
-          'gemini_instructions',
-          '1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.'
-        );
-        const deliveryText = `<b>Payment Confirmed — Order #${order.id}</b>\n\n` +
-          `Activation Link:\n<code>${autoDeliveredItem.payload}</code>\n\n` +
-          `<b>Instructions:</b>\n${rawTemplate}\n\n` +
-          `<i>Thank you for choosing Bighabesha Shop.</i>`;
-
+        const deliveryText = formatFulfillmentDeliveryMessage(order.id, autoDeliveredItem.payload);
         botInstance.api.sendMessage(order.user_id, deliveryText, { parse_mode: 'HTML' }).catch(() => {});
       } else {
-        const notifyText = `<b>Payment Verified for Order #${order.id}</b>\n\n` +
-          `Your order has been verified and queued for fulfillment to <b>@${order.username || 'your account'}</b>.`;
+        const notifyText = `<b>Payment Verified for Order #${escapeHtml(order.id)}</b>\n\n` +
+          `Your order has been verified and queued for fulfillment to <b>@${escapeHtml(order.username || 'your account')}</b>.`;
 
         botInstance.api.sendMessage(order.user_id, notifyText, { parse_mode: 'HTML' }).catch(() => {});
       }
@@ -713,6 +758,14 @@ adminRouter.post('/orders/:id/approve', requireAdminAuth, requirePermission('ord
   } catch (err: any) {
     if (err instanceof OutOfStockError) {
       res.status(409).json({ error: err.message });
+      return;
+    }
+    if (err instanceof ReceiptAlreadyUsedError) {
+      res.status(409).json({
+        error: err.message,
+        code: 'RECEIPT_ALREADY_USED',
+        problemDetails: err.problemDetails,
+      });
       return;
     }
     res.status(400).json({ error: err.message });
@@ -729,13 +782,18 @@ adminRouter.post('/orders/:id/reject', requireAdminAuth, requirePermission('orde
     const order = rejectReceipt(orderId, adminId, reason || 'Payment receipt not accepted.');
     recordAudit({ adminId, action: 'order.reject', targetType: 'order', targetId: orderId, changes: { reason: order.rejection_reason }, ip: req.ip });
 
-    if (botInstance) {
-      const rejectText = `<b>Order #${order.id} Update</b>\n\n` +
-        `Your transfer receipt was not accepted.\n` +
-        `<b>Reason:</b> ${order.rejection_reason}\n\n` +
-        `Please contact support (@${getConfig().SUPPORT_USERNAME}) if you have any questions.`;
+    invalidate('admin:overview');
+    invalidate('userstats:' + order.user_id);
 
-      botInstance.api.sendMessage(order.user_id, rejectText, { parse_mode: 'HTML' }).catch(() => {});
+    if (botInstance) {
+      const rejectText = `<b>Order #${escapeHtml(order.id)} Update</b>\n\n` +
+        `Your transfer receipt was not accepted.\n` +
+        `<b>Reason:</b> ${escapeHtml(order.rejection_reason || 'Payment receipt not accepted.')}\n\n` +
+        `Please contact support (@${escapeHtml(getConfig().SUPPORT_USERNAME)}) if you have any questions.`;
+
+      botInstance.api.sendMessage(order.user_id, rejectText, { parse_mode: 'HTML' }).catch((err) => {
+        logger.warn({ err, orderId: order.id, userId: order.user_id }, 'Failed to deliver rejection notice to buyer');
+      });
     }
 
     res.json({ success: true, order });
@@ -754,14 +812,26 @@ adminRouter.post('/orders/:id/fulfill', requireAdminAuth, requirePermission('ord
     const order = fulfillOrderWithProof(orderId, adminId, { text: proofNote || 'Delivered via Fragment official rails.' });
     recordAudit({ adminId, action: 'order.fulfill', targetType: 'order', targetId: orderId, ip: req.ip });
 
-    if (botInstance) {
-      const fulfillText = `<b>Order #${order.id} Delivered Successfully</b>\n\n` +
-        `Your subscription / stars order has been completed!\n` +
-        `• <b>Delivered To:</b> @${order.username || 'your account'}\n` +
-        `• <b>Reference:</b> ${order.fulfillment_proof}\n\n` +
-        `<i>Thank you for choosing Bighabesha Shop.</i>`;
+    invalidate('admin:overview');
+    invalidate('userstats:' + order.user_id);
 
-      botInstance.api.sendMessage(order.user_id, fulfillText, { parse_mode: 'HTML' }).catch(() => {});
+    if (botInstance) {
+      if (order.fulfillment_payload) {
+        const fulfillText = formatFulfillmentDeliveryMessage(order.id, order.fulfillment_payload);
+        botInstance.api.sendMessage(order.user_id, fulfillText, { parse_mode: 'HTML' }).catch((err) => {
+          logger.warn({ err, orderId: order.id, userId: order.user_id }, 'Failed to deliver fulfillment notice to buyer');
+        });
+      } else {
+        const fulfillText = `<b>Order #${escapeHtml(order.id)} Delivered Successfully</b>\n\n` +
+          `Your subscription / stars order has been completed!\n` +
+          `• <b>Delivered To:</b> ${order.username ? `@${escapeHtml(order.username)}` : 'your account'}\n` +
+          `• <b>Reference:</b> ${escapeHtml(order.fulfillment_proof || 'Delivered')}\n\n` +
+          `<i>Thank you for choosing Bighabesha Shop.</i>`;
+
+        botInstance.api.sendMessage(order.user_id, fulfillText, { parse_mode: 'HTML' }).catch((err) => {
+          logger.warn({ err, orderId: order.id, userId: order.user_id }, 'Failed to deliver fulfillment notice to buyer');
+        });
+      }
     }
 
     res.json({ success: true, order });
@@ -841,6 +911,11 @@ adminRouter.post(['/stock', '/stock/bulk'], requireAdminAuth, requirePermission(
     return;
   }
 
+  if (addedCount > 0) {
+    invalidate('bootstrap:catalog');
+    invalidate('admin:overview');
+  }
+
   res.json({
     success: true,
     addedCount,
@@ -855,6 +930,8 @@ adminRouter.delete('/stock/:id', requireAdminAuth, requirePermission('stock.mana
   const itemId = req.params.id as string;
   const deleted = deleteStockItem(itemId);
   if (deleted) {
+    invalidate('bootstrap:catalog');
+    invalidate('admin:overview');
     recordAudit({ adminId: (req as any).adminSession?.adminId ?? 'unknown', action: 'stock.delete', targetType: 'stock_item', targetId: String(itemId), ip: req.ip });
   }
   if (!deleted) {
@@ -909,6 +986,12 @@ adminRouter.put('/settings', requireAdminAuth, requirePermission('settings.write
 
   // Invalidate cached bootstrap catalog so public settings refresh immediately in memory
   invalidate('bootstrap:catalog');
+  // Re-apply admin-tunable verification settings (circuit breaker threshold / cooldown) to the
+  // live adapter instances so operators do not need a process restart for changes to take effect.
+  if (containsCircuitBreakerSettingKey(changedKeys)) {
+    refreshReceiptOrchestratorSettings();
+  }
+
 
   recordAudit({
     adminId: (req as any).adminSession?.adminId ?? 'unknown',

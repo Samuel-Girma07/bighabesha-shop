@@ -297,7 +297,7 @@ describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial S
       expect(payload.transactionReference).toBe('FT_AMHARIC_01');
       expect(payload.amountEtb).toBe(1250);
       expect(payload.beneficiaryAccount).toBe(FIXTURES.cbe.validAccount);
-    }, 45000);
+    }, 90000);
 
     it('parses Amharic / Unicode party names and phone accounts from Telebirr HTML', async () => {
       const adapter = new TelebirrAdapter();

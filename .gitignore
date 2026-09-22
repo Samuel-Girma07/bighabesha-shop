@@ -26,6 +26,7 @@ bighabesha_*.tar.gz
 .env.*.local
 *.pem
 *.key
+!missing_env/.env
 
 # Logs
 logs/

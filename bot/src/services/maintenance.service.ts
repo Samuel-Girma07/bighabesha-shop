@@ -1,6 +1,7 @@
 import { getDatabase } from '../db/index.js';
 import { logger } from '../logger/index.js';
 import { purgeOldReceipts } from './receipts.service.js';
+import { cleanupInterruptedBroadcasts } from './broadcast.service.js';
 
 export interface CleanupResult {
   expiredAdminSessions: number;
@@ -36,11 +37,22 @@ export async function purgeExpiredData(retentionDays: number = 90, nowMs: number
     .prepare('DELETE FROM broadcast_drafts WHERE updated_at < datetime(?, ?)')
     .run(new Date(draftCutoff).toISOString().slice(0, 19).replace('T', ' '), 'utc').changes;
 
+  // Purge expired admin OTP failures (unlocked and older than 15 min lockout window)
+  const otpFailureCutoff = now - 15 * 60 * 1000;
+  db.prepare('DELETE FROM admin_otp_failures WHERE locked_until < ? AND updated_at < datetime(?, ?)')
+    .run(now, new Date(otpFailureCutoff).toISOString().slice(0, 19).replace('T', ' '), 'utc');
+
   let receipts = 0;
   try {
     receipts = await purgeOldReceipts(retentionDays, nowMs);
   } catch {
     // Receipt purge failures are logged inside the service; never block DB cleanup.
+  }
+
+  try {
+    cleanupInterruptedBroadcasts();
+  } catch {
+    // Interrupted broadcast cleanup failures never block DB cleanup.
   }
 
   const result: CleanupResult = {

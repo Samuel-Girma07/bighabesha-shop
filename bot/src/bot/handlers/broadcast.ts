@@ -3,6 +3,7 @@ import { isAdmin } from './admin.js';
 import { getBroadcastTargets, executeBroadcast } from '../../services/broadcast.service.js';
 import { setPendingAction } from '../session.js';
 import { getDatabase } from '../../db/index.js';
+import { splitTelegramCaption } from '../../utils/html.js';
 
 export async function renderBroadcastTargetSelection(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
@@ -90,11 +91,23 @@ export async function previewBroadcastDraft(
     .text('❌ Cancel Broadcast', 'admin_broadcast');
 
   if (photoFileId) {
-    await ctx.replyWithPhoto(photoFileId, {
-      caption: messageText,
-      parse_mode: 'HTML',
-      reply_markup: keyboard,
-    });
+    const { caption, overflow } = splitTelegramCaption(messageText, 1024);
+    if (overflow) {
+      await ctx.replyWithPhoto(photoFileId, {
+        caption,
+        parse_mode: 'HTML',
+      });
+      await ctx.reply(overflow, {
+        parse_mode: 'HTML',
+        reply_markup: keyboard,
+      });
+    } else {
+      await ctx.replyWithPhoto(photoFileId, {
+        caption,
+        parse_mode: 'HTML',
+        reply_markup: keyboard,
+      });
+    }
   } else {
     await ctx.reply(messageText, {
       parse_mode: 'HTML',

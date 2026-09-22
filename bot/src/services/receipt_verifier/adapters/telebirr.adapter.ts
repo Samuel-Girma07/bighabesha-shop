@@ -1,12 +1,15 @@
+import https from 'node:https';
 import * as cheerio from 'cheerio';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { logger } from '../../../logger/index.js';
 import { CircuitBreaker } from '../circuit_breaker.js';
 import { BaseBankAdapter } from './base.adapter.js';
 import { getSetting } from '../../settings.service.js';
+import { resolveCircuitBreakerConfig } from '../breaker_config.js';
 import {
   TELEBIRR_PERMITTED_HOSTNAMES,
   DEFAULT_BANK_NETWORK_TIMEOUT_MS,
+  parseEthiopianBankTimestamp,
 } from '../constants.js';
 import {
   SupportedBank,
@@ -31,8 +34,8 @@ const TELEBIRR_BEN_ACC_PATTERN_1 = /(?:credited\s*to|receiver\s*phone|to\s*mobil
 const TELEBIRR_BEN_ACC_PATTERN_2 = /\b(09[0-9]{8})\b/;
 const TELEBIRR_BEN_NAME_PATTERN = /(?:credited\s*party\s*name|receiver\s*name|to\s*name)\s*[:=]?\s*([^\r\n;0-9:]{1,80}?)(?:\r?\n|$|;)/i;
 
-const TELEBIRR_DATE_ISO_PATTERN = /([0-9]{4}-[0-9]{2}-[0-9]{2}(?:[\sT][0-9]{2}:[0-9]{2}:[0-9]{2})?)/;
-const TELEBIRR_DATE_SLASH_PATTERN = /([0-9]{2}\/[0-9]{2}\/[0-9]{4}(?:[\sT][0-9]{2}:[0-9]{2}:[0-9]{2})?)/;
+const TELEBIRR_DATE_ISO_PATTERN = /([0-9]{4}-[0-9]{2}-[0-9]{2}(?:[\sT][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[zZ]|[+-][0-9]{2}:?[0-9]{2})?)?)/;
+const TELEBIRR_DATE_SLASH_PATTERN = /([0-9]{2}\/[0-9]{2}\/[0-9]{4}(?:[\sT][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[zZ]|[+-][0-9]{2}:?[0-9]{2})?)?)/;
 
 const NON_DIGIT_PATTERN = /[^0-9]/g;
 const NON_AMOUNT_CHARS_PATTERN = /[^0-9.]/g;
@@ -45,10 +48,21 @@ export class TelebirrAdapter extends BaseBankAdapter {
   public readonly bankRail: SupportedBank = 'telebirr';
 
   constructor(circuitBreaker?: CircuitBreaker) {
+    const { failureThreshold, cooldownMs } = resolveCircuitBreakerConfig();
     super(
-      circuitBreaker || new CircuitBreaker({ name: 'telebirr_adapter', failureThreshold: 3, cooldownMs: 60_000 }),
+      circuitBreaker || new CircuitBreaker({ name: 'telebirr_adapter', failureThreshold, cooldownMs }),
       DEFAULT_BANK_NETWORK_TIMEOUT_MS
     );
+  }
+
+  /**
+   * Re-reads admin-tunable circuit breaker settings (threshold + cooldown, stored in seconds)
+   * and applies them to the live breaker without discarding its current state. Invoked by the
+   * orchestrator façade after an Admin Dashboard settings change, so no process restart is needed.
+   */
+  public applyRuntimeSettings(): void {
+    const { failureThreshold, cooldownMs } = resolveCircuitBreakerConfig();
+    this.circuitBreaker.applyConfig({ failureThreshold, cooldownMs });
   }
 
   public canHandle(reference: ExtractedReceiptReference): boolean {
@@ -87,6 +101,7 @@ export class TelebirrAdapter extends BaseBankAdapter {
       }
     }
 
+    const hasProxy = Boolean(fetchOptions.agent);
     const startTime = Date.now();
 
     return this.executeWithProtection({
@@ -96,7 +111,7 @@ export class TelebirrAdapter extends BaseBankAdapter {
         if (err instanceof PortalGeoblockedError) {
           throw err;
         }
-        if (this.isProxyFailure(err)) {
+        if (this.isProxyFailure(err, hasProxy)) {
           throw new PortalGeoblockedError('telebirr', proxyUrl || undefined);
         }
       },
@@ -106,20 +121,57 @@ export class TelebirrAdapter extends BaseBankAdapter {
           'Querying upstream Telebirr portal'
         );
 
-        const response = await fetch(targetUrl, {
-          ...fetchOptions,
-          signal,
-        });
+        let responseStatus: number;
+        let responseStatusText: string;
+        let html: string;
 
-        if (response.status === 403 || response.status === 451) {
+        // Node.js native fetch does not route through http/https agents; when proxy agent is set,
+        // use https.request to ensure residential egress routing actually traverses the proxy tunnel.
+        if (fetchOptions.agent) {
+          const res = await new Promise<{ status: number; statusText: string; body: string }>((resolve, reject) => {
+            const req = https.request(
+              targetUrl,
+              {
+                method: 'GET',
+                headers: fetchOptions.headers as Record<string, string>,
+                agent: fetchOptions.agent as any,
+                signal,
+              },
+              (res) => {
+                const chunks: Buffer[] = [];
+                res.on('data', (c) => chunks.push(c));
+                res.on('end', () => {
+                  resolve({
+                    status: res.statusCode || 200,
+                    statusText: res.statusMessage || '',
+                    body: Buffer.concat(chunks).toString('utf-8'),
+                  });
+                });
+              }
+            );
+            req.on('error', (e) => reject(e));
+            req.end();
+          });
+          responseStatus = res.status;
+          responseStatusText = res.statusText;
+          html = res.body;
+        } else {
+          const response = await fetch(targetUrl, {
+            ...fetchOptions,
+            signal,
+          });
+          responseStatus = response.status;
+          responseStatusText = response.statusText;
+          html = await response.text();
+        }
+
+        if (responseStatus === 403 || responseStatus === 451) {
           throw new PortalGeoblockedError('telebirr', proxyUrl || undefined);
         }
 
-        if (!response.ok) {
-          throw new Error(`Upstream Telebirr responded with HTTP ${response.status} ${response.statusText}`);
+        if (responseStatus < 200 || responseStatus >= 300) {
+          throw new Error(`Upstream Telebirr responded with HTTP ${responseStatus} ${responseStatusText}`);
         }
-
-        const html = await response.text();
 
         // Detect common geo-block / cloudflare challenge / bot block pages
         if (
@@ -154,11 +206,27 @@ export class TelebirrAdapter extends BaseBankAdapter {
     return `https://transactioninfo.ethiotelecom.et/receipt/${encodeURIComponent(ref)}`;
   }
 
-  private isProxyFailure(err: unknown): boolean {
+  /**
+   * Classifies a transport error as a residential-proxy egress failure.
+   *
+   * Only meaningful when a proxy is actually configured. Without one, a timeout or refused
+   * connection is ordinary upstream unavailability (`BANK_PORTAL_UNAVAILABLE`) and must NOT be
+   * rewritten to `PORTAL_GEOBLOCKED` — doing so told administrators the bank was geo-blocking us
+   * when in reality the portal simply timed out.
+   */
+  private isProxyFailure(err: unknown, hasProxy: boolean): boolean {
+    if (!hasProxy) return false;
     if (!err || typeof err !== 'object') return false;
-    const msg = (err as { message?: string }).message;
+    const msg = (err as { message?: string }).message?.toLowerCase() || '';
     const code = (err as { code?: string }).code;
-    return Boolean((msg && msg.includes('proxy')) || code === 'ECONNRESET');
+    return Boolean(
+      msg.includes('proxy') ||
+      msg.includes('econnrefused') ||
+      msg.includes('etimedout') ||
+      code === 'ECONNRESET' ||
+      code === 'ECONNREFUSED' ||
+      code === 'ETIMEDOUT'
+    );
   }
 
   // ============================================================================
@@ -317,13 +385,13 @@ export class TelebirrAdapter extends BaseBankAdapter {
       dataMap['date'];
 
     if (timeFromTable) {
-      const parsed = new Date(timeFromTable);
+      const parsed = parseEthiopianBankTimestamp(timeFromTable);
       if (!isNaN(parsed.getTime())) return parsed;
     }
 
     const match = fullText.match(TELEBIRR_DATE_ISO_PATTERN) || fullText.match(TELEBIRR_DATE_SLASH_PATTERN);
     if (match) {
-      const parsed = new Date(match[1]);
+      const parsed = parseEthiopianBankTimestamp(match[1]);
       if (!isNaN(parsed.getTime())) return parsed;
     }
 

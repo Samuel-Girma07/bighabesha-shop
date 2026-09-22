@@ -25,9 +25,10 @@ export function initDatabase(dbPath?: string, migrationsDir?: string): Database.
   // Performance and safety pragmas
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  // Deliberately short: better-sqlite3 blocks the event loop while waiting on a
-  // write lock, so contention is absorbed by withWriteRetry() instead.
-  db.pragma('busy_timeout = 250');
+  // DEFECT-06: Increased from 250 to 5000 ms to absorb transient write locks under concurrency.
+  // Configurable via SQLITE_BUSY_TIMEOUT.
+  const busyTimeout = Number(process.env.SQLITE_BUSY_TIMEOUT || 5000);
+  db.pragma(`busy_timeout = ${busyTimeout}`);
   db.pragma('synchronous = NORMAL');
   db.pragma('cache_size = -64000');
   db.pragma('mmap_size = 268435456');

@@ -41,19 +41,20 @@ import {
   promptAdminReject,
   handleRetryDelivery,
   renderPaymentRailSelection,
+  handleAdminReverify,
+  renderAdminEvidenceDetail,
 } from './handlers/checkout.js';
 import { isUsernameRequired, hasPublicUsername, renderUsernameGate, handleGateRecheck, renderRecipientSelection, handleRecipientSelf, handleRecipientGift } from './handlers/gate.js';
 import { renderMyOrders, renderOrderDetail, renderLanguageMenu, handleSetLanguage } from './handlers/orders.js';
 import { inlineQueryHandler } from './handlers/inline_query.js';
 import { handleTextInput, handleDocumentInput, handlePhotoInput } from './handlers/input.js';
-import { getOrderById, approveReceipt, updateOrderStatus } from '../services/orders.service.js';
+import { getOrderById, approveReceipt, updateOrderStatus, InvalidOrderTransitionError } from '../services/orders.service.js';
 import { findThreadByTopic, insertSupportMessage, SUPPORT_MAX_MESSAGE_LENGTH } from '../services/support.service.js';
 import { setPendingAction } from './session.js';
 import { getProductById, formatPriceETB } from '../services/catalog.service.js';
-import { getSetting } from '../services/settings.service.js';
 import { isUserRegistered } from '../services/users.service.js';
 import { getConfig } from '../config/env.js';
-import { escapeHtml } from '../utils/html.js';
+import { escapeHtml, formatFulfillmentDeliveryMessage } from '../utils/html.js';
 import { previewUserText } from '../logger/index.js';
 
 export function createBot(token: string): Bot {
@@ -94,18 +95,26 @@ export function createBot(token: string): Bot {
     });
   }
 
-  // API rate limit 429 retry transformer
+  // API rate limit 429 retry transformer with up to 3 retries and exponential/retry_after backoff
   bot.api.config.use(async (prev, method, payload, signal) => {
-    try {
-      return await prev(method, payload, signal);
-    } catch (err: any) {
-      if (err instanceof GrammyError && err.error_code === 429) {
-        const retryAfter = err.parameters?.retry_after || 1;
-        logger.warn({ retryAfter, method }, `Hit Telegram API 429 rate limit. Waiting ${retryAfter}s before retrying.`);
-        await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+    const maxRetries = 3;
+    let attempt = 0;
+    while (true) {
+      try {
         return await prev(method, payload, signal);
+      } catch (err: any) {
+        attempt++;
+        if (err instanceof GrammyError && err.error_code === 429 && attempt <= maxRetries) {
+          const retryAfter = err.parameters?.retry_after || Math.pow(2, attempt - 1);
+          logger.warn(
+            { retryAfter, method, attempt, maxRetries },
+            `Hit Telegram API 429 rate limit. Waiting ${retryAfter}s before retry ${attempt}/${maxRetries}.`
+          );
+          await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+          continue;
+        }
+        throw err;
       }
-      throw err;
     }
   });
 
@@ -305,21 +314,13 @@ export function createBot(token: string): Bot {
     try {
       const { order: updated, autoDeliveredItem } = approveReceipt(order.id, ctx.from?.id || 0);
 
-      await ctx.reply(`✅ <b>MockWalletPay Simulation Success!</b>\n\n• Order <code>${order.id}</code> marked as <b>${updated.status.toUpperCase()}</b>.\n• Rail: <code>${updated.payment_rail.toUpperCase()}</code>\n• Amount: <b>${formatPriceETB(updated.amount_etb)}</b>`, { parse_mode: 'HTML' });
+      await ctx.reply(`✅ <b>MockWalletPay Simulation Success!</b>\n\n• Order <code>${escapeHtml(order.id)}</code> marked as <b>${updated.status.toUpperCase()}</b>.\n• Rail: <code>${escapeHtml(updated.payment_rail.toUpperCase())}</code>\n• Amount: <b>${formatPriceETB(updated.amount_etb)}</b>`, { parse_mode: 'HTML' });
 
       if (autoDeliveredItem) {
-        const rawTemplate = getSetting(
-          'gemini_instructions',
-          'After payment, you will receive a one-time activation link.\n\n1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.'
-        );
-        const deliveryText = `🎉 <b>Payment Confirmed! Order #${order.id}</b>\n\n` +
-          `Here is your activation link:\n🔗 <code>${autoDeliveredItem.payload}</code>\n\n` +
-          `<b>Instructions:</b>\n${rawTemplate}\n\n` +
-          `<i>Thank you for choosing Bighabesha Shop!</i>`;
-
+        const deliveryText = formatFulfillmentDeliveryMessage(order.id, autoDeliveredItem.payload);
         await ctx.api.sendMessage(order.user_id, deliveryText, { parse_mode: 'HTML' }).catch(() => {});
       } else {
-        const notifyText = `🎉 <b>Payment Received for Order #${order.id}!</b>\n\n` +
+        const notifyText = `🎉 <b>Payment Received for Order #${escapeHtml(order.id)}!</b>\n\n` +
           `Your order has been queued for fulfillment to <b>@${escapeHtml(order.username || 'your account')}</b>.\n` +
           `You will receive a confirmation once delivered!`;
 
@@ -354,9 +355,16 @@ export function createBot(token: string): Bot {
 
   // Callback Query Router
   bot.on('callback_query:data', async (ctx) => {
-    const data = ctx.callbackQuery.data;
-    const userId = ctx.from?.id;
-    await ctx.answerCallbackQuery().catch(() => {});
+    let answered = false;
+    const origAnswer = ctx.answerCallbackQuery.bind(ctx);
+    ctx.answerCallbackQuery = async (...args: any[]) => {
+      answered = true;
+      return await (origAnswer as any)(...args);
+    };
+
+    try {
+      const data = ctx.callbackQuery.data;
+      const userId = ctx.from?.id;
 
     // Enforce phone registration on purchase & catalog interactions
     const isPurchaseAction =
@@ -387,7 +395,11 @@ export function createBot(token: string): Bot {
     } else if (data.startsWith('resume_pay_')) {
       const orderId = data.replace('resume_pay_', '');
       const order = getOrderById(orderId);
-      if (order) {
+      if (!order || !userId || (order.user_id !== userId && !isAdmin(userId))) {
+        await ctx.reply('Order not found or unauthorized.');
+      } else if (order.status !== 'awaiting_payment') {
+        await ctx.reply(`⚠️ Cannot resume payment: order is already <b>${escapeHtml(order.status)}</b>.`, { parse_mode: 'HTML' });
+      } else {
         const product = getProductById(order.product_id);
         await renderPaymentRailSelection(ctx, order, product ? product.name : 'Subscription');
       }
@@ -396,14 +408,32 @@ export function createBot(token: string): Bot {
       const order = getOrderById(orderId);
 
       // Ownership check: users may only cancel their own orders (IDOR guard).
-      if (!order || order.user_id !== userId) {
-        await ctx.reply('Order not found.');
-      } else if (['fulfilled', 'refunded', 'rejected', 'cancelled'].includes(order.status)) {
+      if (!order || !userId || (order.user_id !== userId && !isAdmin(userId))) {
+        await ctx.reply('Order not found or unauthorized.');
+      } else if (['fulfilled', 'refunded', 'cancelled'].includes(order.status)) {
         await ctx.reply(`⚠️ Order <code>${escapeHtml(orderId)}</code> is already <b>${escapeHtml(order.status)}</b> and cannot be cancelled.`, { parse_mode: 'HTML' });
+      } else if (['pending_approval', 'pending_fulfillment', 'processing', 'delivery_failed'].includes(order.status)) {
+        const config = getConfig();
+        await ctx.reply(
+          `⚠️ Order <code>${escapeHtml(orderId)}</code> is currently being processed (<b>${escapeHtml(order.status)}</b>) and cannot be cancelled directly.\n\n` +
+          `Please contact support (@${escapeHtml(config.SUPPORT_USERNAME || 'Vweah')}) if you need assistance or a refund.`,
+          { parse_mode: 'HTML' }
+        );
+      } else if (['new', 'awaiting_payment', 'rejected'].includes(order.status)) {
+        try {
+          updateOrderStatus(orderId, 'cancelled');
+          await ctx.reply(`🚫 Order <code>${escapeHtml(orderId)}</code> has been cancelled.`, { parse_mode: 'HTML' });
+          await renderMyOrders(ctx);
+        } catch (err) {
+          if (err instanceof InvalidOrderTransitionError) {
+            await ctx.reply(`⚠️ Cannot cancel order: ${escapeHtml(err.message)}`);
+          } else {
+            logger.error({ err, orderId }, 'Error cancelling order');
+            await ctx.reply('⚠️ Could not cancel order. Please contact support.');
+          }
+        }
       } else {
-        updateOrderStatus(orderId, 'cancelled');
-        await ctx.reply(`🚫 Order <code>${escapeHtml(orderId)}</code> has been cancelled.`, { parse_mode: 'HTML' });
-        await renderMyOrders(ctx);
+        await ctx.reply(`⚠️ Order <code>${escapeHtml(orderId)}</code> cannot be cancelled.`, { parse_mode: 'HTML' });
       }
     } else if (data === 'onboard_lang_en') {
       await handleOnboardingLanguage(ctx, 'en');
@@ -471,8 +501,12 @@ export function createBot(token: string): Bot {
       }
     } else if (data.startsWith('promo_prompt_')) {
       const orderId = data.replace('promo_prompt_', '');
-      const userId = ctx.from?.id;
-      if (userId) {
+      const order = getOrderById(orderId);
+      if (!order || !userId || (order.user_id !== userId && !isAdmin(userId))) {
+        await ctx.reply('Order not found or unauthorized.');
+      } else if (order.status !== 'awaiting_payment') {
+        await ctx.reply(`⚠️ Cannot apply promo code: order is already <b>${escapeHtml(order.status)}</b>.`, { parse_mode: 'HTML' });
+      } else {
         setPendingAction(userId, { type: 'promo_entry', data: { orderId } });
         await ctx.reply(
           `🏷 <b>Enter Promo Code</b>\n\nSend the code for order <code>${escapeHtml(orderId)}</code> in your next message.\n<i>Example: WELCOME10</i>`,
@@ -514,6 +548,12 @@ export function createBot(token: string): Bot {
     } else if (data.startsWith('admin_refund_')) {
       const orderId = data.replace('admin_refund_', '');
       await promptQueueRefund(ctx, orderId);
+    } else if (data.startsWith('admin_reverify_')) {
+      const orderId = data.replace('admin_reverify_', '');
+      await handleAdminReverify(ctx, orderId);
+    } else if (data.startsWith('admin_view_evidence_')) {
+      const orderId = data.replace('admin_view_evidence_', '');
+      await renderAdminEvidenceDetail(ctx, orderId);
     } else if (data === 'action_sold_out' || data.startsWith('sold_out_')) {
       await ctx.answerCallbackQuery({
         text: '⚠️ Sold Out: This product is currently unavailable. Please check back soon!',
@@ -570,9 +610,14 @@ export function createBot(token: string): Bot {
     } else if (data.startsWith('admin_edit_setting_')) {
       const settingKey = data.replace('admin_edit_setting_', '');
       await promptEditSetting(ctx, settingKey);
-    } else if (data.startsWith('admin_prod_')) {
-      const productId = data.replace('admin_prod_', '');
-      await renderProductDetails(ctx, productId);
+      } else if (data.startsWith('admin_prod_')) {
+        const productId = data.replace('admin_prod_', '');
+        await renderProductDetails(ctx, productId);
+      }
+    } finally {
+      if (!answered) {
+        await origAnswer().catch(() => {});
+      }
     }
   });
 

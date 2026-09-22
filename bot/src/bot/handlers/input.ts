@@ -3,17 +3,20 @@ import { getPendingAction, setPendingAction, clearPendingAction } from '../sessi
 import { formatPriceETB, updateVariantPrice, getProductById } from '../../services/catalog.service.js';
 import { addStockLink, importStockCSV, getTotalStockCount } from '../../services/stock.service.js';
 import { setSetting, getSetting } from '../../services/settings.service.js';
+import { isCircuitBreakerSettingKey } from '../../services/receipt_verifier/constants.js';
 import { isAdmin, renderAdminProducts, renderAdminRates, renderAdminSettings, renderAdminStock } from './admin.js';
 import { submitReceipt, rejectReceipt, getOrderById, fulfillOrderWithProof, refundOrder, sanitizeUsername, InvalidUsernameError, Order } from '../../services/orders.service.js';
-import { notifyAdminsNewReceipt, initiateCheckout } from './checkout.js';
+import { notifyAdminsNewReceipt, notifyAdminsVerificationFallback, initiateCheckout } from './checkout.js';
+import { getUserById } from '../../services/users.service.js';
 import { previewBroadcastDraft } from './broadcast.js';
 import { renderAdminOrdersQueue } from './admin_queue.js';
-import { escapeHtml } from '../../utils/html.js';
+import { escapeHtml, splitTelegramCaption, formatFulfillmentDeliveryMessage } from '../../utils/html.js';
 import { logger, redactSecret } from '../../logger/index.js';
 import { parseBankSms, matchSmsToOrders } from '../../services/sms_parser.service.js';
 import { getDatabase } from '../../db/index.js';
 import { renderPaymentRailSelection } from './checkout.js';
 import { getConfig } from '../../config/env.js';
+import { isResellerEligible, triggerAutoResellerDelivery } from '../../services/reseller.service.js';
 import type { ReceiptMimeType, VerificationResult, IReceiptOrchestrator } from '../../services/receipt_verifier/types.js';
 
 const MAX_RECEIPT_BUFFER_SIZE_BYTES = 10 * 1024 * 1024;
@@ -39,7 +42,7 @@ async function downloadTelegramFileBuffer(ctx: Context, fileId: string): Promise
       if (file.file_path) {
         const config = getConfig();
         const fileUrl = `https://api.telegram.org/file/bot${config.BOT_TOKEN}/${file.file_path}`;
-        const resp = await fetch(fileUrl);
+        const resp = await fetch(fileUrl, { signal: AbortSignal.timeout(15_000) });
         if (resp.ok) {
           return Buffer.from(await resp.arrayBuffer());
         }
@@ -68,19 +71,19 @@ async function sendVerificationSuccessReply(
       '1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.'
     );
     const deliveryText =
-      `🎉 <b>Payment Verified! (Order #${verifiedOrder.id})</b>\n\n` +
-      `• <b>Verified:</b> ${formatPriceETB(verifiedAmount)} via <b>${railName}</b>\n` +
+      `🎉 <b>Payment Verified! (Order #${escapeHtml(verifiedOrder.id)})</b>\n\n` +
+      `• <b>Verified:</b> ${formatPriceETB(verifiedAmount)} via <b>${escapeHtml(railName)}</b>\n` +
       `• <b>Reference:</b> <code>${escapeHtml(refCode)}</code>\n\n` +
-      `🔑 <b>Activation Link:</b>\n<code>${verifiedOrder.fulfillment_payload}</code>\n\n` +
-      `<b>Instructions:</b>\n${rawTemplate}\n\n` +
+      `🔑 <b>Activation Link:</b>\n<code>${escapeHtml(verifiedOrder.fulfillment_payload)}</code>\n\n` +
+      `<b>Instructions:</b>\n${escapeHtml(rawTemplate)}\n\n` +
       `<i>Thank you for choosing Bighabesha Shop! 🇪🇹</i>`;
 
     await ctx.reply(deliveryText, { parse_mode: 'HTML' });
   } else {
     const prodName = getProductById(verifiedOrder.product_id)?.name || verifiedOrder.product_id;
     const buyerMsg =
-      `🎉 <b>Payment Verified! (Order #${verifiedOrder.id})</b>\n\n` +
-      `• <b>Verified:</b> ${formatPriceETB(verifiedAmount)} via <b>${railName}</b>\n` +
+      `🎉 <b>Payment Verified! (Order #${escapeHtml(verifiedOrder.id)})</b>\n\n` +
+      `• <b>Verified:</b> ${formatPriceETB(verifiedAmount)} via <b>${escapeHtml(railName)}</b>\n` +
       `• <b>Reference:</b> <code>${escapeHtml(refCode)}</code>\n\n` +
       `Your <b>${escapeHtml(prodName)}</b> order has been queued for immediate delivery to <b>@${escapeHtml(verifiedOrder.target_username || verifiedOrder.username || 'your account')}</b>.\n` +
       `You will receive a notification as soon as it is completed! ⚡`;
@@ -89,20 +92,92 @@ async function sendVerificationSuccessReply(
   }
 }
 
+function formatBuyerFailureReply(result: VerificationResult, order: Order): string {
+  const failureCode = result.error?.code;
+  const orderId = order.id;
+
+  switch (failureCode) {
+    case 'RECEIPT_ALREADY_USED':
+      return (
+        `⚠️ <b>Payment Verification Notice (Order #${escapeHtml(orderId)})</b>\n\n` +
+        `This payment receipt / transaction reference has already been used for a previous order.\n\n` +
+        `Our administrators have been notified with the transaction details for manual review. ` +
+        `If you believe this is an error, please contact support.`
+      );
+
+    case 'BENEFICIARY_MISMATCH':
+      return (
+        `⚠️ <b>Payment Verification Notice (Order #${escapeHtml(orderId)})</b>\n\n` +
+        `Automated verification detected that this transfer was sent to an account that does not match our official store accounts.\n\n` +
+        `Our administrators have been notified and will verify the transfer details manually.`
+      );
+
+    case 'AMOUNT_MISMATCH': {
+      const paidEtb = result.bankPayload?.amountEtb;
+      const amountDetails = paidEtb
+        ? `Transferred amount detected: <b>${formatPriceETB(paidEtb)}</b> (Order required: <b>${formatPriceETB(order.amount_etb)}</b>).\n\n`
+        : `The transferred amount does not match the required order total (${formatPriceETB(order.amount_etb)}).\n\n`;
+      return (
+        `⚠️ <b>Payment Verification Notice (Order #${escapeHtml(orderId)})</b>\n\n` +
+        amountDetails +
+        `Our administrators have been notified for manual review.`
+      );
+    }
+
+    case 'RECEIPT_EXPIRED':
+      return (
+        `⚠️ <b>Payment Verification Notice (Order #${escapeHtml(orderId)})</b>\n\n` +
+        `The timestamp on this receipt appears to be outside the accepted transaction window.\n\n` +
+        `Our administrators have been notified and will review your receipt manually.`
+      );
+
+    case 'QR_DECODE_FAILED':
+      return (
+        `⚠️ <b>Receipt Received — Manual Review Required (Order #${escapeHtml(orderId)})</b>\n\n` +
+        `We could not automatically read the QR code on your receipt screenshot (it may be blurry, cropped, or not contain a valid bank QR).\n\n` +
+        `Your receipt has been submitted to our administrators for manual review. You will receive an update shortly.`
+      );
+
+    case 'BANK_PORTAL_UNAVAILABLE':
+    case 'PORTAL_GEOBLOCKED':
+      return (
+        `⚠️ <b>Receipt Received — Bank Portal Inactive (Order #${escapeHtml(orderId)})</b>\n\n` +
+        `The bank confirmation service is temporarily unavailable or taking too long to respond.\n\n` +
+        `Your receipt has been forwarded to our administrators for manual verification. You will be notified as soon as it is approved!`
+      );
+
+    default: {
+      const detail = result.error?.detail || 'Verification could not be completed automatically.';
+      return (
+        `⚠️ <b>Receipt Received — Pending Manual Review (Order #${escapeHtml(orderId)})</b>\n\n` +
+        `Automated verification could not confirm your transfer (${escapeHtml(detail)}).\n\n` +
+        `Our administrators have been notified and will review your receipt shortly.`
+      );
+    }
+  }
+}
+
 async function sendVerificationFallbackReply(
   ctx: Context,
   orderId: string,
   receiptRefOrFileId: string,
-  note?: string
+  note?: string,
+  result?: VerificationResult
 ): Promise<void> {
   const updatedOrder = submitReceipt(orderId, receiptRefOrFileId, note);
-  await ctx.reply(
-    `✅ <b>Receipt Received! (Order #${updatedOrder.id})</b>\n\n` +
-      `Thank you! Our administrators have been notified and will verify your transfer shortly.\n` +
-      `You will receive a message with your subscription / coins as soon as it is approved.`,
-    { parse_mode: 'HTML' }
-  );
-  await notifyAdminsNewReceipt(ctx, updatedOrder);
+  if (result) {
+    const buyerMsg = formatBuyerFailureReply(result, updatedOrder);
+    await ctx.reply(buyerMsg, { parse_mode: 'HTML' });
+    await notifyAdminsVerificationFallback(ctx, updatedOrder, result, receiptRefOrFileId);
+  } else {
+    await ctx.reply(
+      `✅ <b>Receipt Received! (Order #${escapeHtml(updatedOrder.id)})</b>\n\n` +
+        `Thank you! Our administrators have been notified and will verify your transfer shortly.\n` +
+        `You will receive a message with your subscription / coins as soon as it is approved.`,
+      { parse_mode: 'HTML' }
+    );
+    await notifyAdminsNewReceipt(ctx, updatedOrder);
+  }
 }
 
 
@@ -199,19 +274,24 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
       return true;
     }
 
+    const order = getOrderById(orderId);
+    if (!order || (order.user_id !== userId && !isAdmin(userId))) {
+      await ctx.reply('Order not found.');
+      return true;
+    }
+
+    if (order.status !== 'awaiting_payment') {
+      await ctx.reply(`⚠️ Cannot submit receipt: order is already <b>${escapeHtml(order.status)}</b>.`, { parse_mode: 'HTML' });
+      return true;
+    }
+
     const db = getDatabase();
     const match = matchSmsToOrders(db, userId, parsed);
-    const order = getOrderById(orderId);
     const targetOrderId = match.matched ? match.orderId! : orderId;
 
     db.prepare(
       'INSERT INTO receipt_evidence (order_id, user_id, source, raw_text, amount_etb, reference, matched) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(targetOrderId, userId, 'sms', text.slice(0, 500), parsed.amountEtb, parsed.reference || null, match.matched ? 1 : 0);
-
-    if (!order || order.user_id !== userId) {
-      await ctx.reply('Order not found.');
-      return true;
-    }
 
     if (!match.matched) {
       if (match.reason === 'reference_already_used') {
@@ -248,39 +328,43 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
     return true;
   }
 
-  // Direct reference or SMS text for user_receipt_upload
+  // Strictly reject plain text when user is in receipt upload mode (must upload photo/screenshot/document)
   if (session.type === 'user_receipt_upload') {
     const { orderId } = session.data as { orderId: string };
     const targetOrder = getOrderById(orderId);
-    if (!targetOrder || targetOrder.user_id !== userId) {
+    if (!targetOrder || (targetOrder.user_id !== userId && !isAdmin(userId))) {
       clearPendingAction(userId);
       await ctx.reply('Order not found.');
       return true;
     }
-    clearPendingAction(userId);
-
-    try {
-      const orchestrator = await getOrchestrator();
-      const result = await orchestrator.processSubmission({
-        orderId,
-        userId,
-        source: 'sms_forward',
-        directReference: text,
-        note: text,
-      });
-
-      if (result.success) {
-        await sendVerificationSuccessReply(ctx, orderId, targetOrder, result);
-        return true;
-      }
-
-      await sendVerificationFallbackReply(ctx, orderId, `text:${Date.now()}`, text);
-      return true;
-    } catch (err: unknown) {
-      logger.error({ err, orderId }, 'Failed to process submitted reference text');
-      await sendVerificationFallbackReply(ctx, orderId, `text:${Date.now()}`, text);
+    if (targetOrder.status !== 'awaiting_payment') {
+      clearPendingAction(userId);
+      await ctx.reply(`⚠️ Cannot submit receipt: order is already <b>${escapeHtml(targetOrder.status)}</b>.`, { parse_mode: 'HTML' });
       return true;
     }
+
+    if (text === '/cancel' || text.toLowerCase() === 'cancel') {
+      clearPendingAction(userId);
+      await ctx.reply('❌ Receipt upload cancelled.');
+      return true;
+    }
+
+    // Keep the pending action armed so user can still upload photo/doc
+    setPendingAction(userId, session, 15);
+
+    const user = getUserById(userId);
+    const isAmharic = user?.language_code === 'am' || ctx.from?.language_code?.startsWith('am');
+
+    const rejectionMsg = isAmharic
+      ? `⚠️ <b>እባክዎ የደረሰኝ ፎቶ ወይም ዶክመንት (PDF) ይላኩ</b>\n\n` +
+        `ጽሑፍ እንደ ክፍያ ማረጋገጫ ተቀባይነት የለውም። እባክዎ የተላለፈበትን ማረጋገጫ ፎቶ፣ ስክሪንሾት ወይም ዶክመንት (PDF) ይላኩ።\n\n` +
+        `<i>ለመሰረዝ <b>/cancel</b> ይፃፉ።</i>`
+      : `⚠️ <b>Please upload a receipt photo or document (PDF)</b>\n\n` +
+        `Plain text messages cannot be accepted as payment receipts. Please send a photo, screenshot, or PDF file of your transfer confirmation.\n\n` +
+        `<i>Type <b>/cancel</b> to abort.</i>`;
+
+    await ctx.reply(rejectionMsg, { parse_mode: 'HTML' });
+    return true;
   }
 
 
@@ -332,27 +416,23 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
       const product = getProductById(order.product_id);
       const prodName = product ? product.name : order.product_id;
 
-      await ctx.reply(`✅ <b>Order <code>${order.id}</code> fulfilled with completion note!</b>`, { parse_mode: 'HTML' });
+      await ctx.reply(`✅ <b>Order <code>${escapeHtml(order.id)}</code> fulfilled with completion note!</b>`, { parse_mode: 'HTML' });
 
       // Notify buyer
       if (order.fulfillment_payload) {
-        const rawTemplate = getSetting(
-          'gemini_instructions',
-          '1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.'
-        );
-        const deliveryText = `<b>Payment Confirmed — Order #${order.id}</b>\n\n` +
-          `Activation Link:\n<code>${order.fulfillment_payload}</code>\n\n` +
-          `<b>Instructions:</b>\n${rawTemplate}\n\n` +
-          `<i>Thank you for choosing Bighabesha Shop.</i>`;
-
-        await ctx.api.sendMessage(order.user_id, deliveryText, { parse_mode: 'HTML' }).catch(() => {});
+        const deliveryText = formatFulfillmentDeliveryMessage(order.id, order.fulfillment_payload);
+        await ctx.api.sendMessage(order.user_id, deliveryText, { parse_mode: 'HTML' }).catch((err) => {
+          logger.error({ err, userId: order.user_id }, 'Failed to deliver payload to buyer');
+        });
       } else {
         const buyerMsg = `🎉 <b>Your Order Has Been Fulfilled!</b>\n\n` +
-          `Your <b>${escapeHtml(prodName)}</b> order (<code>#${order.id}</code>) has been delivered to <b>@${escapeHtml(order.username || 'your account')}</b>.\n\n` +
+          `Your <b>${escapeHtml(prodName)}</b> order (<code>#${escapeHtml(order.id)}</code>) has been delivered to <b>${order.username ? `@${escapeHtml(order.username)}` : 'your account'}</b>.\n\n` +
           `📝 <b>Fulfillment Note:</b> ${escapeHtml(text)}\n\n` +
           `Thank you for choosing Bighabesha Shop! 🇪🇹`;
 
-        await ctx.api.sendMessage(order.user_id, buyerMsg, { parse_mode: 'HTML' }).catch(() => {});
+        await ctx.api.sendMessage(order.user_id, buyerMsg, { parse_mode: 'HTML' }).catch((err) => {
+          logger.error({ err, userId: order.user_id }, 'Failed to deliver fulfillment notice to buyer');
+        });
       }
       await renderAdminOrdersQueue(ctx);
     } catch (err: any) {
@@ -374,13 +454,13 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
       clearPendingAction(userId);
       try {
         const order = rejectReceipt(orderId, userId, reason);
-        await ctx.reply(`✅ Order <code>${order.id}</code> has been marked REJECTED.`, { parse_mode: 'HTML' });
+        await ctx.reply(`✅ Order <code>${escapeHtml(order.id)}</code> has been marked REJECTED.`, { parse_mode: 'HTML' });
 
         // Notify buyer
         const buyerMsg = `❌ <b>Payment Verification Failed</b>\n\n` +
-          `Your payment receipt for Order #${order.id} was not accepted.\n\n` +
+          `Your payment receipt for Order #${escapeHtml(order.id)} was not accepted.\n\n` +
           `• <b>Reason:</b> ${escapeHtml(reason)}\n\n` +
-          `If you believe this is a mistake or have questions, please reach out to our official support: @${getConfig().SUPPORT_USERNAME || 'Vweah'}`;
+          `If you believe this is a mistake or have questions, please reach out to our official support: @${escapeHtml(getConfig().SUPPORT_USERNAME || 'Vweah')}`;
 
         await ctx.api.sendMessage(order.user_id, buyerMsg, { parse_mode: 'HTML' }).catch((err) => {
           logger.error({ err, userId: order.user_id }, 'Failed to send rejection to buyer');
@@ -467,6 +547,14 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
 
       clearPendingAction(userId);
       setSetting(settingKey, text);
+
+      // Circuit breaker thresholds are cached in the live adapter instances; re-apply them so the
+      // operator's change takes effect immediately instead of on the next process restart.
+      if (isCircuitBreakerSettingKey(settingKey)) {
+        const { refreshReceiptOrchestratorSettings } = await import('../../services/receipt_verifier/index.js');
+        refreshReceiptOrchestratorSettings();
+      }
+
       await ctx.reply(`✅ Setting <code>${escapeHtml(settingKey)}</code> has been updated to: <b>${escapeHtml(text)}</b>`, { parse_mode: 'HTML' });
 
       if (settingKey.startsWith('cbe') || settingKey.startsWith('telebirr') || settingKey.startsWith('abyssinia') || settingKey === 'low_stock_threshold') {
@@ -513,19 +601,33 @@ export async function handlePhotoInput(ctx: Context): Promise<boolean> {
       const product = getProductById(order.product_id);
       const prodName = product ? product.name : order.product_id;
 
-      await ctx.reply(`✅ <b>Order <code>${order.id}</code> fulfilled with screenshot proof!</b>`, { parse_mode: 'HTML' });
+      await ctx.reply(`✅ <b>Order <code>${escapeHtml(order.id)}</code> fulfilled with screenshot proof!</b>`, { parse_mode: 'HTML' });
 
       // Deliver photo proof to buyer
       const buyerCaption = `🎉 <b>Your Order Has Been Fulfilled!</b>\n\n` +
-        `Your <b>${escapeHtml(prodName)}</b> order (<code>#${order.id}</code>) has been delivered to <b>@${escapeHtml(order.username || 'your account')}</b>.\n\n` +
+        `Your <b>${escapeHtml(prodName)}</b> order (<code>#${escapeHtml(order.id)}</code>) has been delivered to <b>${order.username ? `@${escapeHtml(order.username)}` : 'your account'}</b>.\n\n` +
         `🧾 <b>Proof attached above.</b>\n` +
         (caption ? `📝 <b>Note:</b> ${escapeHtml(caption)}\n\n` : '') +
         `Thank you for choosing Bighabesha Shop! 🇪🇹`;
 
+      const { caption: photoCaption, overflow: photoOverflow } = splitTelegramCaption(buyerCaption, 1024);
       await ctx.api.sendPhoto(order.user_id, largestPhoto.file_id, {
-        caption: buyerCaption,
+        caption: photoCaption,
         parse_mode: 'HTML',
-      }).catch(() => {});
+      }).catch((err) => {
+        logger.error({ err, userId: order.user_id }, 'Failed to send photo proof to buyer');
+      });
+      if (photoOverflow) {
+        await ctx.api.sendMessage(order.user_id, photoOverflow, { parse_mode: 'HTML' }).catch(() => {});
+      }
+
+      // If stock payload is attached, deliver activation link and instructions
+      if (order.fulfillment_payload) {
+        const deliveryText = formatFulfillmentDeliveryMessage(order.id, order.fulfillment_payload);
+        await ctx.api.sendMessage(order.user_id, deliveryText, { parse_mode: 'HTML' }).catch((err) => {
+          logger.error({ err, userId: order.user_id }, 'Failed to deliver payload to buyer');
+        });
+      }
 
       await renderAdminOrdersQueue(ctx);
     } catch (err: any) {
@@ -537,9 +639,14 @@ export async function handlePhotoInput(ctx: Context): Promise<boolean> {
   if (session.type === 'user_receipt_upload') {
     const { orderId } = session.data as { orderId: string };
     const targetOrder = getOrderById(orderId);
-    if (!targetOrder || targetOrder.user_id !== userId) {
+    if (!targetOrder || (targetOrder.user_id !== userId && !isAdmin(userId))) {
       clearPendingAction(userId);
       await ctx.reply('Order not found.');
+      return true;
+    }
+    if (targetOrder.status !== 'awaiting_payment') {
+      clearPendingAction(userId);
+      await ctx.reply(`⚠️ Cannot submit receipt: order is already <b>${escapeHtml(targetOrder.status)}</b>.`, { parse_mode: 'HTML' });
       return true;
     }
     clearPendingAction(userId);
@@ -563,10 +670,15 @@ export async function handlePhotoInput(ctx: Context): Promise<boolean> {
 
       if (result.success) {
         await sendVerificationSuccessReply(ctx, orderId, targetOrder, result);
+        if (isResellerEligible(targetOrder) && ctx.api) {
+          void triggerAutoResellerDelivery(targetOrder.id, ctx.api).catch((err) => {
+            logger.error({ err, orderId: targetOrder.id }, 'Unhandled error in triggerAutoResellerDelivery for photo receipt');
+          });
+        }
         return true;
       }
 
-      await sendVerificationFallbackReply(ctx, orderId, largestPhoto.file_id, caption);
+      await sendVerificationFallbackReply(ctx, orderId, largestPhoto.file_id, caption, result);
       return true;
     } catch (err: unknown) {
       logger.error({ err, orderId }, 'Failed to process submitted receipt');
@@ -597,9 +709,14 @@ export async function handleDocumentInput(ctx: Context): Promise<boolean> {
   if (session.type === 'user_receipt_upload') {
     const { orderId } = session.data as { orderId: string };
     const targetOrder = getOrderById(orderId);
-    if (!targetOrder || targetOrder.user_id !== userId) {
+    if (!targetOrder || (targetOrder.user_id !== userId && !isAdmin(userId))) {
       clearPendingAction(userId);
       await ctx.reply('Order not found.');
+      return true;
+    }
+    if (targetOrder.status !== 'awaiting_payment') {
+      clearPendingAction(userId);
+      await ctx.reply(`⚠️ Cannot submit receipt: order is already <b>${escapeHtml(targetOrder.status)}</b>.`, { parse_mode: 'HTML' });
       return true;
     }
     clearPendingAction(userId);
@@ -632,10 +749,15 @@ export async function handleDocumentInput(ctx: Context): Promise<boolean> {
 
       if (result.success) {
         await sendVerificationSuccessReply(ctx, orderId, targetOrder, result);
+        if (isResellerEligible(targetOrder) && ctx.api) {
+          void triggerAutoResellerDelivery(targetOrder.id, ctx.api).catch((err) => {
+            logger.error({ err, orderId: targetOrder.id }, 'Unhandled error in triggerAutoResellerDelivery for document receipt');
+          });
+        }
         return true;
       }
 
-      await sendVerificationFallbackReply(ctx, orderId, doc.file_id, caption);
+      await sendVerificationFallbackReply(ctx, orderId, doc.file_id, caption, result);
       return true;
     } catch (err: unknown) {
       logger.error({ err, orderId }, 'Failed to process submitted document receipt');
@@ -644,6 +766,57 @@ export async function handleDocumentInput(ctx: Context): Promise<boolean> {
     }
   }
 
+  if (session.data?.action === 'admin_fulfill_proof') {
+    // Authorization gate: only configured administrators may fulfil orders.
+    if (!isAdmin(userId)) return true;
+    clearPendingAction(userId);
+    const orderId = session.data.orderId;
+    const caption = ctx.message?.caption;
+
+    if (doc.file_size && doc.file_size > MAX_RECEIPT_BUFFER_SIZE_BYTES) {
+      await ctx.reply(`❌ File too large (${(doc.file_size / 1024 / 1024).toFixed(1)} MB). Maximum allowed is 10 MB.`);
+      return true;
+    }
+
+    try {
+      const order = fulfillOrderWithProof(orderId, userId, { fileId: doc.file_id, text: caption || doc.file_name });
+      const product = getProductById(order.product_id);
+      const prodName = product ? product.name : order.product_id;
+
+      await ctx.reply(`✅ <b>Order <code>${escapeHtml(order.id)}</code> fulfilled with document proof!</b>`, { parse_mode: 'HTML' });
+
+      // Deliver document proof to buyer
+      const buyerCaption = `🎉 <b>Your Order Has Been Fulfilled!</b>\n\n` +
+        `Your <b>${escapeHtml(prodName)}</b> order (<code>#${escapeHtml(order.id)}</code>) has been delivered to <b>${order.username ? `@${escapeHtml(order.username)}` : 'your account'}</b>.\n\n` +
+        `🧾 <b>Proof document attached above.</b>\n` +
+        (caption ? `📝 <b>Note:</b> ${escapeHtml(caption)}\n\n` : '') +
+        `Thank you for choosing Bighabesha Shop! 🇪🇹`;
+
+      const { caption: docCaption, overflow: docOverflow } = splitTelegramCaption(buyerCaption, 1024);
+      await ctx.api.sendDocument(order.user_id, doc.file_id, {
+        caption: docCaption,
+        parse_mode: 'HTML',
+      }).catch((err) => {
+        logger.error({ err, userId: order.user_id }, 'Failed to send document proof to buyer');
+      });
+      if (docOverflow) {
+        await ctx.api.sendMessage(order.user_id, docOverflow, { parse_mode: 'HTML' }).catch(() => {});
+      }
+
+      // If stock payload is attached, deliver activation link and instructions
+      if (order.fulfillment_payload) {
+        const deliveryText = formatFulfillmentDeliveryMessage(order.id, order.fulfillment_payload);
+        await ctx.api.sendMessage(order.user_id, deliveryText, { parse_mode: 'HTML' }).catch((err) => {
+          logger.error({ err, userId: order.user_id }, 'Failed to deliver payload to buyer');
+        });
+      }
+
+      await renderAdminOrdersQueue(ctx);
+    } catch (err: any) {
+      await ctx.reply(`❌ Fulfillment error: ${escapeHtml(err.message)}`, { parse_mode: 'HTML' });
+    }
+    return true;
+  }
 
   if (!isAdmin(userId)) return false;
 
@@ -670,7 +843,7 @@ export async function handleDocumentInput(ctx: Context): Promise<boolean> {
     }
 
     const fileUrl = `https://api.telegram.org/file/bot${ctx.api.token}/${file.file_path}`;
-    const response = await fetch(fileUrl);
+    const response = await fetch(fileUrl, { signal: AbortSignal.timeout(15_000) });
 
     // Defense-in-depth: also enforce the cap against the actual response
     // size, since Telegram's metadata can be missing or stale.

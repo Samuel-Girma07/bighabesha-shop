@@ -23,39 +23,45 @@ export function previewUserText(text: unknown, maxLen: number = 40): string {
   return str.length <= maxLen ? str : `${str.slice(0, maxLen)}…(${str.length})`;
 }
 
+export const LOGGER_REDACT_PATHS = [
+  // Credentials & secrets
+  'password',
+  '*.password',
+  'otp',
+  '*.otp',
+  'otpCode',
+  '*.otpCode',
+  'sessionToken',
+  '*.sessionToken',
+  'apiKey',
+  '*.apiKey',
+  'WALLET_PAY_API_KEY',
+  '*.WALLET_PAY_API_KEY',
+  'GRAMIX_API_KEY',
+  '*.GRAMIX_API_KEY',
+  'ISTAR_API_KEY',
+  '*.ISTAR_API_KEY',
+  'RESELLER_API_KEY',
+  '*.RESELLER_API_KEY',
+  'ADMIN_PASSWORD',
+  'BOT_TOKEN',
+  'token',
+  '*.token',
+  'authorization',
+  'req.headers.authorization',
+  // Telegram payment identifiers
+  'telegram_payment_charge_id',
+  'payment.telegram_payment_charge_id',
+  // Stock payloads (activation links) when logged under known keys
+  'payload',
+  'link',
+  'activationLink',
+];
+
 export const logger = pino({
   level: process.env.LOG_LEVEL || (isTest ? 'silent' : isDev ? 'debug' : 'info'),
   redact: {
-    paths: [
-      // Credentials & secrets
-      'password',
-      '*.password',
-      'otp',
-      '*.otp',
-      'apiKey',
-      '*.apiKey',
-      'WALLET_PAY_API_KEY',
-      '*.WALLET_PAY_API_KEY',
-      'GRAMIX_API_KEY',
-      '*.GRAMIX_API_KEY',
-      'ISTAR_API_KEY',
-      '*.ISTAR_API_KEY',
-      'RESELLER_API_KEY',
-      '*.RESELLER_API_KEY',
-      'ADMIN_PASSWORD',
-      'BOT_TOKEN',
-      'token',
-      '*.token',
-      'authorization',
-      'req.headers.authorization',
-      // Telegram payment identifiers
-      'telegram_payment_charge_id',
-      'payment.telegram_payment_charge_id',
-      // Stock payloads (activation links) when logged under known keys
-      'payload',
-      'link',
-      'activationLink',
-    ],
+    paths: LOGGER_REDACT_PATHS,
     censor: '[REDACTED]',
   },
   transport:

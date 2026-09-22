@@ -2,9 +2,8 @@ import { Context, InlineKeyboard } from 'grammy';
 import { isAdmin } from './admin.js';
 import { getFulfillmentQueue, getOrderById, fulfillOrderWithProof } from '../../services/orders.service.js';
 import { getProductById, formatPriceETB } from '../../services/catalog.service.js';
-import { getSetting } from '../../services/settings.service.js';
 import { setPendingAction } from '../session.js';
-import { escapeHtml } from '../../utils/html.js';
+import { escapeHtml, formatFulfillmentDeliveryMessage } from '../../utils/html.js';
 import { logger } from '../../logger/index.js';
 import { isResellerEligible, deliverWithReseller } from '../../services/reseller.service.js';
 
@@ -131,42 +130,51 @@ export async function promptQueueProof(ctx: Context, orderId: string): Promise<v
 
 export async function executeDirectFulfill(ctx: Context, orderId: string): Promise<void> {
   const adminId = ctx.from?.id;
-  if (!isAdmin(adminId) || !adminId) return;
+  if (!adminId || !isAdmin(adminId)) return;
+
+  const order = getOrderById(orderId);
+  if (!order) {
+    await ctx.reply('Order not found in database.');
+    return;
+  }
+  if (order.status === 'fulfilled' || order.status === 'cancelled' || order.status === 'refunded') {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: `Order is already ${order.status}.`, show_alert: true }).catch(() => {});
+    } else {
+      await ctx.reply(`Order is already ${order.status}.`);
+    }
+    return;
+  }
 
   try {
-    const order = fulfillOrderWithProof(orderId, adminId);
-    const product = getProductById(order.product_id);
-    const prodName = product ? product.name : order.product_id;
+    const fulfilledOrder = fulfillOrderWithProof(orderId, adminId, { text: 'Direct fulfillment via bot admin queue' });
+    const product = getProductById(fulfilledOrder.product_id);
+    const prodName = product ? product.name : fulfilledOrder.product_id;
 
-    await ctx.reply(`✅ <b>Order <code>${order.id}</code> successfully marked as FULFILLED!</b>`, { parse_mode: 'HTML' });
+    await ctx.reply(`✅ <b>Order <code>${escapeHtml(fulfilledOrder.id)}</code> successfully marked as FULFILLED!</b>`, { parse_mode: 'HTML' });
 
     // Deliver notification to buyer
-    if (order.fulfillment_payload) {
-      const rawTemplate = getSetting(
-        'gemini_instructions',
-        '1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.'
-      );
-      const deliveryText = `<b>Payment Confirmed — Order #${order.id}</b>\n\n` +
-        `Activation Link:\n<code>${order.fulfillment_payload}</code>\n\n` +
-        `<b>Instructions:</b>\n${rawTemplate}\n\n` +
-        `<i>Thank you for choosing Bighabesha Shop.</i>`;
-
-      await ctx.api.sendMessage(order.user_id, deliveryText, { parse_mode: 'HTML' }).catch((err) => {
-        logger.error({ err, userId: order.user_id }, 'Failed to deliver payload to buyer');
+    if (fulfilledOrder.fulfillment_payload) {
+      const deliveryText = formatFulfillmentDeliveryMessage(fulfilledOrder.id, fulfilledOrder.fulfillment_payload);
+      await ctx.api.sendMessage(fulfilledOrder.user_id, deliveryText, { parse_mode: 'HTML' }).catch((err) => {
+        logger.error({ err, userId: fulfilledOrder.user_id }, 'Failed to deliver payload to buyer');
       });
     } else {
       const buyerMsg = `🎉 <b>Your Order Has Been Fulfilled!</b>\n\n` +
-        `Your <b>${escapeHtml(prodName)}</b> order (<code>#${order.id}</code>) has been successfully delivered to <b>@${escapeHtml(order.username || 'your account')}</b> via official Telegram rails.\n\n` +
+        `Your <b>${escapeHtml(prodName)}</b> order (<code>#${escapeHtml(fulfilledOrder.id)}</code>) has been successfully delivered to <b>${fulfilledOrder.username ? `@${escapeHtml(fulfilledOrder.username)}` : 'your account'}</b> via official Telegram rails.\n\n` +
         `Thank you for choosing Bighabesha Shop! 🇪🇹`;
 
-      await ctx.api.sendMessage(order.user_id, buyerMsg, { parse_mode: 'HTML' }).catch((err) => {
-        logger.error({ err, userId: order.user_id }, 'Failed to deliver fulfillment notice to buyer');
+      await ctx.api.sendMessage(fulfilledOrder.user_id, buyerMsg, { parse_mode: 'HTML' }).catch((err) => {
+        logger.error({ err, userId: fulfilledOrder.user_id }, 'Failed to deliver fulfillment notice to buyer');
       });
     }
 
     await renderAdminOrdersQueue(ctx);
   } catch (err: any) {
     logger.error({ err, orderId }, 'Failed to directly fulfill order');
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: `❌ Fulfillment error: ${err.message}`, show_alert: true }).catch(() => {});
+    }
     await ctx.reply(`❌ Fulfillment error: ${escapeHtml(err.message)}`, { parse_mode: 'HTML' });
   }
 }
@@ -211,6 +219,15 @@ export async function handleAdminQueueResellerDeliver(ctx: Context, orderId: str
     return;
   }
 
+  if (order.status === 'fulfilled' || order.status === 'cancelled' || order.status === 'refunded') {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: `Order is already ${order.status}.`, show_alert: true }).catch(() => {});
+    } else {
+      await ctx.reply(`Order is already ${order.status}.`);
+    }
+    return;
+  }
+
   const adminUsername = ctx.from?.username ? `@${escapeHtml(ctx.from.username)}` : `Admin (${adminId})`;
 
   try {
@@ -219,14 +236,14 @@ export async function handleAdminQueueResellerDeliver(ctx: Context, orderId: str
     if (outcome.delivered) {
       const targetUsername = outcome.order.target_username || outcome.order.username || 'your account';
       const successText = `⚡ <b>Reseller Delivery Succeeded!</b>\n\n` +
-        `• <b>Order:</b> <code>${order.id}</code>\n` +
+        `• <b>Order:</b> <code>${escapeHtml(order.id)}</code>\n` +
         `• <b>Status:</b> FULFILLED\n` +
         `• <b>Target:</b> @${escapeHtml(targetUsername)}\n` +
         `• <b>Provider:</b> <b>${escapeHtml(outcome.order.reseller_provider || 'reseller')}</b>` +
-        (outcome.order.reseller_tx_id ? `\n• <b>Provider Tx:</b> <code>${escapeHtml(outcome.order.reseller_tx_id)}</code>` : '') +
+        (outcome.order.reseller_tx_id ? `\n• Provider Tx: <code>${escapeHtml(outcome.order.reseller_tx_id)}</code>` : '') +
         `\n• <b>Delivered by:</b> ${adminUsername}`;
 
-      const notifyText = `<b>Payment Confirmed — Order #${order.id}</b>\n\n` +
+      const notifyText = `<b>Payment Confirmed — Order #${escapeHtml(order.id)}</b>\n\n` +
         `🎉 Your <b>Telegram Premium</b> has been activated on <b>@${escapeHtml(targetUsername)}</b>.\n\n` +
         `<i>Thank you for choosing Bighabesha Shop!</i>`;
 
@@ -241,13 +258,25 @@ export async function handleAdminQueueResellerDeliver(ctx: Context, orderId: str
         await ctx.reply(successText, { parse_mode: 'HTML', reply_markup: keyboard });
       }
     } else {
+      if (outcome.error === 'Order is already being processed') {
+        if (ctx.callbackQuery) {
+          await ctx.answerCallbackQuery({
+            text: '⚠️ Order is already being processed by another worker.',
+            show_alert: true,
+          }).catch(() => {});
+        } else {
+          await ctx.reply('⚠️ Order is already being processed by another worker.');
+        }
+        return;
+      }
+
       const failText = `❌ <b>Reseller Delivery Failed</b>\n\n` +
-        `• <b>Order:</b> <code>${order.id}</code>\n` +
+        `• <b>Order:</b> <code>${escapeHtml(order.id)}</code>\n` +
         `• <b>Status:</b> DELIVERY_FAILED\n` +
         `• <b>Error:</b> ${escapeHtml(outcome.error || 'Unknown error')}\n\n` +
         `<i>The order remains queued under DELIVERY_FAILED status. You may retry or refund.</i>`;
 
-      const notifyBuyer = `<b>Payment Verified for Order #${order.id}</b>\n\n` +
+      const notifyBuyer = `<b>Payment Verified for Order #${escapeHtml(order.id)}</b>\n\n` +
         `Your order has been approved but delivery encountered a temporary issue.\n` +
         `Our team is resolving it — you will receive an update shortly.`;
 

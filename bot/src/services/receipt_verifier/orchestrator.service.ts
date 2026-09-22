@@ -1,8 +1,12 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import fsp from 'fs/promises';
+import path from 'path';
 import { getDatabase } from '../../db/index.js';
 import {
   insertReceiptEvidence,
   getLatestEvidenceForOrder,
+  getEvidenceForOrder,
   markEvidenceMatchedInTx,
   updateEvidenceStatus,
   insertVerificationAudit,
@@ -14,7 +18,7 @@ import { getOrderById, updateOrderStatus, Order } from '../orders.service.js';
 import { getProductById } from '../catalog.service.js';
 import { allocateStock } from '../stock.service.js';
 import { isResellerEligible } from '../reseller.service.js';
-import { saveReceiptImage } from '../receipts.service.js';
+import { saveReceiptImage, resolveStoredReceiptPath } from '../receipts.service.js';
 import { logger } from '../../logger/index.js';
 import { ReceiptIngestionService } from './ingestion.service.js';
 import { CbeBankAdapter } from './adapters/cbe.adapter.js';
@@ -26,12 +30,14 @@ import {
   DEFAULT_RECENCY_AFTER_MINUTES,
   RFC7807_BASE_URL,
   DEFAULT_ERROR_INSTANCE,
+  parseUtcTimestamp,
 } from './constants.js';
 import {
   IReceiptOrchestrator,
   IReceiptIngestionService,
   IBankReceiptVerifier,
   ISecurityGate,
+  ReceiptMimeType,
   ReceiptSubmission,
   VerificationResult,
   VerificationAuditRecord,
@@ -97,8 +103,14 @@ export class ReceiptOrchestrator implements IReceiptOrchestrator {
     const startTime = Date.now();
     const order = this.resolveOrder(submission.orderId);
 
-    // Persist receipt image buffer if provided
-    const { fileHash, filePath } = await this.persistEvidenceArtifact(submission.fileBuffer, order.id);
+    // Persist receipt image buffer if provided and not already stored
+    let fileHash = submission.existingFileHash;
+    let filePath = submission.existingFilePath;
+    if (!filePath && submission.fileBuffer && submission.fileBuffer.length > 0) {
+      const persisted = await this.persistEvidenceArtifact(submission.fileBuffer, order.id);
+      fileHash = persisted.fileHash;
+      filePath = persisted.filePath;
+    }
 
     // Initialize initial receipt_evidence record
     const evidenceRow = insertReceiptEvidence({
@@ -108,7 +120,7 @@ export class ReceiptOrchestrator implements IReceiptOrchestrator {
         ? order.payment_rail
         : 'unknown',
       source: submission.source,
-      rawText: submission.note || submission.directReference || null,
+      rawText: submission.auditNote || submission.note || submission.directReference || null,
       amountEtb: order.amount_etb,
       reference: submission.directReference || null,
       filePath: filePath || null,
@@ -142,7 +154,7 @@ export class ReceiptOrchestrator implements IReceiptOrchestrator {
           userId: order.user_id,
           netPayableEtb,
           paymentRail: bankPayload.bank,
-          orderCreatedAt: new Date(order.created_at),
+          orderCreatedAt: parseUtcTimestamp(order.created_at),
         },
         bankPayload
       );
@@ -186,18 +198,90 @@ export class ReceiptOrchestrator implements IReceiptOrchestrator {
 
   /**
    * Re-verifies an existing order by administrator command.
+   * Reloads saved receipt file from disk if available, or falls back to transaction reference.
    */
   public async reverifyOrder(orderId: string, adminId: number): Promise<VerificationResult> {
     const order = this.resolveOrder(orderId);
     const latestEvidence = getLatestEvidenceForOrder(orderId);
-    const reference = order.payment_ref || latestEvidence?.reference || undefined;
+
+    // 1. Locate receipt file from evidence or order storage
+    let fileBuffer: Buffer | undefined;
+    let filePath: string | undefined;
+    let mimeType: ReceiptMimeType | undefined = latestEvidence?.mime_type || undefined;
+
+    const candidatePaths: string[] = [];
+    if (latestEvidence?.file_path) {
+      candidatePaths.push(latestEvidence.file_path);
+    }
+    if (order.receipt_file_id) {
+      const storedPath = resolveStoredReceiptPath(order.receipt_file_id);
+      if (storedPath && !candidatePaths.includes(storedPath)) {
+        candidatePaths.push(storedPath);
+      }
+    }
+
+    // Also check historical evidence submissions for this order
+    const allEvidence = getEvidenceForOrder(orderId);
+    for (const ev of [...allEvidence].reverse()) {
+      if (ev.file_path && !candidatePaths.includes(ev.file_path)) {
+        candidatePaths.push(ev.file_path);
+      }
+    }
+
+    for (const cp of candidatePaths) {
+      if (fs.existsSync(cp)) {
+        try {
+          fileBuffer = await fsp.readFile(cp);
+          filePath = cp;
+          if (!mimeType || mimeType === 'text/plain') {
+            mimeType = this.inferMimeType(cp, fileBuffer);
+          }
+          break;
+        } catch (readErr) {
+          logger.warn({ orderId, path: cp, err: readErr }, 'Failed reading candidate receipt file');
+        }
+      }
+    }
+
+    // 2. Locate transaction reference if available
+    let reference: string | undefined;
+    const candidateRefs = [
+      order.payment_ref,
+      latestEvidence?.normalized_reference,
+      latestEvidence?.reference,
+    ];
+    for (const cr of candidateRefs) {
+      if (cr && typeof cr === 'string') {
+        const trimmed = cr.trim();
+        // Ignore dummy prefixes like 'text:' or 'manual:' or placeholder strings
+        if (trimmed.length > 0 && !trimmed.startsWith('text:') && !trimmed.startsWith('manual:')) {
+          reference = trimmed;
+          break;
+        }
+      }
+    }
+
+    // 3. Ensure we have either a file buffer or a valid reference to re-verify
+    if (!fileBuffer && !reference) {
+      throw new ReceiptVerificationError(
+        'CORRUPTED_FILE',
+        400,
+        'Receipt Evidence Unavailable',
+        `Target order '${orderId}' has neither a stored receipt image file nor a valid bank transaction reference for automated re-verification.`,
+        'Please upload an image receipt or enter the bank transaction code manually.'
+      );
+    }
 
     return this.processSubmission({
       orderId: order.id,
       userId: order.user_id,
       source: 'manual_admin_entry',
+      fileBuffer,
+      mimeType,
       directReference: reference,
-      note: `Admin ${adminId} requested reverification`,
+      existingFilePath: filePath,
+      existingFileHash: latestEvidence?.file_hash || undefined,
+      auditNote: `Admin ${adminId} requested reverification`,
     });
   }
 
@@ -253,16 +337,41 @@ export class ReceiptOrchestrator implements IReceiptOrchestrator {
     return { fileHash, filePath };
   }
 
+  private inferMimeType(filePath: string, buffer: Buffer): ReceiptMimeType {
+    const ext = path.extname(filePath).toLowerCase().replace('.', '');
+    if (ext === 'pdf' || buffer.subarray(0, 5).toString('ascii').startsWith('%PDF-')) {
+      return 'application/pdf';
+    }
+    if (ext === 'png' || (buffer.length >= 8 && buffer[0] === 0x89 && buffer[1] === 0x50)) {
+      return 'image/png';
+    }
+    if (ext === 'webp' || (buffer.length >= 12 && buffer.toString('ascii', 0, 4) === 'RIFF')) {
+      return 'image/webp';
+    }
+    return 'image/jpeg';
+  }
+
   private async extractSubmissionReference(submission: ReceiptSubmission): Promise<ExtractedReceiptReference> {
     if (submission.fileBuffer && submission.mimeType) {
-      return this.ingestionService.ingestBuffer(submission.fileBuffer, submission.mimeType);
+      try {
+        return await this.ingestionService.ingestBuffer(submission.fileBuffer, submission.mimeType);
+      } catch (err) {
+        if (submission.directReference) {
+          logger.info(
+            { orderId: submission.orderId, err: err instanceof Error ? err.message : String(err) },
+            'QR/file buffer ingestion failed; falling back to direct reference'
+          );
+          return this.ingestionService.ingestText(submission.directReference);
+        }
+        throw err;
+      }
     }
 
     if (submission.directReference) {
       return this.ingestionService.ingestText(submission.directReference);
     }
 
-    if (submission.note) {
+    if (submission.note && submission.source !== 'manual_admin_entry') {
       return this.ingestionService.ingestText(submission.note);
     }
 

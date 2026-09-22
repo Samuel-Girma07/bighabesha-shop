@@ -415,20 +415,16 @@ describe('Critical Security Hardening', () => {
       ).toThrow(/ADMIN_PASSWORD is required in production/);
     });
 
-    it('refuses to boot in production with WALLET_PAY_MODE=mock or omitted', () => {
-      expect(() =>
-        loadEnv({ BOT_TOKEN: TOKEN, ADMIN_IDS: '111111111', NODE_ENV: 'production', ADMIN_PASSWORD: 'long-enough-password', WALLET_PAY_MODE: 'mock', WALLET_PAY_API_KEY: '' })
-      ).toThrow(/WALLET_PAY_MODE must be explicitly set to "live"/);
-
-      expect(() =>
-        loadEnv({ BOT_TOKEN: TOKEN, ADMIN_IDS: '111111111', NODE_ENV: 'production', ADMIN_PASSWORD: 'long-enough-password', WALLET_PAY_API_KEY: 'k' })
-      ).toThrow(/WALLET_PAY_MODE must be explicitly set to "live"/);
-    });
-
-    it('refuses to boot in production with live mode but a missing API key', () => {
-      expect(() =>
-        loadEnv({ BOT_TOKEN: TOKEN, ADMIN_IDS: '111111111', NODE_ENV: 'production', ADMIN_PASSWORD: 'long-enough-password', WALLET_PAY_MODE: 'live', WALLET_PAY_API_KEY: '' })
-      ).toThrow(/WALLET_PAY_API_KEY is required in production/);
+    it('boots in production without requiring decommissioned Wallet Pay credentials', () => {
+      const cfg = loadEnv({
+        BOT_TOKEN: TOKEN,
+        ADMIN_IDS: '111111111',
+        NODE_ENV: 'production',
+        ADMIN_PASSWORD: 'long-enough-password',
+        WEBAPP_URL: 'https://shop.example.com',
+      });
+      expect(cfg.NODE_ENV).toBe('production');
+      expect(cfg.ADMIN_IDS).toEqual([111111111]);
     });
 
     it('accepts a fully-configured production environment', () => {

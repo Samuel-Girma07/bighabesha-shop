@@ -7,6 +7,22 @@ import { assertPositiveIntegerETB, PricingError } from './pricing.service.js';
 import { getNumericSetting } from './settings.service.js';
 import { adjustUserStats } from './loyalty.service.js';
 import { redeemPromoInTx, releasePromoRedemption } from './promo.service.js';
+import { invalidate } from './cache.service.js';
+import { parseBankSms } from './sms_parser.service.js';
+import {
+  getLatestEvidenceForOrder,
+  checkAntiReplay,
+  markEvidenceMatchedInTx,
+} from '../db/receipt_evidence.dao.js';
+import {
+  SupportedBank,
+  ReceiptAlreadyUsedError,
+} from './receipt_verifier/types.js';
+import type { SecurityPillarEvaluation } from './receipt_verifier/types.js';
+import {
+  DEFAULT_RECENCY_BEFORE_MINUTES,
+  DEFAULT_RECENCY_AFTER_MINUTES,
+} from './receipt_verifier/constants.js';
 
 export type ActivePaymentRail = 'telebirr' | 'cbe' | 'abyssinia';
 export type PaymentRail = ActivePaymentRail | 'chapa' | 'wallet_pay' | 'ton_connect';
@@ -279,6 +295,7 @@ export function createOrder(input: CreateOrderInput): Order {
   }
 
   logger.info({ orderId, userId: input.userId, productId: input.productId, amountETB: input.amountETB, promo: createdOrderId.promoCode }, 'Order created');
+  invalidate('admin:overview');
   const created = getOrderById(orderId);
   if (!created) throw new Error(`Failed to retrieve newly created order ${orderId}`);
   return created;
@@ -408,6 +425,7 @@ export function updateOrderStatus(
 
   logger.info({ orderId, previousStatus: current.status, newStatus: status }, 'Order status updated');
   if (!updated) throw new Error(`Failed to fetch updated order ${orderId}`);
+  invalidate('admin:overview');
   return updated;
 }
 
@@ -443,10 +461,19 @@ function runFulfillmentHooks(before: Order, toStatus: OrderStatus, orderId: stri
     if (becameFulfilled) {
       adjustUserStats(before.user_id, before.amount_etb, +1);
       creditReferralCommissions(before);
+      invalidate('userstats:' + before.user_id);
     } else if (unfulfilledViaRefund) {
       adjustUserStats(before.user_id, -before.amount_etb, -1);
+      invalidate('userstats:' + before.user_id);
     } else if (toStatus === 'cancelled') {
       releasePromoRedemption(orderId);
+      const db = getDatabase();
+      db.prepare(`
+        UPDATE stock_items
+        SET status = 'available', order_id = NULL, allocated_at = NULL
+        WHERE order_id = ?
+      `).run(orderId);
+      invalidate('bootstrap:catalog');
     }
   } catch (err) {
     logger.error({ err, orderId }, 'Post-transition hook failure');
@@ -545,9 +572,58 @@ export function submitReceipt(orderId: string, fileId: string, note?: string): O
   });
 }
 
+/**
+ * Builds the persisted 4-pillar security evaluation payload for a MANUAL admin approval.
+ *
+ * Manual approvals deliberately waive automated verification. Each pillar therefore records what
+ * the administrator asserted in place of an automated expectation (`expected`) and what was
+ * actually observed/stored (`actual`), so the audit trail stays contract-complete
+ * (`SecurityPillarEvaluation` requires both) and downstream consumers never read `undefined`.
+ */
+function buildManualApprovalEvaluations(
+  order: Order,
+  adminId: number,
+  effectiveRef: string
+): SecurityPillarEvaluation[] {
+  const beforeMins = getNumericSetting('receipt_recency_before_mins', DEFAULT_RECENCY_BEFORE_MINUTES);
+  const afterMins = getNumericSetting('receipt_recency_after_mins', DEFAULT_RECENCY_AFTER_MINUTES);
+
+  return [
+    {
+      pillar: 'anti_replay',
+      passed: true,
+      expected: 'unique_reference',
+      actual: effectiveRef,
+      details: `Manual approval by Admin ${adminId}`,
+    },
+    {
+      pillar: 'beneficiary_whitelist',
+      passed: true,
+      expected: 'authorized_beneficiary',
+      actual: 'manual_admin_approval',
+      details: `Verified by Admin ${adminId}`,
+    },
+    {
+      pillar: 'exact_amount',
+      passed: true,
+      expected: order.amount_etb,
+      actual: order.amount_etb,
+      details: `Amount ${order.amount_etb} ETB verified by Admin ${adminId}`,
+    },
+    {
+      pillar: 'recency_window',
+      passed: true,
+      expected: `-${beforeMins}m / +${afterMins}m (waived)`,
+      actual: 'manual_admin_override',
+      details: `Approved by Admin ${adminId}`,
+    },
+  ];
+}
+
 export function approveReceipt(
   orderId: string,
-  adminId: number
+  adminId: number,
+  options?: { reference?: string; bank?: SupportedBank }
 ): { order: Order; autoDeliveredItem: any | null } {
   const order = getOrderById(orderId);
   if (!order) {
@@ -558,28 +634,153 @@ export function approveReceipt(
     throw new Error(`Order ${orderId} is in status "${order.status}" and cannot be approved.`);
   }
 
-  const product = getProductById(order.product_id);
-  let autoDeliveredItem: any = null;
+  const db = getDatabase();
 
-  if (product && product.type === 'stock') {
-    // Gemini Pro stock auto-allocation
-    const alloc = allocateStock(order.product_id, order.id);
-    if (alloc.item) {
-      autoDeliveredItem = alloc.item;
-      const updated = updateOrderStatus(order.id, 'fulfilled', {
-        fulfillment_payload: alloc.item.payload,
-        admin_notes: `Approved by Admin ${adminId} (Auto-fulfilled stock item #${alloc.item.id})`,
-      });
-      return { order: updated, autoDeliveredItem };
+  // 1. Resolve rail/bank
+  let bank: SupportedBank = options?.bank || 'unknown';
+  if (bank === 'unknown') {
+    const rail = (order.payment_rail || '').toLowerCase();
+    if (rail.includes('cbe')) bank = 'cbe';
+    else if (rail.includes('telebirr')) bank = 'telebirr';
+    else if (rail.includes('abyssinia')) bank = 'abyssinia';
+  }
+
+  // 2. Fetch latest receipt evidence if present
+  const evidence = getLatestEvidenceForOrder(orderId, db);
+  if (evidence && evidence.bank !== 'unknown' && bank === 'unknown') {
+    bank = evidence.bank;
+  }
+
+  // 3. Resolve transaction reference
+  let ref: string | undefined = options?.reference?.trim();
+  if (!ref && evidence?.normalized_reference && !evidence.normalized_reference.startsWith('UNKNOWN')) {
+    ref = evidence.normalized_reference;
+  }
+  if (!ref && evidence?.reference && !evidence.reference.startsWith('UNKNOWN')) {
+    ref = evidence.reference;
+  }
+  if (!ref && order.payment_ref) {
+    const cleanPaymentRef = order.payment_ref.trim();
+    if (!cleanPaymentRef.startsWith('manual:') && !cleanPaymentRef.startsWith('text:')) {
+      ref = cleanPaymentRef;
+    }
+  }
+  if (!ref && order.receipt_note) {
+    const parsedSms = parseBankSms(order.receipt_note);
+    if (parsedSms?.reference) {
+      ref = parsedSms.reference;
+    } else {
+      const refMatch = order.receipt_note.match(/\b(FT[A-Z0-9]{8,24})\b/i) ||
+                       order.receipt_note.match(/(?:ref|reference|txid|txn)[\s:=-]+([A-Z0-9]{6,30})/i);
+      if (refMatch) {
+        ref = refMatch[1];
+      }
+    }
+  }
+  if (!ref && evidence?.raw_text) {
+    const parsedSms = parseBankSms(evidence.raw_text);
+    if (parsedSms?.reference) {
+      ref = parsedSms.reference;
+    } else {
+      const refMatch = evidence.raw_text.match(/\b(FT[A-Z0-9]{8,24})\b/i) ||
+                       evidence.raw_text.match(/(?:ref|reference|txid|txn)[\s:=-]+([A-Z0-9]{6,30})/i);
+      if (refMatch) {
+        ref = refMatch[1];
+      }
     }
   }
 
-  // Telegram Premium, Stars, or stock item awaiting key restock (semi-automated queue)
-  const updated = updateOrderStatus(order.id, 'pending_fulfillment', {
-    admin_notes: `Approved by Admin ${adminId}`,
+  const normalizedRef = ref ? ref.trim().toUpperCase() : `MANUAL-${order.id}`;
+  const effectiveRef = ref ? ref.trim() : normalizedRef;
+
+  // 4. Anti-Replay Check (both for reference and file hash)
+  if (ref) {
+    const replay = checkAntiReplay(bank, ref, order.id, db);
+    if (replay.isReplay) {
+      throw new ReceiptAlreadyUsedError(ref, replay.existingOrderId);
+    }
+  }
+
+  if (evidence?.file_hash) {
+    const dupHash = db.prepare(`
+      SELECT order_id FROM receipt_evidence
+      WHERE file_hash = ? AND matched = 1 AND order_id != ?
+      LIMIT 1
+    `).get(evidence.file_hash, order.id) as { order_id: string } | undefined;
+    if (dupHash) {
+      throw new ReceiptAlreadyUsedError(`FILE_HASH:${evidence.file_hash}`, dupHash.order_id);
+    }
+  }
+
+  // 5. Atomic transaction to mark evidence matched and transition order
+  let autoDeliveredItem: any = null;
+  let updatedOrder: Order;
+
+  const product = getProductById(order.product_id);
+  const manualEvaluations = buildManualApprovalEvaluations(order, adminId, effectiveRef);
+
+  const approveTx = db.transaction(() => {
+    // Record / match receipt_evidence with matched = 1
+    if (evidence) {
+      markEvidenceMatchedInTx(db, {
+        evidenceId: evidence.id,
+        bank,
+        reference: effectiveRef,
+        normalizedReference: normalizedRef,
+        verifiedAmountEtb: order.amount_etb,
+        beneficiaryAccount: 'manual_admin_approved',
+        securityGateEvaluations: manualEvaluations,
+        rawBankPayload: {
+          approvedByAdminId: adminId,
+          approvedAt: new Date().toISOString(),
+          manualApproval: true,
+        },
+      });
+    } else {
+      const insertStmt = db.prepare(`
+        INSERT INTO receipt_evidence (
+          order_id, user_id, bank, source, raw_text, amount_etb,
+          reference, normalized_reference, matched, verified_amount_etb,
+          beneficiary_account, security_gate_passed, security_gate_evaluations,
+          status, file_path, ip_address
+        ) VALUES (?, ?, ?, 'manual_admin_entry', ?, ?, ?, ?, 1, ?, 'manual_admin_approved', 1, ?, 'auto_verified', ?, NULL)
+      `);
+      insertStmt.run(
+        order.id,
+        order.user_id,
+        bank,
+        order.receipt_note || null,
+        order.amount_etb,
+        effectiveRef,
+        normalizedRef,
+        order.amount_etb,
+        JSON.stringify(manualEvaluations),
+        order.receipt_file_id || null
+      );
+    }
+
+    if (product && product.type === 'stock') {
+      const alloc = allocateStock(order.product_id, order.id);
+      if (alloc.item) {
+        autoDeliveredItem = alloc.item;
+        updatedOrder = updateOrderStatus(order.id, 'fulfilled', {
+          payment_ref: effectiveRef,
+          fulfillment_payload: alloc.item.payload,
+          admin_notes: `Approved by Admin ${adminId} (Auto-fulfilled stock item #${alloc.item.id})`,
+        });
+        return;
+      }
+    }
+
+    updatedOrder = updateOrderStatus(order.id, 'pending_fulfillment', {
+      payment_ref: effectiveRef,
+      admin_notes: `Approved by Admin ${adminId}`,
+    });
   });
 
-  return { order: updated, autoDeliveredItem: null };
+  approveTx();
+
+  return { order: updatedOrder!, autoDeliveredItem };
 }
 
 export function getFulfillmentQueue(): Order[] {

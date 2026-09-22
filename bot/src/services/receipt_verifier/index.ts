@@ -12,6 +12,7 @@ import { ReceiptOrchestrator } from './orchestrator.service.js';
 
 export * from './types.js';
 export * from './constants.js';
+export * from './breaker_config.js';
 export * from './circuit_breaker.js';
 export * from './ingestion.service.js';
 export * from './adapters/base.adapter.js';
@@ -35,4 +36,30 @@ export function getReceiptOrchestrator(): ReceiptOrchestrator {
 
 export function setReceiptOrchestratorForTest(orchestrator?: ReceiptOrchestrator): void {
   defaultOrchestrator = orchestrator;
+}
+
+/**
+ * Re-applies runtime-tunable settings (circuit breaker threshold / cooldown) to the live adapter
+ * instances. Called after an Admin Dashboard settings write so operators never need a process
+ * restart to change breaker behaviour. No-op when the orchestrator has not been built yet, since
+ * the next construction reads fresh settings anyway.
+ */
+export function refreshReceiptOrchestratorSettings(): void {
+  if (!defaultOrchestrator) return;
+
+  for (const adapter of defaultOrchestrator.adapterRegistry.getAll()) {
+    const candidate = adapter as unknown as { applyRuntimeSettings?: () => void };
+    if (typeof candidate.applyRuntimeSettings === 'function') {
+      candidate.applyRuntimeSettings();
+    }
+  }
+}
+
+/**
+ * Drops the cached orchestrator so the next `getReceiptOrchestrator()` call rebuilds adapters
+ * (and therefore re-reads persisted settings). Intended for tests and diagnostics — production
+ * uses `refreshReceiptOrchestratorSettings()` to avoid discarding live circuit breaker state.
+ */
+export function resetReceiptOrchestrator(): void {
+  defaultOrchestrator = undefined;
 }

@@ -7,6 +7,7 @@ import { getConfig } from '../../config/env.js';
 import { logger } from '../../logger/index.js';
 import { escapeHtml } from '../../utils/html.js';
 import { addStyledInlineButton } from '../keyboards/menu.js';
+import { isAdmin } from './admin.js';
 
 export function getStatusBadge(status: string, isAmharic = false): string {
   if (isAmharic) {
@@ -177,6 +178,18 @@ export async function renderOrderDetail(ctx: Context, orderId: string): Promise<
     return;
   }
 
+  if (!userId || (order.user_id !== userId && !isAdmin(userId))) {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({
+        text: isAmharic ? 'ይህንን ትዕዛዝ የማየት ፍቃድ የለዎትም።' : 'Unauthorized to view this order.',
+        show_alert: true,
+      }).catch(() => {});
+    } else {
+      await ctx.reply(isAmharic ? 'ይህንን ትዕዛዝ የማየት ፍቃድ የለዎትም።' : 'Unauthorized to view this order.');
+    }
+    return;
+  }
+
   const config = getConfig();
   const product = getProductById(order.product_id);
   const prodName = product ? product.name : order.product_id;
@@ -186,17 +199,17 @@ export async function renderOrderDetail(ctx: Context, orderId: string): Promise<
 
   let text = isAmharic
     ? `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
-      `🧾 <b>የትዕዛዝ ዝርዝር — <code>${order.id}</code></b>\n\n` +
+      `🧾 <b>የትዕዛዝ ዝርዝር — <code>${escapeHtml(order.id)}</code></b>\n\n` +
       `• 📦 <b>ምርት፦</b> <b>${escapeHtml(prodName)}</b>\n` +
       `• 💰 <b>የሚከፈል መጠን፦</b> <code>${formatPriceETB(order.amount_etb)}</code>\n` +
-      `• 💳 <b>የክፍያ ዘዴ፦</b> <code>${order.payment_rail.toUpperCase()}</code>\n` +
+      `• 💳 <b>የክፍያ ዘዴ፦</b> <code>${escapeHtml(order.payment_rail.toUpperCase())}</code>\n` +
       `• 📊 <b>ሁኔታ፦</b> ${emoji} <b>[${badge}]</b>\n` +
       `• 📅 <b>የታዘዘበት ቀን፦</b> <i>${new Date(order.created_at).toLocaleString('en-US')}</i>\n`
     : `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
-      `🧾 <b>Order Details — <code>${order.id}</code></b>\n\n` +
+      `🧾 <b>Order Details — <code>${escapeHtml(order.id)}</code></b>\n\n` +
       `• 📦 <b>Product:</b> <b>${escapeHtml(prodName)}</b>\n` +
       `• 💰 <b>Payable Amount:</b> <code>${formatPriceETB(order.amount_etb)}</code>\n` +
-      `• 💳 <b>Payment Rail:</b> <code>${order.payment_rail.toUpperCase()}</code>\n` +
+      `• 💳 <b>Payment Rail:</b> <code>${escapeHtml(order.payment_rail.toUpperCase())}</code>\n` +
       `• 📊 <b>Status:</b> ${emoji} <b>[${badge}]</b>\n` +
       `• 📅 <b>Date Placed:</b> <i>${new Date(order.created_at).toLocaleString('en-US')}</i>\n`;
 
@@ -209,8 +222,8 @@ export async function renderOrderDetail(ctx: Context, orderId: string): Promise<
           : 'After payment, you will receive a one-time activation link.\n\n1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.'
       );
       text += isAmharic
-        ? `\n🔑 <b>የማግበሪያ ሊንክ፦</b>\n<code>${order.fulfillment_payload}</code>\n\n📋 <b>የማግበር መመሪያ፦</b>\n<blockquote>${escapeHtml(instructions)}</blockquote>\n`
-        : `\n🔑 <b>Activation Link:</b>\n<code>${order.fulfillment_payload}</code>\n\n📋 <b>Activation Instructions:</b>\n<blockquote>${escapeHtml(instructions)}</blockquote>\n`;
+        ? `\n🔑 <b>የማግበሪያ ሊንክ፦</b>\n<code>${escapeHtml(order.fulfillment_payload)}</code>\n\n📋 <b>የማግበር መመሪያ፦</b>\n<blockquote>${escapeHtml(instructions)}</blockquote>\n`
+        : `\n🔑 <b>Activation Link:</b>\n<code>${escapeHtml(order.fulfillment_payload)}</code>\n\n📋 <b>Activation Instructions:</b>\n<blockquote>${escapeHtml(instructions)}</blockquote>\n`;
     }
     if (order.fulfillment_proof) {
       text += isAmharic

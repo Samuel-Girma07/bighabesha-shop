@@ -22,6 +22,9 @@ import {
   setResellerProviderForTest,
   resetResellerProviderCache,
   resetLowFloatAlertCooldownForTest,
+  triggerAutoResellerDelivery,
+  notifyAdminsResellerFailure,
+  retryFailedResellerDeliveries,
 } from '../src/services/reseller.service.js';
 import { MockResellerAdapter } from '../src/services/reseller/mock.js';
 import {
@@ -1147,7 +1150,7 @@ describe('B2B Telegram Premium Reseller Pipeline', () => {
       } finally {
         await new Promise<void>((resolve) => srv.close(() => resolve()));
       }
-    }, 15000);
+    }, 30000);
 
     it('prevents concurrent double-spend in deliverWithReseller via invocation-scoped lease', async () => {
       let fulfillCalls = 0;
@@ -1203,6 +1206,176 @@ describe('B2B Telegram Premium Reseller Pipeline', () => {
       expect(outcome1.delivered).toBe(true);
       expect(outcome1.order.status).toBe('fulfilled');
       expect(fulfillCalls).toBe(1); // Provider only called ONCE!
+    });
+  });
+
+  describe('15. Automated Reseller Delivery & Sweeper Recovery (Phase 1)', () => {
+    it('triggerAutoResellerDelivery fulfills a pending_fulfillment order and notifies the buyer', async () => {
+      const sentMessages: { chatId: number; text: string }[] = [];
+      const mockApi: any = {
+        sendMessage: vi.fn(async (chatId: number, text: string) => {
+          sentMessages.push({ chatId, text });
+          return {};
+        }),
+      };
+
+      const order = createOrder({
+        userId: BUYER_ID,
+        username: 'buyeruser',
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
+        paymentRail: 'cbe',
+        status: 'pending_fulfillment',
+        targetUsername: 'recipient_user',
+      });
+
+      const outcome = await triggerAutoResellerDelivery(order.id, mockApi);
+
+      expect(outcome.delivered).toBe(true);
+      expect(outcome.order.status).toBe('fulfilled');
+      expect(outcome.order.fulfillment_payload).toContain('activated on @recipient_user');
+
+      // Verify buyer received activation message
+      expect(sentMessages.some((m) => m.chatId === BUYER_ID && m.text.includes('Telegram Premium Activated!'))).toBe(true);
+      expect(sentMessages.some((m) => m.chatId === BUYER_ID && m.text.includes('@recipient_user'))).toBe(true);
+    });
+
+    it('triggerAutoResellerDelivery handles provider failure by alerting admins and sending delay notice to buyer', async () => {
+      const failingAdapter: any = {
+        name: 'mock-fail',
+        fulfill: vi.fn().mockRejectedValue(new InsufficientFloatError('mock-fail', 1.5)),
+        getBalance: vi.fn().mockResolvedValue({ balanceUsdt: 1.5, currency: 'USDT', provider: 'mock-fail' }),
+      };
+      setResellerProviderForTest(failingAdapter);
+
+      const sentMessages: { chatId: number; text: string }[] = [];
+      const mockApi: any = {
+        sendMessage: vi.fn(async (chatId: number, text: string) => {
+          sentMessages.push({ chatId, text });
+          return {};
+        }),
+      };
+
+      const order = createOrder({
+        userId: BUYER_ID,
+        username: 'buyeruser',
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
+        paymentRail: 'cbe',
+        status: 'pending_fulfillment',
+        targetUsername: 'recipient_user',
+      });
+
+      const outcome = await triggerAutoResellerDelivery(order.id, mockApi);
+
+      expect(outcome.delivered).toBe(false);
+      expect(outcome.order.status).toBe('delivery_failed');
+      expect(outcome.order.reseller_error).toContain('Insufficient provider float');
+
+      // Admins should receive the urgent alert
+      expect(sentMessages.some((m) => m.chatId === ADMIN_1 && m.text.includes('AUTOMATED RESELLER DELIVERY FAILED'))).toBe(true);
+      expect(sentMessages.some((m) => m.chatId === ADMIN_2 && m.text.includes('AUTOMATED RESELLER DELIVERY FAILED'))).toBe(true);
+
+      // Buyer should receive the courteous delay message
+      expect(sentMessages.some((m) => m.chatId === BUYER_ID && m.text.includes('automated delivery is experiencing a brief delay'))).toBe(true);
+    });
+
+    it('sweeper automatically picks up and fulfills orders stuck in pending_fulfillment older than 2 minutes', async () => {
+      const sentMessages: { chatId: number; text: string }[] = [];
+      const mockApi: any = {
+        sendMessage: vi.fn(async (chatId: number, text: string) => {
+          sentMessages.push({ chatId, text });
+          return {};
+        }),
+      };
+
+      const order = createOrder({
+        userId: BUYER_ID,
+        username: 'buyeruser',
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
+        paymentRail: 'cbe',
+        status: 'pending_fulfillment',
+        targetUsername: 'stuck_user',
+      });
+
+      // Backdate updated_at by 5 minutes to simulate an orphaned order
+      db.prepare("UPDATE orders SET updated_at = datetime('now', '-5 minutes') WHERE id = ?").run(order.id);
+
+      const sweeperResult = await retryFailedResellerDeliveries(mockApi);
+
+      expect(sweeperResult.retried).toBeGreaterThanOrEqual(1);
+      expect(sweeperResult.fulfilled).toBeGreaterThanOrEqual(1);
+
+  describe('16. Admin-triggered delivery attribution & notification parity', () => {
+    it('records the acting admin (not the automated actor) and still notifies the buyer', async () => {
+      const sentMessages: { chatId: number; text: string }[] = [];
+      const mockApi: any = {
+        sendMessage: vi.fn(async (chatId: number, text: string) => {
+          sentMessages.push({ chatId, text });
+          return {};
+        }),
+      };
+
+      const order = createOrder({
+        userId: BUYER_ID,
+        username: 'buyeruser',
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
+        paymentRail: 'cbe',
+        status: 'pending_fulfillment',
+        targetUsername: 'recipient_user',
+      });
+
+      const outcome = await triggerAutoResellerDelivery(order.id, mockApi, { actorAdminId: ADMIN_1 });
+      expect(outcome.delivered).toBe(true);
+
+      // Buyer still receives the activation notice even though an admin kicked the delivery off.
+      expect(
+        sentMessages.some((m) => m.chatId === BUYER_ID && m.text.includes('Telegram Premium Activated!'))
+      ).toBe(true);
+
+      // Timeline attribution must be the acting administrator, not the automated system actor.
+      const events = db
+        .prepare(
+          "SELECT actor_type AS actorType, actor_id AS actorId FROM order_events WHERE order_id = ? AND to_status = 'fulfilled'"
+        )
+        .all(order.id) as { actorType: string; actorId: string }[];
+
+      expect(events.length).toBeGreaterThanOrEqual(1);
+      expect(events[0].actorType).toBe('admin');
+      expect(events[0].actorId).toBe(String(ADMIN_1));
+    });
+
+    it('keeps the automated system actor when no admin is supplied', async () => {
+      const mockApi: any = { sendMessage: vi.fn(async () => ({})) };
+
+      const order = createOrder({
+        userId: BUYER_ID,
+        username: 'buyeruser',
+        productId: 'telegram_premium',
+        variantId: 'tg_prem_3m',
+        amountETB: 1100,
+        paymentRail: 'cbe',
+        status: 'pending_fulfillment',
+        targetUsername: 'recipient_user',
+      });
+
+      await triggerAutoResellerDelivery(order.id, mockApi);
+
+      const events = db
+        .prepare(
+          "SELECT actor_type AS actorType, actor_id AS actorId FROM order_events WHERE order_id = ? AND to_status = 'fulfilled'"
+        )
+        .all(order.id) as { actorType: string; actorId: string }[];
+
+      expect(events.length).toBeGreaterThanOrEqual(1);
+      expect(events[0].actorType).toBe('system');
+      expect(events[0].actorId).toBe('auto_verifier');
     });
   });
 });

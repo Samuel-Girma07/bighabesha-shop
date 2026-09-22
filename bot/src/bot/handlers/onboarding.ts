@@ -27,6 +27,23 @@ export const REQUIRED_CHANNEL_LINK = 'https://t.me/bighabesha_softwares';
 
 // In-memory cache for channel membership verification (TTL 60s)
 const membershipCache = new Map<number, { isMember: boolean; expiresAt: number }>();
+const MAX_MEMBERSHIP_CACHE_SIZE = 5000;
+
+export function getMembershipCacheSize(): number {
+  return membershipCache.size;
+}
+
+export function clearMembershipCache(): void {
+  membershipCache.clear();
+}
+
+function setMembershipCache(userId: number, entry: { isMember: boolean; expiresAt: number }): void {
+  if (membershipCache.size >= MAX_MEMBERSHIP_CACHE_SIZE) {
+    membershipCache.clear();
+  }
+  membershipCache.set(userId, entry);
+}
+
 let lastAdminWarningTime = 0;
 let channelAdminInaccessibleUntil = 0;
 const ADMIN_WARN_THROTTLE_MS = 5 * 60 * 1000; // Log warning at most once every 5 minutes
@@ -65,12 +82,12 @@ export async function checkChannelMembership(ctx: Context, userId: number): Prom
     const validStatuses = ['creator', 'administrator', 'member', 'restricted'];
 
     if (member.status === 'left' || member.status === 'kicked') {
-      membershipCache.set(userId, { isMember: false, expiresAt: now + 60_000 });
+      setMembershipCache(userId, { isMember: false, expiresAt: now + 60_000 });
       return false;
     }
 
     const isMember = validStatuses.includes(member.status);
-    membershipCache.set(userId, { isMember, expiresAt: now + 60_000 });
+    setMembershipCache(userId, { isMember, expiresAt: now + 60_000 });
     return isMember;
   } catch (err: unknown) {
     const errMsg =
