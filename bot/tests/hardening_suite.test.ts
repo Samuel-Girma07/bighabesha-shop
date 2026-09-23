@@ -182,7 +182,7 @@ describe('Hardening: stock allocation invariants (W4)', () => {
   it('allocates exactly once when N buyers race over one remaining key', () => {
     addLink('gemini_pro_18m', 'https://key/only-one');
     const results = Array.from({ length: 25 }, (_, i) =>
-      approveReceipt(createOrder({ userId: 1000 + i, productId: 'gemini_pro_18m', amountETB: 1500, paymentRail: 'stars' }).id, 0)
+      approveReceipt(createOrder({ userId: 1000 + i, productId: 'gemini_pro_18m', amountETB: 1500, paymentRail: 'telebirr' }).id, 0)
     );
     const delivered = results.filter((r) => r.autoDeliveredItem !== null);
     expect(delivered.length).toBe(1);

@@ -1,7 +1,6 @@
 import { Context, InlineKeyboard, InlineQueryResultBuilder } from 'grammy';
 import type { InlineQueryResult } from 'grammy/types';
 import { getAllProducts, getProductVariants, formatPriceETB } from '../../services/catalog.service.js';
-import { getNumericSetting } from '../../services/settings.service.js';
 import { getConfig } from '../../config/env.js';
 
 export async function inlineQueryHandler(ctx: Context): Promise<void> {
@@ -84,34 +83,6 @@ export async function inlineQueryHandler(ctx: Context): Promise<void> {
       ).text(text, { parse_mode: 'HTML' });
 
       results.push(article);
-    } else if (prod.id === 'telegram_stars') {
-      const etbPerStar = getNumericSetting('etb_per_star', 2.5);
-      const keyboard = new InlineKeyboard();
-      if (webAppUrl) {
-        keyboard.webApp('🪙 Star Calculator (Mini App)', webAppUrl).row();
-      }
-      keyboard.url('🪙 Buy Stars via Bot', `https://t.me/${botUsername}?start=prod_telegram_stars`);
-
-      const text =
-        `<b>🪙 Telegram Stars (In-App Currency)</b>\n\n` +
-        `<blockquote>Direct account top-up for channel boosts, gifts & bots</blockquote>\n\n` +
-        `• 💱 <b>Exchange Rate:</b> <code>1 Star = ${etbPerStar} ETB</code>\n` +
-        `• ⭐️ <b>100 Stars:</b> <code>250 ETB</code>\n` +
-        `• ⭐️ <b>500 Stars:</b> <code>1,250 ETB</code>\n` +
-        `• ⭐️ <b>1,000 Stars:</b> <code>2,500 ETB</code>\n\n` +
-        `<i>Instant account crediting via Fragment rails.</i>`;
-
-      const article = InlineQueryResultBuilder.article(
-        'iq_stars',
-        `🪙 Telegram Stars — Rate: 1 Star = ${etbPerStar} ETB`,
-        {
-          description: 'In-app currency for digital gifts, channel boosts, and bots.',
-          reply_markup: keyboard,
-          ...(webAppUrl ? { thumbnail_url: `${webAppUrl}/banners/stars.jpg`, thumbnail_width: 320, thumbnail_height: 180 } : {}),
-        }
-      ).text(text, { parse_mode: 'HTML' });
-
-      results.push(article);
     }
   }
 
@@ -124,7 +95,7 @@ export async function inlineQueryHandler(ctx: Context): Promise<void> {
 
   const generalText =
     `<b>✨ Welcome to Bighabesha Shop</b>\n\n` +
-    `<blockquote>Official Ethiopian marketplace for Gemini Pro, Telegram Premium, and Telegram Stars.</blockquote>\n\n` +
+    `<blockquote>Official Ethiopian marketplace for Gemini Pro and Telegram Premium.</blockquote>\n\n` +
     `• 💳 <b>Payment Rails:</b> Telebirr & CBE Bank (SMS-verified)\n\n` +
     `<i>Tap below to open the catalog or launch the Mini App:</i>`;
 

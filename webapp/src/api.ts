@@ -8,7 +8,6 @@ export interface BootstrapData {
     tier?: string;
     ordersCount?: number;
     lifetimeEtb?: number;
-    balanceStars?: number;
   } | null;
   products: {
     id: string;
@@ -107,7 +106,6 @@ export async function fetchOrders(): Promise<{ orders: OrderItem[] }> {
 export interface CreateOrderOptions {
   productId: string;
   variantId?: string;
-  customStars?: number;
   paymentRail?: PaymentRail | string;
   promoCode?: string;
   targetUsername?: string;

@@ -36,7 +36,7 @@ function storeSnapshot() {
   };
 }
 
-export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'stars' | 'checkout'): string {
+export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'checkout'): string {
   switch (type) {
     case 'welcome': {
       const s = storeSnapshot();
@@ -205,14 +205,6 @@ export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'star
       </svg>`;
     }
 
-    case 'stars': {
-      return `
-      <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
-        <rect width="1200" height="630" fill="#0B111A"/>
-        <text x="600" y="315" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="32" font-weight="700" fill="#FFFFFF" text-anchor="middle">Telegram Stars Decommissioned</text>
-      </svg>`;
-    }
-
     case 'checkout': {
       const s = storeSnapshot();
       return `
@@ -262,7 +254,7 @@ export function generateSvgBanner(type: 'welcome' | 'gemini' | 'premium' | 'star
   }
 }
 
-export type BannerType = 'welcome' | 'gemini' | 'premium' | 'stars' | 'checkout';
+export type BannerType = 'welcome' | 'gemini' | 'premium' | 'checkout';
 
 export function getStaticBannerPath(type: BannerType): string | null {
   const candidates = [

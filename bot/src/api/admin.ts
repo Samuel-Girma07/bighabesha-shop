@@ -802,7 +802,7 @@ adminRouter.post('/orders/:id/reject', requireAdminAuth, requirePermission('orde
   }
 });
 
-// 5. Complete Manual Fulfillment (Premium / Stars)
+// 5. Complete Manual Fulfillment (Premium)
 adminRouter.post('/orders/:id/fulfill', requireAdminAuth, requirePermission('orders.decide'), (req: Request, res: Response): void => {
   const orderId = req.params.id as string;
   const adminId = (req as any).adminSession.adminId;
@@ -823,7 +823,7 @@ adminRouter.post('/orders/:id/fulfill', requireAdminAuth, requirePermission('ord
         });
       } else {
         const fulfillText = `<b>Order #${escapeHtml(order.id)} Delivered Successfully</b>\n\n` +
-          `Your subscription / stars order has been completed!\n` +
+          `Your subscription order has been completed!\n` +
           `• <b>Delivered To:</b> ${order.username ? `@${escapeHtml(order.username)}` : 'your account'}\n` +
           `• <b>Reference:</b> ${escapeHtml(order.fulfillment_proof || 'Delivered')}\n\n` +
           `<i>Thank you for choosing Bighabesha Shop.</i>`;

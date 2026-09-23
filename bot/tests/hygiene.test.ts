@@ -53,8 +53,8 @@ describe('Low #4: Audit trail records all critical admin actions', () => {
       adminId: 111111111,
       action: 'settings.update',
       targetType: 'setting',
-      targetId: 'etb_per_star,cbe_account',
-      changes: { etb_per_star: '3', cbe_account: '9999999999' },
+      targetId: 'etb_per_usd,cbe_account',
+      changes: { etb_per_usd: '140', cbe_account: '9999999999' },
       ip: '10.0.0.8',
     });
 
@@ -62,8 +62,8 @@ describe('Low #4: Audit trail records all critical admin actions', () => {
     expect(logs).toHaveLength(1);
     expect(logs[0].action).toBe('settings.update');
     expect(logs[0].admin_id).toBe(111111111);
-    expect(logs[0].target_id).toBe('etb_per_star,cbe_account');
-    expect(JSON.parse(logs[0].changes!)).toEqual({ etb_per_star: '3', cbe_account: '9999999999' });
+    expect(logs[0].target_id).toBe('etb_per_usd,cbe_account');
+    expect(JSON.parse(logs[0].changes!)).toEqual({ etb_per_usd: '140', cbe_account: '9999999999' });
     expect(logs[0].ip).toBe('10.0.0.8');
     expect(logs[0].created_at).toBeTruthy();
   });
@@ -200,9 +200,9 @@ describe('Low #5: Banner generator fails loudly on unknown types', () => {
     expect(() => (mod as any).generateSvgBanner('nonexistent_type')).toThrow(/Unknown banner type/);
   });
 
-  it('still renders all five documented banner types', async () => {
+  it('still renders all four documented banner types', async () => {
     const mod = await import('../src/services/banner_generator.service.js');
-    for (const t of ['welcome', 'gemini', 'premium', 'stars', 'checkout']) {
+    for (const t of ['welcome', 'gemini', 'premium', 'checkout']) {
       const svg = (mod as any).generateSvgBanner(t);
       expect(typeof svg).toBe('string');
       expect(svg).toContain('<svg');

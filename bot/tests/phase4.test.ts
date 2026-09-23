@@ -40,7 +40,7 @@ describe('Phase 4: Admin Fulfillment Queue, Alerts, Broadcast & Hardening', () =
         productId: 'telegram_premium',
         variantId: 'tg_prem_3m',
         amountETB: 1100,
-        paymentRail: 'stars',
+        paymentRail: 'telebirr',
         status: 'pending_fulfillment',
       });
 

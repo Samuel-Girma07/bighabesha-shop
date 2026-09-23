@@ -10,8 +10,8 @@ import { resetConfigCache } from '../src/config/env.js';
 import { createApiServer } from '../src/api/server.js';
 import { createBot } from '../src/bot/bot.js';
 import type { Bot } from 'grammy';
-import { createOrder, getOrderById, updateOrderStatus, approveReceipt, submitReceipt } from '../src/services/orders.service.js';
-import { addStockLink, getAvailableStockCount } from '../src/services/stock.service.js';
+import { createOrder, getOrderById, updateOrderStatus, submitReceipt } from '../src/services/orders.service.js';
+import { addStockLink } from '../src/services/stock.service.js';
 import { getPublicSettings, getSetting, setSetting } from '../src/services/settings.service.js';
 import { saveUserPhone, isUserRegistered } from '../src/services/users.service.js';
 import {
@@ -19,7 +19,6 @@ import {
   isWebhookTimestampFresh,
   WEBHOOK_TIMESTAMP_MAX_SKEW_SECONDS,
 } from '../src/services/payments/live_wallet_pay.js';
-import { MockWalletPayAdapter } from '../src/services/payments/mock_wallet_pay.js';
 import { reconcileStuckWalletPayOrders, resetWalletPayAdapter } from '../src/services/payments/index.js';
 import { generateSvgBanner } from '../src/services/banner_generator.service.js';
 import { promptReceiptUpload, performAdminApprove } from '../src/bot/handlers/checkout.js';
@@ -95,38 +94,6 @@ async function sendCallback(bot: Bot, userId: number, data: string): Promise<voi
       data,
       chat_instance: 'ci',
       message: { message_id: 77, date: Math.floor(Date.now() / 1000), chat: { id: userId, type: 'private' } },
-    },
-  } as any);
-}
-
-async function sendPreCheckout(bot: Bot, userId: number, orderId: string): Promise<void> {
-  await bot.handleUpdate({
-    update_id: Date.now(),
-    pre_checkout_query: {
-      id: 'pcq-1',
-      from: { id: userId, is_bot: false, first_name: 'T' },
-      currency: 'XTR',
-      total_amount: 600,
-      invoice_payload: `order_${orderId}`,
-    },
-  } as any);
-}
-
-async function sendSuccessfulStarsPayment(bot: Bot, userId: number, orderId: string): Promise<void> {
-  await bot.handleUpdate({
-    update_id: Date.now(),
-    message: {
-      message_id: Math.floor(Math.random() * 1e9),
-      from: { id: userId, is_bot: false, first_name: 'T', username: `u${userId}` },
-      chat: { id: userId, type: 'private' },
-      date: Math.floor(Date.now() / 1000),
-      successful_payment: {
-        currency: 'XTR',
-        total_amount: 600,
-        invoice_payload: `order_${orderId}`,
-        telegram_payment_charge_id: 'chg-test-001',
-        provider_payment_charge_id: '',
-      },
     },
   } as any);
 }
@@ -689,128 +656,10 @@ describe('Fix 3: Authorization & ownership guards on order actions', () => {
 // Session-planting helper for input-handler tests
 function plantActionSession(userId: number, action: string, extra: Record<string, unknown>): void {
   setPendingAction(userId, {
-    type: 'stars_custom_amount',
-    data: { minStars: 10, maxStars: 100, etbPerStar: 2.5, action, ...extra },
+    type: 'admin_action',
+    data: { action, ...extra },
   } as any);
 }
-
-// ---------------------------------------------------------------------------
-// Fix 4: Stars checkout stock race & paid-order recovery
-// ---------------------------------------------------------------------------
-
-describe.skip('Fix 4: Stars pre-checkout stock gate & delivery-failure recovery', () => {
-  let db: Database.Database;
-  let bot: Bot;
-  let api: ReturnType<typeof interceptApi>;
-
-  beforeEach(() => {
-    process.env.BOT_TOKEN = TOKEN;
-    process.env.ADMIN_IDS = '111111111,222222333';
-    process.env.ADMIN_PASSWORD = ADMIN_PASSWORD;
-    process.env.WALLET_PAY_MODE = 'mock';
-    process.env.NODE_ENV = 'development';
-    resetConfigCache();
-    db = initDatabase(':memory:', MIGRATIONS_DIR);
-    bot = makeBotWithInfo(TOKEN);
-    api = interceptApi(bot);
-  });
-
-  afterEach(() => {
-    closeDatabase();
-    resetConfigCache();
-  });
-
-  function starsStockOrder(userId: number, username: string): ReturnType<typeof createOrder> {
-    seedUser(db, userId, username);
-    return createOrder({
-      userId,
-      username,
-      productId: 'gemini_pro_18m',
-      variantId: 'gemini_pro_18m_default',
-      amountETB: 1500,
-      paymentRail: 'stars',
-    });
-  }
-
-  it('REJECTS the Stars invoice when stock is empty (no funds captured)', async () => {
-    const order = starsStockOrder(488001, 'race_buyer'); // no stock added
-
-    await sendPreCheckout(bot, 488001, order.id);
-
-    const answer = api.calls.find((c) => c.method === 'answerPreCheckoutQuery');
-    expect(answer).toBeDefined();
-    expect(answer!.payload.ok).toBe(false);
-    expect(String(answer!.payload.error_message)).toMatch(/sold out/i);
-    expect(getOrderById(order.id)?.status).toBe('awaiting_payment');
-  });
-
-  it('ACCEPTS the Stars invoice when stock is available', async () => {
-    const order = starsStockOrder(488002, 'happy_star');
-    addStockLink('gemini_pro_18m', 'https://g.co/gemini/precheck-ok-1');
-
-    await sendPreCheckout(bot, 488002, order.id);
-
-    const answer = api.calls.find((c) => c.method === 'answerPreCheckoutQuery');
-    expect(answer?.payload.ok).toBe(true);
-  });
-
-  it('ACCEPTS invoices for non-stock products regardless of stock counters', async () => {
-    seedUser(db, 488003, 'premium_nostock');
-    const order = createOrder({
-      userId: 488003,
-      username: 'premium_nostock',
-      productId: 'telegram_premium',
-      variantId: 'tg_prem_6m',
-      amountETB: 1900,
-      paymentRail: 'stars',
-    });
-
-    await sendPreCheckout(bot, 488003, order.id);
-    const answer = api.calls.find((c) => c.method === 'answerPreCheckoutQuery');
-    expect(answer?.payload.ok).toBe(true);
-  });
-
-  it('recovers gracefully when funds are captured but stock is gone before allocation', async () => {
-    const order = starsStockOrder(488004, 'unlucky_buyer');
-    // Stock raced to zero between invoice acceptance and payment capture:
-    expect(getAvailableStockCount('gemini_pro_18m')).toBe(0);
-
-    await sendSuccessfulStarsPayment(bot, 488004, order.id);
-
-    const final = getOrderById(order.id);
-    // Order MUST remain actionable (pending_fulfillment), never silently dropped
-    expect(final?.status).toBe('pending_fulfillment');
-    expect(final?.admin_notes).toMatch(/AUTOMATIC DELIVERY FAILED/i);
-
-    // Urgent admin alert broadcast to every configured admin
-    const adminMsgs = api.calls.filter(
-      (c) => c.method === 'sendMessage' &&
-        [111111111, 222222333].includes(c.payload.chat_id) &&
-        String(c.payload.text).includes('Needs Manual Fulfillment')
-    );
-    expect(adminMsgs.length).toBeGreaterThanOrEqual(2);
-
-    // Buyer got a reassuring confirmation acknowledging the captured payment
-    const buyerMsgs = api.calls.filter(
-      (c) => c.method === 'sendMessage' && c.payload.chat_id === 488004
-    );
-    expect(buyerMsgs.length).toBeGreaterThanOrEqual(1);
-    expect(String(buyerMsgs[0]?.payload.text)).toMatch(/Payment Received/i);
-  });
-
-  it('delivers normally when stock is available through the full Stars flow', async () => {
-    const order = starsStockOrder(488005, 'smooth_buyer');
-    addStockLink('gemini_pro_18m', 'https://g.co/gemini/smooth-delivery-1');
-    updateOrderStatus(order.id, 'pending_approval');
-
-    await sendSuccessfulStarsPayment(bot, 488005, order.id);
-
-    const final = getOrderById(order.id);
-    expect(final?.status).toBe('fulfilled');
-    expect(final?.fulfillment_payload).toBe('https://g.co/gemini/smooth-delivery-1');
-    expect(final?.payment_ref).toBe('chg-test-001');
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Fix 6: Registration works when starting directly from /shop

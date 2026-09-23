@@ -4,15 +4,6 @@
  * server's math so the UI matches the order that will be created.
  */
 
-/** Mirrors pricing.service: ceil(stars × rate), with sane fallbacks/guards. */
-export function computeStarsTotal(stars: number, etbPerStar: number): number {
-  if (!Number.isFinite(stars) || !Number.isInteger(stars) || stars <= 0) {
-    throw new Error('Stars must be a positive whole number.');
-  }
-  const rate = Number.isFinite(etbPerStar) && etbPerStar > 0 ? etbPerStar : 2.5;
-  return Math.ceil(stars * rate);
-}
-
 /** Formats ETB amounts as "1,250 ETB". */
 export function formatEtb(amount: number): string {
   if (!Number.isFinite(amount) || amount < 0) return '0 ETB';

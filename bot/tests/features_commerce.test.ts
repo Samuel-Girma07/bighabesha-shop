@@ -165,7 +165,7 @@ describe('Feature: Promo codes & flash sales', () => {
 
   it('bot-side applyPromoToOrder works on unpaid orders and survives later receipts', async () => {
     createPromoCode({ code: 'LATER5', kind: 'pct', value: 5 });
-    const order = createOrder({ userId: 900001, productId: 'telegram_premium', variantId: 'tg_prem_3m', amountETB: 1100, paymentRail: 'stars' });
+    const order = createOrder({ userId: 900001, productId: 'telegram_premium', variantId: 'tg_prem_3m', amountETB: 1100, paymentRail: 'telebirr' });
 
     // Applied while awaiting payment
     const result = applyPromoToOrder(order.id, 900001, 'later5');
