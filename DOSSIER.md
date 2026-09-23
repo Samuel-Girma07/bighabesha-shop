@@ -9,7 +9,7 @@
 ## SECTION 0 — SYSTEM MAP
 
 ### 1. Technology Stack
-* **Runtime:** Node.js 20 (`node:20-bookworm-slim`, ES Modules `type: module`)
+* **Runtime:** Node.js 22 (`node:22-bookworm-slim`, ES Modules `type: module`)
 * **Core Language:** TypeScript 5.7.3 (`bot/package.json:35`) compiled via `tsc` to ES2022 / Node16 modules (`bot/tsconfig.json:3-9`)
 * **Web Server:** Express 5.2.1 (`bot/package.json:19`)
 * **Bot Framework:** Grammy 1.35.0 (`bot/package.json:21`)
@@ -22,7 +22,7 @@
 ### 2. Serving Architecture & Topology
 * **Process Topology:** Single Node.js process (`bot/dist/index.js`). Single-threaded event loop.
 * **Process Model:** Single worker process without Node.js cluster mode (`Dockerfile:73`).
-* **Container Spec:** Multi-stage Docker container based on `node:20-bookworm-slim` (`Dockerfile:4,36`), exposed on port `7860` (`Dockerfile:51,71`) or `PORT` env var (default `3000`, `bot/src/config/env.ts:87`).
+* **Container Spec:** Multi-stage Docker container based on `node:22-bookworm-slim` (`Dockerfile:4,36`), exposed on port `7860` (`Dockerfile:51,71`) or `PORT` env var (default `3000`, `bot/src/config/env.ts:87`).
 * **Telegram Connection:** Outbound HTTP Long Polling via `bot.start()` (`bot/src/index.ts:99-110`). No Telegram Webhook mode configured.
 
 ### 3. Datastores & External Services

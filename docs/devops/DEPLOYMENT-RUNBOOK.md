@@ -61,7 +61,7 @@ Bighabesha Shop operates a containerized Node.js runtime hosting a Telegram Bot 
                                                    |  HTTPS / WSS (Port 3000)
                                                    v
    +-----------------------------------------------------------------------------------------------+
-   | Container Runtime: bighabesha-bot (node:20-bookworm-slim, User: node)                         |
+   | Container Runtime: bighabesha-bot (node:22-bookworm-slim, User: node)                         |
    |                                                                                               |
    |  +---------------------------+  +--------------------------+  +----------------------------+  |
    |  |     GrammY Bot Engine     |  |   Express REST Server    |  |  Receipt Ingestion Service |  |

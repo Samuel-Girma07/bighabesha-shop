@@ -12,6 +12,8 @@ services:
     buildCommand: npm install -g pnpm@9 && pnpm install --frozen-lockfile && pnpm -r build
     startCommand: node scripts/run-with-litestream.mjs node bot/dist/index.js
     envVars:
+      - key: NODE_VERSION
+        value: 22
       - key: NODE_ENV
         value: production
       - key: PORT

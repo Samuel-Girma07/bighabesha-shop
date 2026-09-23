@@ -4,7 +4,7 @@
 # ==============================================================================
 
 # ── 1. Builder Stage ─────────────────────────────────────────────────────────
-FROM node:20-bookworm-slim AS builder
+FROM node:22-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -36,7 +36,7 @@ COPY webapp/ ./webapp/
 RUN pnpm -r build
 
 # ── 2. Production Runtime Stage ──────────────────────────────────────────────
-FROM node:20-bookworm-slim AS runner
+FROM node:22-bookworm-slim AS runner
 
 WORKDIR /app
 
