@@ -4,6 +4,7 @@ import { getBroadcastTargets, executeBroadcast } from '../../services/broadcast.
 import { setPendingAction } from '../session.js';
 import { getDatabase } from '../../db/index.js';
 import { splitTelegramCaption } from '../../utils/html.js';
+import { safeEditMessage } from '../utils/safe_edit.js';
 
 export async function renderBroadcastTargetSelection(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
@@ -25,11 +26,7 @@ export async function renderBroadcastTargetSelection(ctx: Context): Promise<void
     .row()
     .text('« Back to Admin Menu', 'admin_menu');
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function promptBroadcastContent(ctx: Context, targetLang: string): Promise<void> {
@@ -48,11 +45,7 @@ export async function promptBroadcastContent(ctx: Context, targetLang: string): 
 
   const keyboard = new InlineKeyboard().text('❌ Cancel', 'admin_broadcast');
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function previewBroadcastDraft(

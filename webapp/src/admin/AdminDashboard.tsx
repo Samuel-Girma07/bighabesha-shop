@@ -2892,7 +2892,7 @@ export const AdminDashboard: React.FC = () => {
                   </label>
                   <div className="template-presets-row">
                     {[
-                      { id: 'sale', label: '⚡ Flash Sale (20% Off)', text: '<b>⚡ FLASH SALE — 20% OFF TODAY!</b>\n\nEnjoy an instant 20% discount on all Telegram Stars and Gemini subscriptions!\n\nUse code <code>HABESHA20</code> at checkout.' },
+                      { id: 'sale', label: '⚡ Flash Sale (20% Off)', text: '<b>⚡ FLASH SALE — 20% OFF TODAY!</b>\n\nEnjoy an instant 20% discount on all Telegram Premium and Gemini subscriptions!\n\nUse code <code>HABESHA20</code> at checkout.' },
                       { id: 'restock', label: '📦 New Keys Restocked', text: '<b>📦 NEW INVENTORY RESTOCKED!</b>\n\nFresh Gemini Pro 18-month activation keys are now loaded in the vault with instant Telebirr delivery.' },
                       { id: 'maintenance', label: '⚙️ Scheduled Maintenance', text: '<b>⚙️ Scheduled System Maintenance</b>\n\nPayment rail bridges will undergo brief routine maintenance tonight at 02:00 AM EAT for 15 minutes.' },
                       { id: 'reward', label: '✨ Referral Bonus Weekend', text: '<b>✨ Double Referral Bonus Weekend!</b>\n\nEarn 2x affiliate payout commission on every friend you invite to Bighabesha Shop this weekend!' },
@@ -2952,7 +2952,7 @@ export const AdminDashboard: React.FC = () => {
                     className="broadcast-textarea"
                     value={broadcastMessage}
                     onChange={(e) => setBroadcastMessage(e.target.value)}
-                    placeholder="<b>New Product Arrival!</b>&#10;&#10;Telegram Stars and Gemini Pro 18-month subscriptions are now available with instant Telebirr delivery."
+                    placeholder="<b>New Product Arrival!</b>&#10;&#10;Telegram Premium and Gemini Pro 18-month subscriptions are now available with instant Telebirr delivery."
                   />
                 </div>
 
@@ -3525,16 +3525,6 @@ export const AdminDashboard: React.FC = () => {
                 </h3>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
-                  <div>
-                    <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>ETB per 1 Telegram Star</label>
-                    <input
-                      type="text"
-                      value={settings.etb_per_star || ''}
-                      onChange={(e) => setSettings({ ...settings, etb_per_star: e.target.value })}
-                      disabled={!canSee('settings.write')}
-                      style={{ width: '100%', background: 'var(--admin-input-bg)', border: '1px solid var(--admin-border)', borderRadius: 'var(--admin-radius-md)', padding: '10px 12px', color: 'var(--admin-text-pure)', fontSize: '13px', fontFamily: 'var(--font-admin-mono)', boxSizing: 'border-box' }}
-                    />
-                  </div>
                   <div>
                     <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>ETB per 1 USD (Settlement)</label>
                     <input

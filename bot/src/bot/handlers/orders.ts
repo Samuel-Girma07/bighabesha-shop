@@ -8,6 +8,7 @@ import { logger } from '../../logger/index.js';
 import { escapeHtml } from '../../utils/html.js';
 import { addStyledInlineButton } from '../keyboards/menu.js';
 import { isAdmin } from './admin.js';
+import { safeEditMessage } from '../utils/safe_edit.js';
 
 export function getStatusBadge(status: string, isAmharic = false): string {
   if (isAmharic) {
@@ -110,11 +111,7 @@ export async function renderMyOrders(ctx: Context): Promise<void> {
       style: 'primary',
     });
 
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-    } else {
-      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-    }
+  await safeEditMessage(ctx, text, keyboard);
     return;
   }
 
@@ -159,11 +156,7 @@ export async function renderMyOrders(ctx: Context): Promise<void> {
     style: 'primary',
   }).row();
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function renderOrderDetail(ctx: Context, orderId: string): Promise<void> {
@@ -277,11 +270,7 @@ export async function renderOrderDetail(ctx: Context, orderId: string): Promise<
     style: 'primary',
   }).row();
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function renderLanguageMenu(ctx: Context): Promise<void> {
@@ -317,11 +306,7 @@ export async function renderLanguageMenu(ctx: Context): Promise<void> {
     style: 'primary',
   });
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function handleSetLanguage(ctx: Context, langCode: string): Promise<void> {

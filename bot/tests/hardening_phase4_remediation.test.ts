@@ -160,7 +160,7 @@ describe('Phase 4: Comprehensive Remediation Test Suite', () => {
       const db = getDatabase();
 
       // Attacker attempts SMS verification on buyer's order
-      setPendingAction(attackerId, { type: 'user_sms_forward', data: { orderId: order.id } });
+      setPendingAction(attackerId, { type: 'user_receipt_upload', data: { orderId: order.id, attempts: 0 } });
 
       const smsText = 'Dear Customer, your account has been debited with ETB 1500.00 for payment. Ref: FT26090123456789.';
       const ctx: any = {
@@ -613,8 +613,8 @@ describe('Phase 4: Comprehensive Remediation Test Suite', () => {
     it('handleTextInput rejects SMS submission on cancelled or fulfilled orders without crashing', async () => {
       const order = createOrder({ userId: buyerId, productId: 'gemini_pro_18m', amountETB: 1500, status: 'cancelled', paymentRail: 'cbe' });
       setPendingAction(buyerId, {
-        type: 'user_sms_forward',
-        data: { orderId: order.id },
+        type: 'user_receipt_upload',
+        data: { orderId: order.id, attempts: 0 },
       });
 
       const ctx: any = {

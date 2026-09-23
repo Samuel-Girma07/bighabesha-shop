@@ -33,7 +33,6 @@ import {
   USDCoinIcon,
   PaymentCbeIcon,
   PaymentTelebirrIcon,
-  PaymentAbyssiniaIcon,
   TelegramBrandIcon,
   AlertCircleIcon,
   RefreshIcon,
@@ -1251,27 +1250,6 @@ const StoreFront: React.FC = () => {
                     </div>
                     <span className="hulupay-badge purple">CBE</span>
                   </div>
-
-                  {/* Bank of Abyssinia */}
-                  <div
-                    className={`hulupay-variant-card ${selectedPaymentRail === 'abyssinia' ? 'active' : ''}`}
-                    onClick={() => {
-                      setSelectedPaymentRail('abyssinia');
-                      haptic.tap();
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div className="hulupay-radio-dot">
-                        {selectedPaymentRail === 'abyssinia' && <CheckIcon size={11} color="#FFFFFF" />}
-                      </div>
-                      <PaymentAbyssiniaIcon size={32} />
-                      <div>
-                        <div className="hulupay-variant-name" style={{ fontSize: '14.5px' }}>{t.abyssiniaBank}</div>
-                        <div style={{ fontSize: '11.5px', color: '#94A3B8' }}>{t.boaMobileBanking}</div>
-                      </div>
-                    </div>
-                    <span className="hulupay-badge green">{t.directBadge}</span>
-                  </div>
                 </div>
 
                 <button className="hulupay-btn-action" disabled={submittingOrder} onClick={handleConfirmPaymentMethod}>
@@ -1287,12 +1265,10 @@ const StoreFront: React.FC = () => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
                     {selectedPaymentRail === 'telebirr' && <PaymentTelebirrIcon size={40} />}
                     {selectedPaymentRail === 'cbe' && <PaymentCbeIcon size={40} />}
-                    {selectedPaymentRail === 'abyssinia' && <PaymentAbyssiniaIcon size={40} />}
                     <div>
                       <div style={{ fontSize: '15px', fontWeight: 800, color: '#FFFFFF' }}>
                         {selectedPaymentRail === 'telebirr' && t.telebirrMobile}
                         {selectedPaymentRail === 'cbe' && t.cbeBank}
-                        {selectedPaymentRail === 'abyssinia' && t.abyssiniaBank}
                       </div>
                       <div style={{ fontSize: '12px', color: '#94A3B8' }}>
                         {t.accountName}: <strong style={{ color: '#E2E8F0' }}>{data?.settings?.[`${selectedPaymentRail}_name` as keyof typeof data.settings] || 'Bighabesha Shop'}</strong>
@@ -1304,7 +1280,7 @@ const StoreFront: React.FC = () => {
                     <span style={{ fontSize: '11px', color: '#64748B', display: 'block', marginBottom: '2px' }}>{t.accountNumberHeader}</span>
                     <div style={{ fontSize: '20px', fontWeight: 900, color: '#38BDF8', letterSpacing: '1px' }}>
                       {data?.settings?.[`${selectedPaymentRail}_account` as keyof typeof data.settings] ||
-                        (selectedPaymentRail === 'telebirr' ? '0912345678' : selectedPaymentRail === 'cbe' ? '1000123456789' : '123456789')}
+                        (selectedPaymentRail === 'telebirr' ? '0912345678' : '1000123456789')}
                     </div>
                   </div>
 
@@ -1314,7 +1290,7 @@ const StoreFront: React.FC = () => {
                     onClick={() =>
                       copyToClipboard(
                         data?.settings?.[`${selectedPaymentRail}_account` as keyof typeof data.settings] ||
-                          (selectedPaymentRail === 'telebirr' ? '0912345678' : selectedPaymentRail === 'cbe' ? '1000123456789' : '123456789'),
+                          (selectedPaymentRail === 'telebirr' ? '0912345678' : '1000123456789'),
                         'acc'
                       )
                     }

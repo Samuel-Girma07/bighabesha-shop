@@ -5,6 +5,7 @@ import { startHandler } from './start.js';
 import { logger } from '../../logger/index.js';
 
 import { getConfig } from '../../config/env.js';
+import { safeEditMessage } from '../utils/safe_edit.js';
 
 export function getRequiredChannelUsername(): string {
   try {
@@ -138,19 +139,7 @@ export async function promptLanguageSelection(ctx: Context): Promise<void> {
     .text('🇬🇧 English', 'onboard_lang_en')
     .text('🇪🇹 አማርኛ', 'onboard_lang_am');
 
-  if (ctx.callbackQuery) {
-    try {
-      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-      return;
-    } catch {
-      // Fall through to reply
-    }
-  }
-
-  await ctx.reply(text, {
-    parse_mode: 'HTML',
-    reply_markup: keyboard,
-  });
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 /**
@@ -171,25 +160,14 @@ export async function promptChannelSubscription(ctx: Context, alertUser = false)
     .row()
     .text('🔄 I Have Joined / አረጋግጥ', 'onboard_check_channel');
 
-  if (ctx.callbackQuery) {
-    try {
-      if (alertUser) {
-        await ctx.answerCallbackQuery({
-          text: `⚠️ You have not joined ${channel} yet. Please join the channel first!`,
-          show_alert: true,
-        }).catch(() => {});
-      }
-      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-      return;
-    } catch {
-      // Fall through
-    }
+  if (ctx.callbackQuery && alertUser) {
+    await ctx.answerCallbackQuery({
+      text: `⚠️ You have not joined ${channel} yet. Please join the channel first!`,
+      show_alert: true,
+    }).catch(() => {});
   }
 
-  await ctx.reply(text, {
-    parse_mode: 'HTML',
-    reply_markup: keyboard,
-  });
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 /**

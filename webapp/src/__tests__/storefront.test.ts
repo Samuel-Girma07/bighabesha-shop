@@ -1,28 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { computeStarsTotal, formatEtb, translationKeyPaths } from '../utils.js';
+import { formatEtb, translationKeyPaths } from '../utils.js';
 import { translations } from '../i18n.js';
 import { createOrderApi } from '../api.js';
-
-describe('computeStarsTotal (client mirror of server pricing)', () => {
-  it('rounds up fractional totals like the server', () => {
-    expect(computeStarsTotal(500, 2.5)).toBe(1250);
-    expect(computeStarsTotal(3, 2.5)).toBe(8); // 7.5 -> 8
-    expect(computeStarsTotal(7, 1.1)).toBe(8); // 7.7 -> 8
-  });
-
-  it('falls back to the default rate of 2.5 for invalid rates', () => {
-    expect(computeStarsTotal(100, 0)).toBe(250);
-    expect(computeStarsTotal(100, -1)).toBe(250);
-    expect(computeStarsTotal(100, NaN)).toBe(250);
-  });
-
-  it('rejects invalid star amounts', () => {
-    expect(() => computeStarsTotal(0, 2.5)).toThrow();
-    expect(() => computeStarsTotal(-5, 2.5)).toThrow();
-    expect(() => computeStarsTotal(10.5, 2.5)).toThrow();
-    expect(() => computeStarsTotal(NaN, 2.5)).toThrow();
-  });
-});
 
 describe('formatEtb', () => {
   it('formats with thousands separators and ETB suffix', () => {

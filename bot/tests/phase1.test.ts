@@ -182,17 +182,13 @@ describe('Phase 1: Catalog, Stock, Rates, and Validation', () => {
       const purchaseActions = [
         'prod_gemini_pro_18m',
         'buy_var_tg_prem_3m',
-        'buy_custom_stars_500_1250',
-        'stars_custom',
-        'pay_stars_order123',
+        'pay_cbe_order123',
       ];
 
       for (const action of purchaseActions) {
         const isPurchaseAction =
           action.startsWith('prod_') ||
           action.startsWith('buy_var_') ||
-          action.startsWith('buy_custom_stars_') ||
-          action === 'stars_custom' ||
           action.startsWith('pay_');
 
         expect(isPurchaseAction).toBe(true);

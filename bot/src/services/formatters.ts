@@ -97,20 +97,6 @@ export function formatPaymentRail(rail: string): PaymentRailInfo {
 }
 
 /**
- * Formats welcome message with brand styling.
- */
-export function formatWelcomeMessage(): string {
-  return (
-    `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
-    `💎 <b>Official Digital Goods & Subscription Store</b>\n\n` +
-    `• <b>Gemini Pro (18 Months)</b> — Instant activation link with 2TB storage\n` +
-    `• <b>Telegram Premium</b> — 3, 6, 12-month direct gifts to @username\n` +
-    `• <b>Telegram Stars</b> — Flexible packages & custom amounts\n\n` +
-    `<i>⚡ Automated instant delivery via Telebirr, CBE, Abyssinia, Stars & Crypto.</i>`
-  );
-}
-
-/**
  * Formats manual bank payment instructions with copyable code.
  */
 export function formatBankPaymentInstructions(options: {
@@ -128,7 +114,7 @@ export function formatBankPaymentInstructions(options: {
     `• <b>Account / Phone:</b> <code>${escapeHtml(accountNum)}</code> <i>(Tap to copy)</i>\n` +
     `• <b>Account Name:</b> <b>${escapeHtml(accountName)}</b>\n` +
     `• <b>Payment Reference:</b> <code>${escapeHtml(orderId)}</code>\n\n` +
-    `<blockquote>📸 Take a screenshot of your transfer confirmation, then tap <b>[Upload Transfer Receipt]</b> below.</blockquote>`
+    `<blockquote>📸 After paying, forward the confirmation SMS or send the transaction reference here to verify your payment.</blockquote>`
   );
 }
 
@@ -150,45 +136,4 @@ export function formatDeliveryMessage(orderId: string, payload: string, instruct
     formatBlockquote(escapeHtml(inst)) +
     `\n\n<i>Thank you for choosing Bighabesha Shop.</i>`
   );
-}
-
-/**
- * Formats an order summary card for checkout confirmation.
- */
-export function formatCheckoutSummary(options: {
-  productName: string;
-  orderId: string;
-  amountEtb: number;
-  discountEtb?: number;
-  promoCode?: string | null;
-  starsDue: number;
-  usdAmount: number;
-  tonAmount: number;
-}): string {
-  const { productName, orderId, amountEtb, discountEtb = 0, promoCode, starsDue, usdAmount, tonAmount } = options;
-  const netAmount = Math.max(amountEtb - discountEtb, 1);
-
-  let text = (
-    `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
-    `🛍 <b>Checkout Confirmation</b>\n\n` +
-    `• <b>Product:</b> ${escapeHtml(productName)}\n` +
-    `• <b>Order Reference:</b> <code>${escapeHtml(orderId)}</code>\n`
-  );
-
-  if (discountEtb > 0) {
-    text += (
-      `• <b>Original Price:</b> <s>${formatPriceETB(amountEtb)}</s>\n` +
-      `• <b>Promo (${escapeHtml(promoCode || '')}):</b> <b>−${formatPriceETB(discountEtb)}</b>\n`
-    );
-  }
-
-  text += (
-    `• <b>Total Payable:</b> <b>${formatPriceETB(netAmount)}</b>\n\n` +
-    `<b>Supported Payment Equivalents:</b>\n` +
-    `• ⭐️ <b>Telegram Stars:</b> <code>${starsDue} XTR</code>\n` +
-    `• 💎 <b>TON / USDT:</b> <code>$${usdAmount.toFixed(2)} USD</code> (~${tonAmount} TON)\n\n` +
-    `<i>Select your payment method below:</i>`
-  );
-
-  return text;
 }

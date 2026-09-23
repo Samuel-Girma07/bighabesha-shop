@@ -1,6 +1,6 @@
 {
   "start": {
-    "welcome": "*Welcome to Bighabesha Shop*\n\nDigital subscriptions and official Telegram services for Ethiopia.\n\n*Catalog:*\n• *Gemini Pro (18 Months)* — Instant automated delivery\n• *Telegram Premium* — 3, 6, or 12-month subscriptions\n• *Telegram Stars* — Packages & custom amounts\n\n*Supported Payment Rails:*\n• Telebirr, CBE Bank, Bank of Abyssinia\n• Telegram Stars (XTR)\n• Wallet Pay (TON / USDT)\n\nSelect an option below to proceed:",
+    "welcome": "*Welcome to Bighabesha Shop*\n\nDigital subscriptions and official Telegram services for Ethiopia.\n\n*Catalog:*\n• *Gemini Pro (18 Months)* — Instant automated delivery\n• *Telegram Premium* — 3, 6, or 12-month subscriptions\n\n*Supported Payment Rails:*\n• Telebirr, CBE Bank (SMS-verified)\n\nSelect an option below to proceed:",
     "language_select": "*Please select your preferred language:*"
   },
   "menu": {
@@ -30,7 +30,7 @@
   },
   "username_gate": {
     "title": "*Telegram Username Required*",
-    "message": "To fulfill your subscription or stars order, your Telegram account must have a public **@username** configured.\n\n*Setup Steps:*\n1. Open Telegram **Settings**\n2. Tap **Edit Profile** → **Username**\n3. Set a public username and save\n\nOnce saved, tap **[Recheck Profile]** below.",
+    "message": "To fulfill your subscription order, your Telegram account must have a public **@username** configured.\n\n*Setup Steps:*\n1. Open Telegram **Settings**\n2. Tap **Edit Profile** → **Username**\n3. Set a public username and save\n\nOnce saved, tap **[Recheck Profile]** below.",
     "recheck_btn": "Recheck Profile",
     "support_btn": "Contact Support",
     "recheck_failed": "Public username not found. Please save your username in Telegram Settings and recheck."
@@ -49,9 +49,9 @@
     "abyssinia_btn": "🏛 Bank of Abyssinia",
     "promo_btn": "🏷 Promo Code",
     "cancel_btn": "« Cancel Order",
-    "upload_receipt_btn": "📸 Upload Transfer Receipt",
+    "upload_receipt_btn": "💬 Send Confirmation SMS",
     "change_rail_btn": "« Change Payment Method",
-    "upload_prompt": "Please send a photo / screenshot / document of your transaction confirmation in this chat."
+    "upload_prompt": "After paying, send the confirmation SMS you received from the bank / Telebirr: forward it to this chat, paste the full text, or type only the transaction reference number. Photos and screenshots are no longer accepted."
   },
   "orders": {
     "status_delivered": "Delivered",

@@ -8,6 +8,7 @@ import { getNumericSetting, getSetting } from '../../services/settings.service.j
 import { setPendingAction } from '../session.js';
 import { escapeHtml } from '../../utils/html.js';
 import { logger } from '../../logger/index.js';
+import { safeEditMessage } from '../utils/safe_edit.js';
 
 /**
  * Bot-side admin check with optional RBAC permission scoping.
@@ -48,11 +49,7 @@ export async function renderAdminMenu(ctx: Context): Promise<void> {
     .row()
     .text('« Exit Admin Mode', 'nav_home');
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function renderAdminProducts(ctx: Context): Promise<void> {
@@ -78,11 +75,7 @@ export async function renderAdminProducts(ctx: Context): Promise<void> {
 
   keyboard.text('« Back to Admin Menu', 'admin_menu');
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function promptEditVariantPrice(ctx: Context, variantId: string): Promise<void> {
@@ -106,11 +99,7 @@ export async function promptEditVariantPrice(ctx: Context, variantId: string): P
 
   const keyboard = new InlineKeyboard().text('❌ Cancel', 'admin_products');
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function renderAdminStock(ctx: Context): Promise<void> {
@@ -134,11 +123,7 @@ export async function renderAdminStock(ctx: Context): Promise<void> {
     .row()
     .text('« Back to Admin Menu', 'admin_menu');
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function promptStockPaste(ctx: Context, productId: string): Promise<void> {
@@ -156,11 +141,7 @@ export async function promptStockPaste(ctx: Context, productId: string): Promise
 
   const keyboard = new InlineKeyboard().text('❌ Cancel', 'admin_stock');
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function promptStockCSV(ctx: Context, productId: string): Promise<void> {
@@ -178,11 +159,7 @@ export async function promptStockCSV(ctx: Context, productId: string): Promise<v
 
   const keyboard = new InlineKeyboard().text('❌ Cancel', 'admin_stock');
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function renderAdminRates(ctx: Context): Promise<void> {
@@ -202,11 +179,7 @@ export async function renderAdminRates(ctx: Context): Promise<void> {
     .row()
     .text('« Back to Admin Menu', 'admin_menu');
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 export async function renderAdminSettings(ctx: Context): Promise<void> {
@@ -235,11 +208,7 @@ export async function renderAdminSettings(ctx: Context): Promise<void> {
     .row()
     .text('« Back to Admin Menu', 'admin_menu');
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 
 /**
@@ -263,11 +232,7 @@ export async function renderResellerBalance(ctx: Context): Promise<void> {
     const text = '💰 <b>Reseller Balance</b>\n\n' +
       'No reseller provider is configured (<code>RESELLER_PROVIDER</code> is unset).\n' +
       'Telegram Premium orders fall back to manual fulfillment.';
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: backKeyboard });
-    } else {
-      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: backKeyboard });
-    }
+    await safeEditMessage(ctx, text, backKeyboard);
     return;
   }
 
@@ -301,22 +266,14 @@ export async function renderResellerBalance(ctx: Context): Promise<void> {
       });
     }
 
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: backKeyboard });
-    } else {
-      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: backKeyboard });
-    }
+    await safeEditMessage(ctx, text, backKeyboard);
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Unknown error';
     logger.warn({ err, provider: provider.name }, 'Failed to fetch reseller balance');
     const text = '💰 <b>Reseller Balance</b>\n\n' +
       `❌ Could not reach provider <b>${escapeHtml(provider.name)}</b>:\n` +
       `<code>${escapeHtml(errorMsg)}</code>`;
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: backKeyboard });
-    } else {
-      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: backKeyboard });
-    }
+    await safeEditMessage(ctx, text, backKeyboard);
   }
 }
 
@@ -339,10 +296,6 @@ export async function promptEditSetting(ctx: Context, settingKey: string): Promi
 
   const keyboard = new InlineKeyboard().text('❌ Cancel', 'admin_settings');
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 

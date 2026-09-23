@@ -12,18 +12,29 @@ import { previewBroadcastDraft } from './broadcast.js';
 import { renderAdminOrdersQueue } from './admin_queue.js';
 import { escapeHtml, splitTelegramCaption, formatFulfillmentDeliveryMessage } from '../../utils/html.js';
 import { logger, redactSecret } from '../../logger/index.js';
-import { parseBankSms, matchSmsToOrders } from '../../services/sms_parser.service.js';
-import { getDatabase } from '../../db/index.js';
 import { renderPaymentRailSelection } from './checkout.js';
 import { getConfig } from '../../config/env.js';
 import { isResellerEligible, triggerAutoResellerDelivery } from '../../services/reseller.service.js';
-import type { ReceiptMimeType, VerificationResult, IReceiptOrchestrator } from '../../services/receipt_verifier/types.js';
+import type { VerificationResult, IReceiptOrchestrator } from '../../services/receipt_verifier/types.js';
 
 const MAX_RECEIPT_BUFFER_SIZE_BYTES = 10 * 1024 * 1024;
+/** Maximum consecutive unreadable SMS/text attempts before the order is routed to manual review. */
+const MAX_RECEIPT_TEXT_ATTEMPTS = 3;
 
 async function getOrchestrator(): Promise<IReceiptOrchestrator> {
   const { getReceiptOrchestrator } = await import('../../services/receipt_verifier/index.js');
   return getReceiptOrchestrator();
+}
+
+let textIngestionService: { ingestText(rawText: string): Promise<unknown> } | undefined;
+
+/** Lazily-loaded ingestion service used for local (regex-only, no network) reference pre-validation. */
+async function getTextIngestionService(): Promise<{ ingestText(rawText: string): Promise<unknown> }> {
+  if (!textIngestionService) {
+    const { ReceiptIngestionService } = await import('../../services/receipt_verifier/ingestion.service.js');
+    textIngestionService = new ReceiptIngestionService();
+  }
+  return textIngestionService;
 }
 
 
@@ -35,23 +46,24 @@ async function renderPaymentRailSelectionFor(ctx: Context, order: any, productNa
   }
 }
 
-async function downloadTelegramFileBuffer(ctx: Context, fileId: string): Promise<Buffer | undefined> {
-  try {
-    if (typeof ctx.api?.getFile === 'function') {
-      const file = await ctx.api.getFile(fileId);
-      if (file.file_path) {
-        const config = getConfig();
-        const fileUrl = `https://api.telegram.org/file/bot${config.BOT_TOKEN}/${file.file_path}`;
-        const resp = await fetch(fileUrl, { signal: AbortSignal.timeout(15_000) });
-        if (resp.ok) {
-          return Buffer.from(await resp.arrayBuffer());
-        }
-      }
-    }
-  } catch (dlErr: unknown) {
-    logger.warn({ err: dlErr, fileId }, 'Could not download file for verification');
-  }
-  return undefined;
+/**
+ * Photo/document intake is retired: buyers must send the bank confirmation SMS as text.
+ * The receipt session stays armed (and attempts are NOT consumed) so the buyer can immediately
+ * send the SMS instead.
+ */
+async function sendSmsOnlyGuidance(ctx: Context, userId: number): Promise<void> {
+  const user = getUserById(userId);
+  const isAmharic = user?.language_code === 'am' || ctx.from?.language_code?.startsWith('am');
+
+  const guidanceMsg = isAmharic
+    ? `📷 <b>ፎቶዎች / ስክሪንሾቶች ከእንግዲህ አይቀበሉም</b>\n\n` +
+      `እባክዎ ከባንክ / ከቴሌብር የደረሰዎትን የማረጋገጫ <b>SMS</b> እዚህ አግብረው (forward) ወይም ቅድተው ይላኩ — ወይም የትራንዛክሽን ቁጥሩን ብቻ ይፃፉ።\n\n` +
+      `ትራንዛክሽኑን በቀጥታ ከባንክ እናረጋግጣለን። ለመሰረዝ <b>/cancel</b> ይፃፉ።`
+    : `📷 <b>Photos / screenshots are no longer accepted</b>\n\n` +
+      `Please send the confirmation <b>SMS</b> you received from the bank / Telebirr — forward it or paste the full text here — or just type the transaction reference number.\n\n` +
+      `We verify the transaction directly with the bank. Type <b>/cancel</b> to abort.`;
+
+  await ctx.reply(guidanceMsg, { parse_mode: 'HTML' });
 }
 
 async function sendVerificationSuccessReply(
@@ -260,77 +272,10 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
     return true;
   }
 
-  // CBE SMS verification flow
-  if (session.type === 'user_sms_forward') {
-    clearPendingAction(userId);
-    const { orderId } = session.data as { orderId: string };
-    const parsed = parseBankSms(text);
-
-    if (!parsed || parsed.direction !== 'debit') {
-      await ctx.reply(
-        `❌ That doesn't look like a CBE debit SMS.\n\nPlease forward the exact bank confirmation message, or upload a receipt screenshot instead.`,
-        { parse_mode: 'HTML' }
-      );
-      return true;
-    }
-
-    const order = getOrderById(orderId);
-    if (!order || (order.user_id !== userId && !isAdmin(userId))) {
-      await ctx.reply('Order not found.');
-      return true;
-    }
-
-    if (order.status !== 'awaiting_payment') {
-      await ctx.reply(`⚠️ Cannot submit receipt: order is already <b>${escapeHtml(order.status)}</b>.`, { parse_mode: 'HTML' });
-      return true;
-    }
-
-    const db = getDatabase();
-    const match = matchSmsToOrders(db, userId, parsed);
-    const targetOrderId = match.matched ? match.orderId! : orderId;
-
-    db.prepare(
-      'INSERT INTO receipt_evidence (order_id, user_id, source, raw_text, amount_etb, reference, matched) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(targetOrderId, userId, 'sms', text.slice(0, 500), parsed.amountEtb, parsed.reference || null, match.matched ? 1 : 0);
-
-    if (!match.matched) {
-      if (match.reason === 'reference_already_used') {
-        await ctx.reply(
-          `⚠️ <b>Transaction Reference Already Used</b>\n\nThis payment reference has already been matched to a previous order. If you believe this is an error, please contact support.`,
-          { parse_mode: 'HTML' }
-        );
-        return true;
-      }
-      const reason = match.reason === 'ambiguous' ? 'multiple orders match this amount.' : 'no open order matches this amount.';
-      await ctx.reply(
-        `⚠️ SMS received but ${reason}\n\nPlease double-check the amount, or upload your receipt screenshot for manual review.`,
-        { parse_mode: 'HTML' }
-      );
-      return true;
-    }
-
-    // Matched: attach evidence as the receipt and route to admin approval.
-    const updatedOrder = submitReceipt(targetOrderId, `sms:${parsed.reference || Date.now()}`, `CBE SMS ref: ${parsed.reference || 'n/a'} — amount ${parsed.amountEtb} ETB`);
-    await ctx.reply(
-      `✅ <b>SMS matched!</b>\n\nAmount: <b>${escapeHtml(parsed.amountEtb.toLocaleString('en-US'))} ETB</b>\nReference: <code>${escapeHtml(parsed.reference || 'n/a')}</code>\n\nAn administrator will give it a final check shortly.`,
-      { parse_mode: 'HTML' }
-    );
-
-    try {
-      const enriched = {
-        ...updatedOrder,
-        receipt_note: `[CBE SMS MATCH ✓] Amount: ${parsed.amountEtb} ETB | Ref: ${parsed.reference || 'n/a'}\n${updatedOrder.receipt_note ?? ''}`,
-      };
-      await notifyAdminsNewReceipt(ctx, enriched);
-    } catch (err) {
-      logger.warn({ err }, 'Failed notifying admins of matched SMS');
-    }
-    return true;
-  }
-
-  // Strictly reject plain text when user is in receipt upload mode (must upload photo/screenshot/document)
+  // SMS / transaction-reference verification flow (photo & document uploads are no longer accepted)
   if (session.type === 'user_receipt_upload') {
     const { orderId } = session.data as { orderId: string };
+    const attempts = Number(session.data?.attempts || 0);
     const targetOrder = getOrderById(orderId);
     if (!targetOrder || (targetOrder.user_id !== userId && !isAdmin(userId))) {
       clearPendingAction(userId);
@@ -349,22 +294,95 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
       return true;
     }
 
-    // Keep the pending action armed so user can still upload photo/doc
-    setPendingAction(userId, session, 15);
-
     const user = getUserById(userId);
     const isAmharic = user?.language_code === 'am' || ctx.from?.language_code?.startsWith('am');
 
-    const rejectionMsg = isAmharic
-      ? `⚠️ <b>እባክዎ የደረሰኝ ፎቶ ወይም ዶክመንት (PDF) ይላኩ</b>\n\n` +
-        `ጽሑፍ እንደ ክፍያ ማረጋገጫ ተቀባይነት የለውም። እባክዎ የተላለፈበትን ማረጋገጫ ፎቶ፣ ስክሪንሾት ወይም ዶክመንት (PDF) ይላኩ።\n\n` +
-        `<i>ለመሰረዝ <b>/cancel</b> ይፃፉ።</i>`
-      : `⚠️ <b>Please upload a receipt photo or document (PDF)</b>\n\n` +
-        `Plain text messages cannot be accepted as payment receipts. Please send a photo, screenshot, or PDF file of your transfer confirmation.\n\n` +
-        `<i>Type <b>/cancel</b> to abort.</i>`;
+    // Local pre-validation (regex only — never calls the bank portal): can a transaction
+    // reference be extracted from the submitted text at all?
+    const ingestion = await getTextIngestionService();
+    let canExtract = false;
+    try {
+      await ingestion.ingestText(text);
+      canExtract = true;
+    } catch {
+      canExtract = false;
+    }
 
-    await ctx.reply(rejectionMsg, { parse_mode: 'HTML' });
-    return true;
+    if (!canExtract) {
+      const nextAttempts = attempts + 1;
+      if (nextAttempts >= MAX_RECEIPT_TEXT_ATTEMPTS) {
+        // Retries exhausted: route through the full pipeline so the failure is audited
+        // and the order lands in the admin manual-review queue (never fails open).
+        clearPendingAction(userId);
+        try {
+          const orchestrator = await getOrchestrator();
+          const result = await orchestrator.processSubmission({
+            orderId,
+            userId,
+            source: 'sms_forward',
+            note: text.slice(0, 1000),
+          });
+          await sendVerificationFallbackReply(ctx, orderId, 'sms-text', text.slice(0, 200), result);
+        } catch (err: unknown) {
+          logger.error({ err, orderId }, 'Failed to route exhausted SMS attempt to manual review');
+          await sendVerificationFallbackReply(ctx, orderId, 'sms-text', text.slice(0, 200));
+        }
+        return true;
+      }
+
+      // Keep the pending action armed with an incremented attempt counter.
+      setPendingAction(userId, { type: 'user_receipt_upload', data: { orderId, attempts: nextAttempts } }, 15);
+
+      const guidanceMsg = isAmharic
+        ? `⚠️ <b>የትራንዛክሽን ቁጥር ማግኘት አልተቻለም</b>\n\n` +
+          `እባክዎ ከቴሌብር / CBE የደረሰዎትን ትክክለኛ የማረጋገጫ <b>SMS</b> አግብረው (forward) ወይም ሙሉ ጽሑፉን ቅድተው ይላኩ፣ ወይም የትራንዛክሽን ቁጥሩን ብቻ ይፃፉ (ለምሳሌ፦ <code>FT26090123456789</code>)።\n\n` +
+          `ሙከራ <b>${nextAttempts}</b> ከ <b>${MAX_RECEIPT_TEXT_ATTEMPTS}</b>። ለመሰረዝ <b>/cancel</b> ይፃፉ።`
+        : `⚠️ <b>Could not find a transaction reference</b>\n\n` +
+          `Please send the exact confirmation <b>SMS</b> you received from Telebirr / CBE — forward it or copy-paste the full text — or type only the transaction reference number (e.g. <code>FT26090123456789</code>).\n\n` +
+          `Attempt <b>${nextAttempts}</b> of <b>${MAX_RECEIPT_TEXT_ATTEMPTS}</b>. Type <b>/cancel</b> to abort.`;
+
+      await ctx.reply(guidanceMsg, { parse_mode: 'HTML' });
+      return true;
+    }
+
+    // Reference extracted — verify against the bank portal via the orchestrator pipeline.
+    clearPendingAction(userId);
+    try {
+      const orchestrator = await getOrchestrator();
+      const result = await orchestrator.processSubmission({
+        orderId,
+        userId,
+        source: 'sms_forward',
+        note: text.slice(0, 1000),
+      });
+
+      if (result.success) {
+        await sendVerificationSuccessReply(ctx, orderId, targetOrder, result);
+        if (isResellerEligible(targetOrder) && ctx.api) {
+          void triggerAutoResellerDelivery(targetOrder.id, ctx.api).catch((err) => {
+            logger.error({ err, orderId: targetOrder.id }, 'Unhandled error in triggerAutoResellerDelivery for SMS receipt');
+          });
+        }
+        return true;
+      }
+
+      await sendVerificationFallbackReply(
+        ctx,
+        orderId,
+        result.extractedData?.normalizedReference || result.transactionReference || 'sms-text',
+        text.slice(0, 200),
+        result
+      );
+      return true;
+    } catch (err: unknown) {
+      logger.error({ err, orderId }, 'Failed to process submitted SMS receipt');
+      try {
+        await sendVerificationFallbackReply(ctx, orderId, 'sms-text', text.slice(0, 200));
+      } catch {
+        await ctx.reply(`❌ Could not submit receipt: ${escapeHtml(err instanceof Error ? err.message : String(err))}`, { parse_mode: 'HTML' });
+      }
+      return true;
+    }
   }
 
 
@@ -649,46 +667,10 @@ export async function handlePhotoInput(ctx: Context): Promise<boolean> {
       await ctx.reply(`⚠️ Cannot submit receipt: order is already <b>${escapeHtml(targetOrder.status)}</b>.`, { parse_mode: 'HTML' });
       return true;
     }
-    clearPendingAction(userId);
-
-    try {
-      const fileBuffer = await downloadTelegramFileBuffer(ctx, largestPhoto.file_id);
-      if (!fileBuffer) {
-        await sendVerificationFallbackReply(ctx, orderId, largestPhoto.file_id, caption);
-        return true;
-      }
-
-      const orchestrator = await getOrchestrator();
-      const result = await orchestrator.processSubmission({
-        orderId,
-        userId,
-        source: 'telegram_photo',
-        fileBuffer,
-        mimeType: 'image/jpeg',
-        note: caption,
-      });
-
-      if (result.success) {
-        await sendVerificationSuccessReply(ctx, orderId, targetOrder, result);
-        if (isResellerEligible(targetOrder) && ctx.api) {
-          void triggerAutoResellerDelivery(targetOrder.id, ctx.api).catch((err) => {
-            logger.error({ err, orderId: targetOrder.id }, 'Unhandled error in triggerAutoResellerDelivery for photo receipt');
-          });
-        }
-        return true;
-      }
-
-      await sendVerificationFallbackReply(ctx, orderId, largestPhoto.file_id, caption, result);
-      return true;
-    } catch (err: unknown) {
-      logger.error({ err, orderId }, 'Failed to process submitted receipt');
-      try {
-        await sendVerificationFallbackReply(ctx, orderId, largestPhoto.file_id, caption);
-      } catch {
-        await ctx.reply(`❌ Could not submit receipt: ${escapeHtml(err instanceof Error ? err.message : String(err))}`, { parse_mode: 'HTML' });
-      }
-      return true;
-    }
+    // Photo intake retired — guide the buyer to send the confirmation SMS as text instead.
+    // Session stays armed and attempts are not consumed.
+    await sendSmsOnlyGuidance(ctx, userId);
+    return true;
   }
 
 
@@ -719,51 +701,10 @@ export async function handleDocumentInput(ctx: Context): Promise<boolean> {
       await ctx.reply(`⚠️ Cannot submit receipt: order is already <b>${escapeHtml(targetOrder.status)}</b>.`, { parse_mode: 'HTML' });
       return true;
     }
-    clearPendingAction(userId);
-
-    const caption = ctx.message?.caption;
-
-    if (doc.file_size && doc.file_size > MAX_RECEIPT_BUFFER_SIZE_BYTES) {
-      await ctx.reply(`❌ File too large (${(doc.file_size / 1024 / 1024).toFixed(1)} MB). Maximum allowed is 10 MB.`);
-      return true;
-    }
-
-    try {
-      const fileBuffer = await downloadTelegramFileBuffer(ctx, doc.file_id);
-      if (!fileBuffer) {
-        await sendVerificationFallbackReply(ctx, orderId, doc.file_id, caption);
-        return true;
-      }
-
-      const mimeType = (doc.mime_type as ReceiptMimeType) || (doc.file_name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/png');
-      const orchestrator = await getOrchestrator();
-
-      const result = await orchestrator.processSubmission({
-        orderId,
-        userId,
-        source: 'telegram_document',
-        fileBuffer,
-        mimeType,
-        note: caption,
-      });
-
-      if (result.success) {
-        await sendVerificationSuccessReply(ctx, orderId, targetOrder, result);
-        if (isResellerEligible(targetOrder) && ctx.api) {
-          void triggerAutoResellerDelivery(targetOrder.id, ctx.api).catch((err) => {
-            logger.error({ err, orderId: targetOrder.id }, 'Unhandled error in triggerAutoResellerDelivery for document receipt');
-          });
-        }
-        return true;
-      }
-
-      await sendVerificationFallbackReply(ctx, orderId, doc.file_id, caption, result);
-      return true;
-    } catch (err: unknown) {
-      logger.error({ err, orderId }, 'Failed to process submitted document receipt');
-      await sendVerificationFallbackReply(ctx, orderId, doc.file_id, caption);
-      return true;
-    }
+    // Document intake retired — guide the buyer to send the confirmation SMS as text instead.
+    // Session stays armed and attempts are not consumed.
+    await sendSmsOnlyGuidance(ctx, userId);
+    return true;
   }
 
   if (session.data?.action === 'admin_fulfill_proof') {

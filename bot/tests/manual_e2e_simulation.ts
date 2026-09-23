@@ -26,7 +26,7 @@ async function runCustomerSimulation() {
 
   // Register 3 distinct customers in database
   const customer1 = { id: 910001, username: 'alice_buyer', first_name: 'Alice' };
-  const customer2 = { id: 920002, username: 'bob_stars', first_name: 'Bob' };
+  const customer2 = { id: 920002, username: 'bob_buyer', first_name: 'Bob' };
   const customer3 = { id: 930003, username: 'charlie_ai', first_name: 'Charlie' };
 
   for (const c of [customer1, customer2, customer3]) {
@@ -67,16 +67,16 @@ async function runCustomerSimulation() {
   console.log(`✓ Receipt Uploaded by Alice -> Order Status: ${order1Submitted.status} (Pending Admin Review)\n`);
 
   // =========================================================================
-  // WORKFLOW 2: Customer Bob buys 500 Telegram Stars via CBE Bank
+  // WORKFLOW 2: Customer Bob buys Telegram Premium (12 Months) via CBE Bank
   // =========================================================================
   console.log('----------------------------------------------------------------');
-  console.log('🛒 TEST 2: Bob buys 500 Telegram Stars');
+  console.log('🛒 TEST 2: Bob buys Telegram Premium (12 Months)');
   console.log('----------------------------------------------------------------');
-  const price2 = resolveOrderPrice({ productId: 'telegram_stars', variantId: 'tg_stars_500' });
+  const price2 = resolveOrderPrice({ productId: 'telegram_premium', variantId: 'tg_prem_12m' });
   const order2 = createOrder({
     userId: customer2.id,
-    productId: 'telegram_stars',
-    variantId: 'tg_stars_500',
+    productId: 'telegram_premium',
+    variantId: 'tg_prem_12m',
     paymentRail: 'cbe',
     amountETB: price2.amountETB,
   });
@@ -130,10 +130,10 @@ async function runCustomerSimulation() {
   });
   console.log(`   ✓ Status: ${fulfilledOrder1.status} | Proof: ${fulfilledOrder1.fulfillment_proof}`);
 
-  // 2. Fulfill Bob's 500 Stars Order via Fragment rail
-  console.log(`2️⃣ Fulfilling Bob's 500 Stars Order (${order2.id})...`);
+  // 2. Fulfill Bob's Telegram Premium Order via Fragment rail
+  console.log(`2️⃣ Fulfilling Bob's Telegram Premium Order (${order2.id})...`);
   const fulfilledOrder2 = fulfillOrderWithProof(order2.id, adminId, {
-    text: '500 Stars delivered to @bob_stars via Fragment. TX: ton_hash_500stars_9921',
+    text: '12-Month Telegram Premium gifted to @bob_buyer via Fragment. TX: fragment_gift_9921',
   });
   console.log(`   ✓ Status: ${fulfilledOrder2.status} | Proof: ${fulfilledOrder2.fulfillment_proof}`);
 

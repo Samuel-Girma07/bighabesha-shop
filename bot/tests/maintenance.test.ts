@@ -117,7 +117,7 @@ describe('Medium #3: Strict order state machine', () => {
   });
 
   it('updateOrderMeta switches payment rails WITHOUT status changes or receipt loss', async () => {
-    const order = createOrder({ userId: 601001, productId: 'telegram_premium', variantId: 'tg_prem_3m', amountETB: 1100, paymentRail: 'stars' });
+    const order = createOrder({ userId: 601001, productId: 'telegram_premium', variantId: 'tg_prem_3m', amountETB: 1100, paymentRail: 'cbe' });
     const withReceipt = submitReceipt(order.id, 'proof-file-77', 'bank transfer done');
 
     // Buyer switches rail AFTER uploading a receipt — previously this reset

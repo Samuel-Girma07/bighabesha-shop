@@ -40,7 +40,7 @@ describe('Phase 4: Admin Fulfillment Queue, Alerts, Broadcast & Hardening', () =
         productId: 'telegram_premium',
         variantId: 'tg_prem_3m',
         amountETB: 1100,
-        paymentRail: 'stars',
+        paymentRail: 'telebirr',
         status: 'pending_fulfillment',
       });
 
@@ -123,8 +123,8 @@ describe('Phase 4: Admin Fulfillment Queue, Alerts, Broadcast & Hardening', () =
       expect(getAvailableStockCount('gemini_pro_18m')).toBe(0);
     });
 
-    it('processes document upload for user bank receipt and sets order to pending_approval', async () => {
-      const { setPendingAction } = await import('../src/bot/session.js');
+    it('rejects document upload for user bank receipt and guides to SMS (order stays awaiting_payment)', async () => {
+      const { setPendingAction, getPendingAction } = await import('../src/bot/session.js');
       const { handleDocumentInput } = await import('../src/bot/handlers/input.js');
 
       const docOrder = createOrder({
@@ -139,9 +139,10 @@ describe('Phase 4: Admin Fulfillment Queue, Alerts, Broadcast & Hardening', () =
 
       setPendingAction(401, {
         type: 'user_receipt_upload',
-        data: { orderId: docOrder.id },
+        data: { orderId: docOrder.id, attempts: 0 },
       });
 
+      let replyMsg = '';
       const mockDocCtx: any = {
         from: { id: 401, username: 'doc_buyer' },
         message: {
@@ -152,7 +153,9 @@ describe('Phase 4: Admin Fulfillment Queue, Alerts, Broadcast & Hardening', () =
           },
           caption: 'CBE Mobile Transfer Ref #FT2608199999',
         },
-        reply: async () => {},
+        reply: async (msg: string) => {
+          replyMsg = msg;
+        },
         api: {
           sendPhoto: async () => {},
           sendMessage: async () => {},
@@ -162,11 +165,18 @@ describe('Phase 4: Admin Fulfillment Queue, Alerts, Broadcast & Hardening', () =
       const handled = await handleDocumentInput(mockDocCtx);
       expect(handled).toBe(true);
 
+      // Photo/document intake is retired: buyer is guided to send the SMS text instead
+      expect(replyMsg).toContain('no longer accepted');
+
       const updated = getOrderById(docOrder.id);
       expect(updated).toBeDefined();
-      expect(updated?.status).toBe('pending_approval');
-      expect(updated?.receipt_file_id).toBe('telegram_doc_file_id_receipt_pdf');
-      expect(updated?.receipt_note).toBe('CBE Mobile Transfer Ref #FT2608199999');
+      expect(updated?.status).toBe('awaiting_payment');
+      expect(updated?.receipt_file_id).toBeNull();
+
+      // Session remains armed so the buyer can immediately send the SMS text
+      const session = getPendingAction(401);
+      expect(session?.type).toBe('user_receipt_upload');
+      expect(session?.data?.orderId).toBe(docOrder.id);
     });
 
     it('processes order refund and records refund notes', () => {

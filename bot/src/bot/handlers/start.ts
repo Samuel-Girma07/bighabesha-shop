@@ -7,6 +7,7 @@ import { promptLanguageSelection, checkChannelMembership, promptChannelSubscript
 import { getMainMenuKeyboard, addStyledInlineButton } from '../keyboards/menu.js';
 import { getBannerPngPath } from '../../services/banner_generator.service.js';
 import { getProductVariants, formatPriceETB } from '../../services/catalog.service.js';
+import { getAvailableStockCount } from '../../services/stock.service.js';
 import { logger } from '../../logger/index.js';
 
 export function upsertUser(user: {
@@ -97,7 +98,7 @@ export async function startHandler(
       `• 🤖 <b>Gemini Pro (ለ18 ወራት)</b> — <code>2 TB ማከማቻ</code> · በአንድ ሊንክ ማግበሪያ\n` +
       `• ⭐ <b>Telegram Premium</b> — <code>የ3፣ 6፣ 12 ወራት</code> · ቀጥታ ስጦታ ወደ አካውንት\n\n` +
       `<blockquote>💳 <b>ተቀባይነት ያላቸው የክፍያ አማራጮች፦</b>\n` +
-      `ቴሌብር · ንግድ ባንክ (CBE) · አቢሲኒያ ባንክ · TON / USDT</blockquote>\n\n` +
+      `ቴሌብር · ንግድ ባንክ (CBE)</blockquote>\n\n` +
       `<i>👇 ለመጀመር ከታች ካሉት አንዱን ይምረጡ ወይም ዌብ አፑን ይክፈቱ፦</i>`
     : `<b>✨ ━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━ ✨</b>\n\n` +
       `<blockquote>💎 <b>Ethiopia's Premier Digital Goods & AI Subscriptions</b></blockquote>\n\n` +
@@ -105,7 +106,7 @@ export async function startHandler(
       `• 🤖 <b>Gemini Pro (18 Months)</b> — <code>2 TB Storage</code> · One-Click Link\n` +
       `• ⭐ <b>Telegram Premium</b> — <code>3, 6, 12 Months</code> · Direct Gift\n\n` +
       `<blockquote>💳 <b>Accepted Payment Rails:</b>\n` +
-      `Telebirr · CBE Birr · Bank of Abyssinia · TON / USDT</blockquote>\n\n` +
+      `Telebirr · CBE Bank</blockquote>\n\n` +
       `<i>👇 Choose an option below or open the Web App to get started:</i>`;
 
   // Fetch dynamic catalog prices for existing products
@@ -141,12 +142,23 @@ export async function startHandler(
     }
   }
 
-  // Row 1: Gemini Pro 18M (Success Green)
-  addStyledInlineButton(keyboard, {
-    text: geminiLabel,
-    callback_data: 'prod_gemini_pro_18m',
-    style: 'success',
-  }).row();
+  // Row 1: Gemini Pro 18M — stock-aware, mirroring the catalog & mini app.
+  // When the vault is empty the button is visibly marked Sold Out and bound to
+  // the non-actionable sold_out_ alert instead of looking purchasable.
+  const geminiStock = getAvailableStockCount('gemini_pro_18m');
+  if (geminiStock > 0) {
+    addStyledInlineButton(keyboard, {
+      text: geminiLabel,
+      callback_data: 'prod_gemini_pro_18m',
+      style: 'success',
+    }).row();
+  } else {
+    addStyledInlineButton(keyboard, {
+      text: isAmharic ? '🚫 Gemini Pro 18M — አልቋል' : '🚫 Gemini Pro 18M — Sold Out',
+      callback_data: 'sold_out_gemini_pro_18m',
+      style: 'danger',
+    }).row();
+  }
 
   // Row 2: Telegram Premium (Primary Blue/Teal)
   addStyledInlineButton(keyboard, {

@@ -118,14 +118,14 @@ describe('Database and Migrations', () => {
     const memDb = initDatabase(':memory:', migrationsDir);
 
     setPendingAction(1001, {
-      type: 'stars_custom_amount',
-      data: { minStars: 50, maxStars: 5000 },
+      type: 'admin_broadcast_draft',
+      data: { draftId: 50, maxLength: 5000 },
     }, 15);
 
     const session = getPendingAction(1001);
     expect(session).toBeDefined();
-    expect(session?.type).toBe('stars_custom_amount');
-    expect(session?.data?.minStars).toBe(50);
+    expect(session?.type).toBe('admin_broadcast_draft');
+    expect(session?.data?.draftId).toBe(50);
 
     clearPendingAction(1001);
     expect(getPendingAction(1001)).toBeUndefined();

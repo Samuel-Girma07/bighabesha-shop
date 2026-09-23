@@ -5,6 +5,7 @@ import { escapeHtml } from '../../utils/html.js';
 import { getReferralSummary } from '../../services/referral.service.js';
 import { getUserStats } from '../../services/loyalty.service.js';
 import { addStyledInlineButton } from '../keyboards/menu.js';
+import { safeEditMessage } from '../utils/safe_edit.js';
 
 export async function renderProfile(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
@@ -81,13 +82,6 @@ export async function renderProfile(ctx: Context): Promise<void> {
     style: 'primary',
   });
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, {
-      parse_mode: 'HTML',
-      reply_markup: keyboard,
-    });
-  }
+  await safeEditMessage(ctx, text, keyboard);
 }
 

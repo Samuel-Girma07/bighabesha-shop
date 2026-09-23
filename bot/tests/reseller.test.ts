@@ -1310,6 +1310,14 @@ describe('B2B Telegram Premium Reseller Pipeline', () => {
       expect(sweeperResult.retried).toBeGreaterThanOrEqual(1);
       expect(sweeperResult.fulfilled).toBeGreaterThanOrEqual(1);
 
+      // Stuck order is now fulfilled and the buyer received the activation notice
+      expect(getOrderById(order.id)?.status).toBe('fulfilled');
+      expect(
+        sentMessages.some((m) => m.chatId === BUYER_ID && m.text.includes('Payment Confirmed'))
+      ).toBe(true);
+    });
+  });
+
   describe('16. Admin-triggered delivery attribution & notification parity', () => {
     it('records the acting admin (not the automated actor) and still notifies the buyer', async () => {
       const sentMessages: { chatId: number; text: string }[] = [];
