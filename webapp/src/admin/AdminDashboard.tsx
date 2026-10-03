@@ -791,8 +791,14 @@ export const AdminDashboard: React.FC = () => {
       }
     }
     if (settings.receipt_ethiopia_proxy_url && settings.receipt_ethiopia_proxy_url.trim()) {
-      if (!/^(https?|socks5):\/\/[^\s]+$/.test(settings.receipt_ethiopia_proxy_url.trim())) {
-        showToast('Proxy URL must be a valid HTTP, HTTPS, or SOCKS5 URL.', 'error');
+      // Mirrors the server-side validator in settings.service.ts. SOCKS5 is
+      // rejected deliberately: the proxy agent speaks HTTP CONNECT only, so a
+      // socks5:// URL fails later as a broken tunnel instead of a config error.
+      if (!/^https?:\/\/[^\s]+$/.test(settings.receipt_ethiopia_proxy_url.trim())) {
+        showToast(
+          'Proxy URL must be a valid HTTP or HTTPS URL. SOCKS5 is not supported — front it with an HTTP bridge first.',
+          'error'
+        );
         return;
       }
     }
@@ -3496,7 +3502,7 @@ export const AdminDashboard: React.FC = () => {
                             value={settings.receipt_ethiopia_proxy_url || ''}
                             onChange={(e) => setSettings({ ...settings, receipt_ethiopia_proxy_url: e.target.value })}
                             disabled={!canSee('settings.write')}
-                            placeholder="e.g. socks5://user:pass@proxy.et:1080"
+                            placeholder="e.g. http://user:pass@proxy.et:8888"
                             style={{
                               width: '100%',
                               background: 'var(--admin-input-bg)',

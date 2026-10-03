@@ -191,11 +191,13 @@ To achieve 100% automated Telebirr verification from cloud environments outside 
    # HTTP/HTTPS (CONNECT) proxy — the ONLY supported scheme:
    TELEBIRR_PROXY_URL=http://proxy_user:proxy_secret@196.188.120.45:8888
    ```
-   > SOCKS5 is **not** supported. The adapter uses `HttpsProxyAgent`, which
-   > performs HTTP CONNECT only. A `socks5://` URL throws at agent construction,
-   > the failure is logged as a warning, and the request silently falls back to
-   > direct egress — which is then geo-blocked. The symptom looks like a
-   > geoblock, not a config error, so this is a common time sink.
+   > SOCKS5 is **not** supported and is now rejected by settings validation. The adapter
+   > uses `HttpsProxyAgent`, which performs HTTP CONNECT only. Importantly, the agent
+   > does *not* reject a `socks5://` URL: it constructs successfully and then attempts
+   > a broken HTTP CONNECT against the SOCKS5 port. That surfaces as a request-level
+   > failure rather than a configuration error, which is exactly why the scheme is now
+   > blocked at the settings layer. If your provider only offers SOCKS5, front the
+   > endpoint with an HTTP bridge (e.g. stunnel) and use the HTTP form.
 
 4. **Verifying Proxy Connectivity:**
    Test that Telebirr responds with HTTP 200 through the proxy:

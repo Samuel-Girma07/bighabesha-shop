@@ -323,8 +323,15 @@ export function validateVerificationSettings(
       }
 
       case 'receipt_ethiopia_proxy_url': {
-        if (strVal && !/^(https?|socks5):\/\/[^\s]+$/.test(strVal)) {
-          errors.push(`receipt_ethiopia_proxy_url must be empty or a valid HTTP/HTTPS/SOCKS5 URI`);
+        // Only HTTP/HTTPS proxies are supported. `https-proxy-agent` does NOT
+        // reject a `socks5://` URI: it constructs successfully and then speaks
+        // HTTP CONNECT to it, which fails as a broken tunnel rather than
+        // falling back to direct egress. Rejecting it here turns a confusing
+        // geo-block at request time into an actionable configuration error.
+        if (strVal && !/^https?:\/\/[^\s]+$/.test(strVal)) {
+          errors.push(
+            `receipt_ethiopia_proxy_url must be empty or a valid HTTP/HTTPS proxy URI (SOCKS5 is not supported: the agent cannot speak the SOCKS5 handshake and would fail as a broken tunnel)`
+          );
         }
         break;
       }

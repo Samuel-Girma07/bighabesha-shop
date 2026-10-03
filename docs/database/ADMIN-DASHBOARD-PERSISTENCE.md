@@ -263,7 +263,7 @@ The 18 configuration keys governing the engine and payment rails are defined in 
 | 15 | `receipt_cbe_beneficiaries` | `JSON array` | `'["0000000000000"]'` | Valid JSON array of account strings | Admin Only |
 | 16 | `receipt_telebirr_beneficiaries` | `JSON array` | `'["0000000000"]'` | Valid JSON array of account strings | Admin Only |
 | 17 | `receipt_abyssinia_beneficiaries` | `JSON array` | `'["0000000000000"]'` | Valid JSON array of account strings | Admin Only |
-| 18 | `receipt_ethiopia_proxy_url` | `URI` | `''` | Empty or valid `http://`, `https://`, `socks5://` | Admin Only |
+| 18 | `receipt_ethiopia_proxy_url` | `URI` | `''` | Empty or valid `http://` or `https://` (`socks5://` rejected) | Admin Only |
 
 ---
 
