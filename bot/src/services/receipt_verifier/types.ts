@@ -6,6 +6,8 @@
  * Implemented for Phase 2: API Architecture & Contracts
  */
 
+import { sanitizeProxyEndpoint } from '../../logger/index.js';
+
 // ============================================================================
 // 1. Core Enumerations & Literal Unions
 // ============================================================================
@@ -244,7 +246,14 @@ export class BankPortalUnavailableError extends ReceiptVerificationError {
 }
 
 export class PortalGeoblockedError extends ReceiptVerificationError {
-  constructor(bank: SupportedBank, proxyHost?: string, instance?: string) {
+  /**
+   * `proxyEndpoint` is sanitised here at the single choke point through which
+   * every geoblock passes. Callers may pass the raw configured proxy URI; the
+   * embedded `user:pass` credentials are stripped before the value can reach
+   * `details`, which is serialised into HTTP responses and operator alerts.
+   */
+  constructor(bank: SupportedBank, proxyEndpoint?: string, instance?: string) {
+    const safeEndpoint = sanitizeProxyEndpoint(proxyEndpoint);
     super(
       'PORTAL_GEOBLOCKED',
       502,
@@ -252,7 +261,7 @@ export class PortalGeoblockedError extends ReceiptVerificationError {
       `Access to ${bank.toUpperCase()} transaction verification portal was blocked or Ethiopian residential proxy failed.`,
       'Bank gateway routing encountered a regional network block. Receipt routed to administrator review queue for manual verification.',
       instance,
-      { bank, proxyHost }
+      safeEndpoint ? { bank, proxyEndpoint: safeEndpoint } : { bank }
     );
     this.name = 'PortalGeoblockedError';
   }
