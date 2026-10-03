@@ -39,6 +39,14 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      # Boot-required in production. `bot/src/config/env.ts` refuses to start unless
+      # WALLET_PAY_MODE is explicitly "live" (mock auto-confirms real orders) and
+      # WALLET_PAY_API_KEY is set. Consumed by services/payments/index.ts,
+      # services/payments/live_wallet_pay.ts and bot.ts.
+      - key: WALLET_PAY_MODE
+        value: live
+      - key: WALLET_PAY_API_KEY
+        sync: false
       - key: WEBAPP_URL
         sync: false
 
