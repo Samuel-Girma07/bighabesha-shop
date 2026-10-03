@@ -71,6 +71,7 @@ export type VerificationFailureCode =
   | 'QR_DECODE_FAILED'            // 422 Unprocessable: Image could not be decoded to QR matrix
   | 'BANK_PORTAL_UNAVAILABLE'     // 504 Gateway Timeout: Upstream bank connection timed out / reset
   | 'PORTAL_GEOBLOCKED'           // 502 Bad Gateway: Upstream gateway blocked non-Ethiopian egress
+  | 'PROXY_CONFIG_INVALID'        // 500 Internal Server Error: Configured egress proxy is unusable
   | 'UNSUPPORTED_BANK'            // 400 Bad Request: Rail or format not supported by automated engine
   | 'AUTO_VERIFY_DISABLED'        // 503 Service Unavailable: Automated verification switched off by operator
   | 'CORRUPTED_FILE'              // 400 Bad Request: Magic byte validation or image parsing failed
@@ -272,6 +273,32 @@ export class OrderNotFulfillableError extends ReceiptVerificationError {
       { currentStatus }
     );
     this.name = 'OrderNotFulfillableError';
+  }
+}
+
+/**
+ * Raised when the configured egress proxy is itself unusable: a malformed URI,
+ * an unsupported scheme, or a failed agent construction.
+ *
+ * Deliberately distinct from `PortalGeoblockedError`. This is an operator
+ * configuration fault, not a regional network block, and the two demand
+ * opposite responses: this one must be fixed in configuration, the other needs
+ * an in-country egress. The engine fails closed rather than silently discarding
+ * the operator's chosen egress and attempting direct egress that will be
+ * geo-blocked anyway.
+ */
+export class ProxyConfigError extends ReceiptVerificationError {
+  constructor(bank: SupportedBank, reason: string, instance?: string) {
+    super(
+      'PROXY_CONFIG_INVALID',
+      500,
+      'Egress Proxy Configuration Invalid',
+      `The configured Ethiopian egress proxy could not be used: ${reason}`,
+      'Receipt verification is temporarily unavailable and has been routed to our store administrators for manual review.',
+      instance,
+      { bank, reason }
+    );
+    this.name = 'ProxyConfigError';
   }
 }
 

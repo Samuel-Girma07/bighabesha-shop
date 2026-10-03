@@ -17,6 +17,7 @@ import {
   BankTransactionPayload,
   BankVerificationOptions,
   PortalGeoblockedError,
+  ProxyConfigError,
 } from '../types.js';
 
 // ============================================================================
@@ -97,10 +98,21 @@ export class TelebirrAdapter extends BaseBankAdapter {
       try {
         fetchOptions.agent = new HttpsProxyAgent(proxyUrl.trim());
       } catch (err: unknown) {
-        // `proxyUrl` embeds user:pass credentials, so it must never be logged raw.
-        logger.warn(
+        // Fail closed. Previously this logged a warning and continued with
+        // `agent === undefined`, which meant DIRECT egress: the operator's
+        // chosen in-country egress was silently discarded and the request was
+        // geo-blocked, surfacing as PORTAL_GEOBLOCKED and hiding what was
+        // really a configuration fault. Throwing keeps the two conditions
+        // distinguishable, which matters because they need opposite fixes.
+        //
+        // `proxyUrl` embeds user:pass credentials, so it is never logged raw.
+        logger.error(
           { proxyUrl: redactSecret(proxyUrl), err: err instanceof Error ? err.message : String(err) },
-          'Failed to configure HttpsProxyAgent for Telebirr — falling back to DIRECT egress, which will likely be geo-blocked'
+          'Failed to configure HttpsProxyAgent for Telebirr; refusing to fall back to direct egress'
+        );
+        throw new ProxyConfigError(
+          'telebirr',
+          err instanceof Error ? err.message : 'proxy agent could not be constructed'
         );
       }
     }

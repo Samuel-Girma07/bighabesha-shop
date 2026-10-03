@@ -755,6 +755,12 @@ export class ReceiptOrchestrator implements IReceiptOrchestrator {
     if (code === 'BANK_PORTAL_UNAVAILABLE' || code === 'PORTAL_GEOBLOCKED') {
       return 'upstream_failure';
     }
+    // An unusable proxy is our infrastructure fault, not a customer problem:
+    // bucket it with the other upstream failures rather than letting it look
+    // like a receipt awaiting judgement.
+    if (code === 'PROXY_CONFIG_INVALID') {
+      return 'upstream_failure';
+    }
     return 'pending_manual_review';
   }
 }
