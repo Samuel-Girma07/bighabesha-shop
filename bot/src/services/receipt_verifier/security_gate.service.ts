@@ -127,8 +127,8 @@ export class SecurityGateService implements ISecurityGate {
     const orderDate = parseUtcTimestamp(order.orderCreatedAt);
     const txDate = parseEthiopianBankTimestamp(bankPayload.transactionTimestamp);
     const passed = this.assertRecency(orderDate, bankPayload.transactionTimestamp, recencyConfig);
-    const orderTime = isNaN(orderDate.getTime()) ? null : orderDate.getTime();
-    const txTime = txDate === null || isNaN(txDate.getTime()) ? null : txDate.getTime();
+    const orderTime = orderDate === null ? null : orderDate.getTime();
+    const txTime = txDate === null ? null : txDate.getTime();
     const diffMinutes =
       orderTime === null || txTime === null ? null : Math.round((txTime - orderTime) / MILLISECONDS_IN_MINUTE);
     const deltaLabel = diffMinutes === null ? 'unavailable' : `${diffMinutes > 0 ? '+' : ''}${diffMinutes}m`;
@@ -209,21 +209,26 @@ export class SecurityGateService implements ISecurityGate {
   }
 
   public assertRecency(
-    orderCreatedAt: Date,
+    orderCreatedAt: Date | null,
     txTimestamp: Date | null,
     windowMinutes?: RecencyWindowConfig
   ): boolean {
     const beforeMins = windowMinutes?.minutesBefore ?? DEFAULT_RECENCY_BEFORE_MINUTES;
     const afterMins = windowMinutes?.minutesAfter ?? DEFAULT_RECENCY_AFTER_MINUTES;
 
+    // Fail closed on an absent or unparseable ORDER timestamp, for the same
+    // reason as the bank timestamp below: the recency window is anchored on the
+    // order's creation time, so substituting "now" for an unknown order date
+    // would centre the window on the present and defeat stale-receipt
+    // detection entirely.
     const orderDate = parseUtcTimestamp(orderCreatedAt);
+    if (orderDate === null) return false;
 
     // Fail closed on an absent or unparseable bank timestamp. Treating "unknown"
     // as "now" would let an arbitrarily old receipt satisfy the window and would
     // silently disable stale-receipt detection.
     const txDate = parseEthiopianBankTimestamp(txTimestamp);
     if (txDate === null) return false;
-    if (isNaN(orderDate.getTime())) return false;
 
     const orderTime = orderDate.getTime();
     const txTime = txDate.getTime();

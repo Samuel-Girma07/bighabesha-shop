@@ -202,6 +202,23 @@ export class ReceiptOrchestrator implements IReceiptOrchestrator {
         throw new OrderNotFulfillableError(order.status);
       }
 
+      // 0b. The recency window is anchored on the order's creation time, so an
+      // unreadable `orders.created_at` makes the receipt's age unprovable.
+      // `parseUtcTimestamp` fails closed (returns null) rather than substituting
+      // the current time, which would slide the window to centre on "now" and
+      // let an arbitrarily old receipt pass. Fail before contacting a portal.
+      const orderCreatedAt = parseUtcTimestamp(order.created_at);
+      if (orderCreatedAt === null) {
+        logger.error(
+          { orderId: order.id, rawCreatedAt: order.created_at },
+          'Order creation timestamp is unreadable; cannot anchor recency window'
+        );
+        throw new ReceiptExpiredError(null, null, {
+          before: DEFAULT_RECENCY_BEFORE_MINUTES,
+          after: DEFAULT_RECENCY_AFTER_MINUTES,
+        });
+      }
+
       // 0. Operator kill-switch. Placed before any upstream network call so that a
       //    disabled engine never contacts a bank portal (and never needs a working
       //    Ethiopian egress IP). Throwing routes into the standard fallback path, which
@@ -227,7 +244,7 @@ export class ReceiptOrchestrator implements IReceiptOrchestrator {
           userId: order.user_id,
           netPayableEtb,
           paymentRail: bankPayload.bank,
-          orderCreatedAt: parseUtcTimestamp(order.created_at),
+          orderCreatedAt,
         },
         bankPayload
       );

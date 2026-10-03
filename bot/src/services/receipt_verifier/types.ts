@@ -180,10 +180,16 @@ export class AmountMismatchError extends ReceiptVerificationError {
 }
 
 export class ReceiptExpiredError extends ReceiptVerificationError {
-  constructor(orderCreatedAt: Date, txTimestamp: Date | null, windowMinutes: { before: number; after: number }, instance?: string) {
+  constructor(orderCreatedAt: Date | null, txTimestamp: Date | null, windowMinutes: { before: number; after: number }, instance?: string) {
     // A null timestamp means the receipt carried no readable date, so its age cannot
     // be proven at all. That is a distinct (and stricter) condition than "too old".
-    const unverifiable = txTimestamp === null || isNaN(txTimestamp.getTime());
+    // An unreadable ORDER date is equally unverifiable: the recency window is
+    // anchored on it, so with no anchor the receipt's age cannot be established.
+    const unverifiable =
+      orderCreatedAt === null ||
+      isNaN(orderCreatedAt.getTime()) ||
+      txTimestamp === null ||
+      isNaN(txTimestamp.getTime());
 
     // `Date.prototype.toISOString()` throws RangeError on an Invalid Date. Building an
     // error must never be the thing that throws, or it masks the real failure and
@@ -482,8 +488,14 @@ export interface OrderSecurityContext {
   netPayableEtb: number;
   /** Payment rail selected by buyer during checkout */
   paymentRail: SupportedBank;
-  /** Order creation timestamp */
-  orderCreatedAt: Date;
+  /**
+   * Order creation timestamp.
+   *
+   * Nullable because `parseUtcTimestamp` fails closed: an unparseable
+   * `orders.created_at` yields `null` rather than silently substituting the
+   * current time, which would centre the recency window on "now".
+   */
+  orderCreatedAt: Date | null;
 }
 
 /** Store configuration mapping bank rails to approved beneficiary accounts */
@@ -714,8 +726,8 @@ export interface ISecurityGate {
    * Pillar 4: Recency Window assertion ensuring payment occurred within allowable timeframe.
    */
   assertRecency(
-    orderCreatedAt: Date,
-    txTimestamp: Date,
+    orderCreatedAt: Date | null,
+    txTimestamp: Date | null,
     windowMinutes?: RecencyWindowConfig
   ): boolean;
 }

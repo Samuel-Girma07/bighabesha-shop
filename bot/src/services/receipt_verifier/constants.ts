@@ -211,23 +211,37 @@ export function parseEthiopianBankTimestamp(rawDateStr: string | Date | undefine
  * Normalizes SQLite CURRENT_TIMESTAMP strings ("YYYY-MM-DD HH:MM:SS") into an absolute UTC Date.
  * SQLite CURRENT_TIMESTAMP is generated in UTC without a trailing 'Z'.
  * Without explicit 'Z', JavaScript engines parse the string in the host's local timezone.
+ *
+ * Returns `null` when the value is absent or genuinely unparseable.
+ *
+ * This MUST NOT fall back to `new Date()`. This parser anchors the recency
+ * window on the ORDER's creation time. Substituting the current time for an
+ * unknown order date slides the window to centre on "now", so an arbitrarily
+ * old receipt satisfies it and stale-receipt detection is silently defeated.
+ * Callers fail closed on `null` by routing to manual review. This mirrors the
+ * contract already applied to the bank-side `parseEthiopianBankTimestamp`.
  */
-export function parseUtcTimestamp(rawDate: string | Date | undefined | null): Date {
-  if (!rawDate) return new Date();
-  if (rawDate instanceof Date) return isNaN(rawDate.getTime()) ? new Date() : rawDate;
+export function parseUtcTimestamp(rawDate: string | Date | undefined | null): Date | null {
+  if (rawDate === null || rawDate === undefined) return null;
+  if (rawDate instanceof Date) return isNaN(rawDate.getTime()) ? null : rawDate;
 
   const trimmed = String(rawDate).trim();
-  if (!trimmed) return new Date();
+  if (!trimmed) return null;
 
   // If it's SQLite CURRENT_TIMESTAMP "YYYY-MM-DD HH:MM:SS" without timezone:
   if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(trimmed)) {
-    return new Date(trimmed.replace(' ', 'T') + 'Z');
+    return orNull(new Date(trimmed.replace(' ', 'T') + 'Z'));
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return new Date(`${trimmed}T00:00:00Z`);
+    return orNull(new Date(`${trimmed}T00:00:00Z`));
   }
   if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(trimmed)) {
-    return new Date(trimmed.replace(' ', 'T') + 'Z');
+    return orNull(new Date(trimmed.replace(' ', 'T') + 'Z'));
   }
-  return new Date(trimmed);
+  return orNull(new Date(trimmed));
+}
+
+/** Collapses an Invalid Date to `null` so callers get one failure shape. */
+function orNull(date: Date): Date | null {
+  return isNaN(date.getTime()) ? null : date;
 }
