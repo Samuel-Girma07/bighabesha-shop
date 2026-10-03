@@ -19,6 +19,7 @@ import { getProductById } from '../catalog.service.js';
 import { allocateStock } from '../stock.service.js';
 import { isResellerEligible } from '../reseller.service.js';
 import { saveReceiptImage, resolveStoredReceiptPath } from '../receipts.service.js';
+import { getBooleanSetting } from '../settings.service.js';
 import { logger } from '../../logger/index.js';
 import { ReceiptIngestionService } from './ingestion.service.js';
 import { CbeBankAdapter } from './adapters/cbe.adapter.js';
@@ -55,7 +56,22 @@ import {
   AmountMismatchError,
   ReceiptExpiredError,
   UnsupportedBankError,
+  AutoVerifyDisabledError,
 } from './types.js';
+
+/**
+ * Operator kill-switch for automated bank-portal verification.
+ *
+ * Read statelessly on every submission (same pattern as `resolveCircuitBreakerConfig`)
+ * so an Admin Dashboard write takes effect immediately with no process restart and no
+ * dependency on `refreshReceiptOrchestratorSettings`.
+ *
+ * While disabled, the pipeline still ingests, persists and audits the submission, but
+ * never contacts an upstream bank portal. Everything lands in the manual-review queue.
+ */
+export function isAutoVerifyEnabled(): boolean {
+  return getBooleanSetting('receipt_auto_verify_enabled', false);
+}
 
 interface ExecutionContext {
   startTime: number;
@@ -137,6 +153,14 @@ export class ReceiptOrchestrator implements IReceiptOrchestrator {
     let gateResult: SecurityGateResult | undefined;
 
     try {
+      // 0. Operator kill-switch. Placed before any upstream network call so that a
+      //    disabled engine never contacts a bank portal (and never needs a working
+      //    Ethiopian egress IP). Throwing routes into the standard fallback path, which
+      //    audits the attempt and moves the order to the administrator review queue.
+      if (!isAutoVerifyEnabled()) {
+        throw new AutoVerifyDisabledError();
+      }
+
       // 1. Ingestion Step
       extractedData = await this.extractSubmissionReference(submission);
 

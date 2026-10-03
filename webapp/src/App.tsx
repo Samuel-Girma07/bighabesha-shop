@@ -465,16 +465,22 @@ const StoreFront: React.FC = () => {
     }
   };
 
-  // Step 2 -> Step 3: Submit Receipt Slip
+  // Step 2 -> Step 3: Submit receipt evidence
+  // A buyer may provide EITHER a slip image or just the bank transaction reference.
+  // The Telegram bot accepts SMS text and rejects screenshots, so the Mini App must
+  // not force an image — the two channels have to offer the same escape hatch.
+  const trimmedReceiptRef = receiptNote.trim();
+  const hasReceiptEvidence = Boolean(receiptBase64) || trimmedReceiptRef.length > 0;
+
   const handleSubmitReceipt = async () => {
-    if (!checkoutOrder || !receiptBase64) return;
+    if (!checkoutOrder || !hasReceiptEvidence) return;
     haptic.tap();
     setUploadingReceipt(true);
     try {
       const res = await submitReceiptApi({
         orderId: checkoutOrder.id,
-        receiptImageBase64: receiptBase64,
-        note: receiptNote.trim() || undefined,
+        receiptImageBase64: receiptBase64 || undefined,
+        note: trimmedReceiptRef || undefined,
       });
       if (res.order) {
         setCheckoutOrder(res.order);
@@ -484,7 +490,7 @@ const StoreFront: React.FC = () => {
       haptic.success();
     } catch (err: any) {
       haptic.error();
-      alert(err.message || 'Failed to upload receipt slip.');
+      alert(err.message || 'Failed to submit your payment confirmation.');
     } finally {
       setUploadingReceipt(false);
     }
@@ -1322,7 +1328,40 @@ const StoreFront: React.FC = () => {
                   )}
                 </div>
 
-                {/* Slip Upload Box */}
+                {/* Primary path: the bank transaction reference / confirmation SMS text */}
+                <div style={{ marginBottom: '16px' }}>
+                  <div
+                    style={{
+                      fontSize: '13.5px',
+                      fontWeight: 800,
+                      color: '#FFFFFF',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    {t.receiptRefLabel}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder={t.paymentNotePlaceholder}
+                    value={receiptNote}
+                    onChange={(e) => setReceiptNote(e.target.value)}
+                    style={{
+                      width: '100%',
+                      background: '#0E1622',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '14px',
+                      padding: '12px 14px',
+                      color: '#FFFFFF',
+                      fontSize: '13px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                  <div style={{ fontSize: '11.5px', color: '#94A3B8', marginTop: '6px', lineHeight: 1.45 }}>
+                    {t.receiptRefHint}
+                  </div>
+                </div>
+
+                {/* Secondary / optional: a slip image, for buyers who prefer to attach one */}
                 <div className="receipt-dropzone-card" style={{ marginBottom: '16px' }}>
                   <label style={{ cursor: 'pointer', display: 'block' }}>
                     <CameraIcon size={34} color="#38BDF8" style={{ margin: '0 auto 8px auto' }} />
@@ -1346,28 +1385,9 @@ const StoreFront: React.FC = () => {
                   )}
                 </div>
 
-                <div style={{ marginBottom: '16px' }}>
-                  <input
-                    type="text"
-                    placeholder={t.paymentNotePlaceholder}
-                    value={receiptNote}
-                    onChange={(e) => setReceiptNote(e.target.value)}
-                    style={{
-                      width: '100%',
-                      background: '#0E1622',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: '14px',
-                      padding: '12px 14px',
-                      color: '#FFFFFF',
-                      fontSize: '13px',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-
                 <button
                   className="hulupay-btn-action"
-                  disabled={uploadingReceipt || !receiptBase64}
+                  disabled={uploadingReceipt || !hasReceiptEvidence}
                   onClick={handleSubmitReceipt}
                 >
                   <span>{uploadingReceipt ? t.submittingRequest : t.submitAndTrack}</span>

@@ -1,5 +1,5 @@
 import { getDatabase } from '../db/index.js';
-import { logger } from '../logger/index.js';
+import { logger, redactSecret } from '../logger/index.js';
 
 export interface SettingItem {
   key: string;
@@ -44,9 +44,12 @@ export function setSetting(key: string, value: string): void {
         value = excluded.value,
         updated_at = CURRENT_TIMESTAMP
     `).run(key, value);
-    logger.info({ key, value }, 'Setting updated successfully');
+    // Never log the raw value: settings include credentials such as
+    // `receipt_ethiopia_proxy_url` (which embeds user:pass) and beneficiary
+    // account lists. The key stays plain so log lines remain correlatable.
+    logger.info({ key, valuePreview: redactSecret(value) }, 'Setting updated successfully');
   } catch (err) {
-    logger.error({ err, key, value }, 'Failed to set setting in database');
+    logger.error({ err, key, valuePreview: redactSecret(value) }, 'Failed to set setting in database');
     throw err;
   }
 }
@@ -69,7 +72,8 @@ export function setSettings(settings: Record<string, string>): void {
     tx();
     logger.info({ keys: Object.keys(settings) }, 'Settings batch updated successfully');
   } catch (err) {
-    logger.error({ err, settings }, 'Failed to batch update settings in database');
+    // Log key names only — the settings object can carry proxy credentials.
+    logger.error({ err, keys: Object.keys(settings ?? {}) }, 'Failed to batch update settings in database');
     throw err;
   }
 }
@@ -155,6 +159,7 @@ export const KNOWN_SETTING_KEYS: ReadonlySet<string> = new Set([
   'tier_discount_gold_pct',
   'recovery_reminder_hours',
   'order_ttl_hours',
+  'pending_approval_ttl_hours',
   // Analytics assumptions
   'restock_lead_days',
   'restock_safety_days',
@@ -214,7 +219,7 @@ export const DEFAULT_VERIFICATION_SETTINGS: Readonly<Record<string, string>> = {
   telebirr_name: 'Bighabesha Shop',
   abyssinia_account: '0000000000000',
   abyssinia_name: 'Bighabesha Shop',
-  receipt_auto_verify_enabled: '1',
+  receipt_auto_verify_enabled: '0',
   receipt_recency_before_mins: '120',
   receipt_recency_after_mins: '120',
   receipt_circuit_breaker_threshold: '5',

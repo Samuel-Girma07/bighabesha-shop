@@ -23,6 +23,7 @@ import {
   downloadExportApi,
   fetchReceiptImageUrl,
   receiptIsInline,
+  receiptHasImage,
   onSessionExpired,
   reverifyOrderReceiptApi,
   getVerificationDiagnosticToast,
@@ -2395,7 +2396,7 @@ export const AdminDashboard: React.FC = () => {
                                           <span>Audit</span>
                                         </button>
                                       )}
-                                      {ord.receipt_file_id && (
+                                      {receiptHasImage(ord.receipt_file_id) && (
                                         <button
                                           className="action-btn-pill-secondary"
                                           title="Inspect payment slip"
@@ -2439,7 +2440,7 @@ export const AdminDashboard: React.FC = () => {
                                         <EyeIcon size={12} />
                                         <span>Details</span>
                                       </button>
-                                      {ord.receipt_file_id && (
+                                      {receiptHasImage(ord.receipt_file_id) && (
                                         <button
                                           className="action-btn-pill-secondary"
                                           title="Inspect payment slip"
@@ -3658,7 +3659,11 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                   </div>
                 ) : (
-                  <div style={{ padding: '40px', color: 'var(--admin-text-muted)' }}>No receipt image uploaded.</div>
+                  <div style={{ padding: '40px', color: 'var(--admin-text-muted)', lineHeight: 1.6 }}>
+                    {selectedOrder.receipt_note
+                      ? 'No receipt image was attached. The buyer submitted a transaction reference instead — check the receipt details below.'
+                      : 'No receipt image uploaded.'}
+                  </div>
                 )}
               </div>
 
@@ -3994,7 +3999,7 @@ export const AdminDashboard: React.FC = () => {
             </div>
 
             <div className="impeccable-modal-footer">
-              {selectedOrder.receipt_file_id && (
+              {receiptHasImage(selectedOrder.receipt_file_id) && (
                 <button
                   className="impeccable-btn-action secondary"
                   onClick={() => setModalType('receipt')}

@@ -112,7 +112,7 @@ Unlike standard web applications whose egress is strictly bound to Port 443/80, 
 | **Telebirr Core Rail** | `telebirr.et` | **443** | HTTPS | Secondary Telebirr portal redirect. |
 | **Awash Bank Mobile Portal** | `awashbirr.awashbank.com` | **8225** | HTTPS | Awash Bank payment verification portal. |
 | **Bank of Abyssinia** | `bankofabyssinia.com` | **443** | HTTPS | BoA payment verification portal. |
-| **Ethiopian Residential Proxy** | Customer Proxy Endpoint | **1080 / 8080** | SOCKS5 / HTTP | Residential egress forward proxy for Telebirr geo-fence bypass. |
+| **Ethiopian Residential Proxy** | Customer Proxy Endpoint | **8888** | HTTP CONNECT | Residential egress forward proxy for Telebirr geo-fence bypass. The application only speaks HTTP CONNECT, so a SOCKS5-only endpoint must be fronted with an HTTP bridge (e.g. stunnel). |
 | **Backblaze B2 / S3** | `s3.*.backblazeb2.com` | **443** | HTTPS | Litestream continuous SQLite WAL replication. |
 
 > [!CAUTION]
@@ -188,10 +188,14 @@ To achieve 100% automated Telebirr verification from cloud environments outside 
 3. **Configuring Bighabesha Shop:**
    Add the proxy connection string to `.env`:
    ```bash
-   TELEBIRR_PROXY_URL=socks5://proxy_user:proxy_secret@196.188.120.45:1080
-   # Or HTTP/HTTPS proxy:
-   # TELEBIRR_PROXY_URL=http://proxy_user:proxy_secret@196.188.120.45:8888
+   # HTTP/HTTPS (CONNECT) proxy — the ONLY supported scheme:
+   TELEBIRR_PROXY_URL=http://proxy_user:proxy_secret@196.188.120.45:8888
    ```
+   > SOCKS5 is **not** supported. The adapter uses `HttpsProxyAgent`, which
+   > performs HTTP CONNECT only. A `socks5://` URL throws at agent construction,
+   > the failure is logged as a warning, and the request silently falls back to
+   > direct egress — which is then geo-blocked. The symptom looks like a
+   > geoblock, not a config error, so this is a common time sink.
 
 4. **Verifying Proxy Connectivity:**
    Test that Telebirr responds with HTTP 200 through the proxy:
@@ -230,9 +234,11 @@ For zero-maintenance deployments utilizing Render’s Docker Web Service or Hugg
    B2_KEY_ID=<backblaze-key-id>
    B2_APPLICATION_KEY=<backblaze-app-key>
    # Receipt verification:
-   RECEIPT_AUTO_VERIFY_ENABLED=1
    RECEIPT_CBE_PORT=100
-   TELEBIRR_PROXY_URL=socks5://user:pass@ethiopia-proxy:1080
+   TELEBIRR_PROXY_URL=http://user:pass@ethiopia-proxy:8888
+   # NOTE: there is no RECEIPT_AUTO_VERIFY_ENABLED env var. Automated
+   # verification is a runtime setting in the `settings` table, toggled from the
+   # Admin Dashboard (key: `receipt_auto_verify_enabled`, default 0 = OFF).
    ```
 3. Render automatically executes the multi-stage Dockerfile, launches `scripts/run-with-litestream.mjs`, restores the SQLite DB from Backblaze B2 if `/var/data/shop.db` is empty, runs migrations, and serves the application.
 
@@ -386,7 +392,7 @@ Administrators configure and manage beneficiary accounts through the single-page
    - **Commercial Bank of Ethiopia (CBE):** Enter 13-digit account numbers (e.g., `1000123456789`). Supports multiple accounts entered as comma-separated values or JSON array.
    - **Telebirr:** Enter 10-digit mobile account numbers starting with `09` or `07` (e.g., `0911234567` or `0712345678`).
    - **Bank of Abyssinia (BoA):** Enter 13 to 16-digit account numbers (e.g., `1234567890123`).
-   - **Residential Proxy URL (Optional):** Enter the SOCKS5 or HTTP proxy URL (e.g., `socks5://user:secret@196.188.120.45:1080`) used to bypass Telebirr geoblocking if hosting outside Ethiopia.
+   - **Residential Proxy URL (Optional):** Enter the HTTP/HTTPS proxy URL (e.g., `http://user:secret@196.188.120.45:8888`) used to bypass Telebirr geoblocking if hosting outside Ethiopia. SOCKS5 URLs are not supported.
 4. **Save Configuration:** Click **Save Settings**. The frontend validates all fields client-side before dispatching the payload.
 5. **Confirmation:** A green toast notification confirms atomic persistence.
 

@@ -148,7 +148,8 @@ describe('Phase 3: Database Persistence, Indexing, and Settings Optimization', (
     }
 
     // Check specific critical defaults
-    expect(allSettings['receipt_auto_verify_enabled']).toBe('1');
+    // Automated verification defaults OFF (operator kill-switch); see migration 013.
+    expect(allSettings['receipt_auto_verify_enabled']).toBe('0');
     expect(allSettings['receipt_recency_before_mins']).toBe('120');
     expect(allSettings['receipt_recency_after_mins']).toBe('120');
     expect(allSettings['receipt_circuit_breaker_threshold']).toBe('5');

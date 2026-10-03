@@ -126,20 +126,24 @@ export class SecurityGateService implements ISecurityGate {
 
     const orderDate = parseUtcTimestamp(order.orderCreatedAt);
     const txDate = parseEthiopianBankTimestamp(bankPayload.transactionTimestamp);
-    const passed = this.assertRecency(orderDate, txDate, recencyConfig);
-    const diffMinutes = Math.round(
-      (txDate.getTime() - orderDate.getTime()) / MILLISECONDS_IN_MINUTE
-    );
+    const passed = this.assertRecency(orderDate, bankPayload.transactionTimestamp, recencyConfig);
+    const orderTime = isNaN(orderDate.getTime()) ? null : orderDate.getTime();
+    const txTime = txDate === null || isNaN(txDate.getTime()) ? null : txDate.getTime();
+    const diffMinutes =
+      orderTime === null || txTime === null ? null : Math.round((txTime - orderTime) / MILLISECONDS_IN_MINUTE);
+    const deltaLabel = diffMinutes === null ? 'unavailable' : `${diffMinutes > 0 ? '+' : ''}${diffMinutes}m`;
 
     return {
       pillar: 'recency_window',
       passed,
       expected: `within [-${recencyConfig.minutesBefore}m, +${recencyConfig.minutesAfter}m]`,
-      actual: `${diffMinutes > 0 ? '+' : ''}${diffMinutes}m relative to order creation`,
+      actual: `${deltaLabel} relative to order creation`,
       tolerance: recencyConfig.minutesAfter,
       details: passed
-        ? `Transaction timestamp is within valid window (${diffMinutes}m delta).`
-        : `Transaction timestamp is outside allowable window (${diffMinutes}m delta).`,
+        ? `Transaction timestamp is within valid window (${deltaLabel} delta).`
+        : txTime === null
+          ? 'The bank receipt carried no readable transaction timestamp, so its age cannot be proven. Manual review is required.'
+          : `Transaction timestamp is outside allowable window (${deltaLabel} delta).`,
     };
   }
 
@@ -206,14 +210,20 @@ export class SecurityGateService implements ISecurityGate {
 
   public assertRecency(
     orderCreatedAt: Date,
-    txTimestamp: Date,
+    txTimestamp: Date | null,
     windowMinutes?: RecencyWindowConfig
   ): boolean {
     const beforeMins = windowMinutes?.minutesBefore ?? DEFAULT_RECENCY_BEFORE_MINUTES;
     const afterMins = windowMinutes?.minutesAfter ?? DEFAULT_RECENCY_AFTER_MINUTES;
 
     const orderDate = parseUtcTimestamp(orderCreatedAt);
+
+    // Fail closed on an absent or unparseable bank timestamp. Treating "unknown"
+    // as "now" would let an arbitrarily old receipt satisfy the window and would
+    // silently disable stale-receipt detection.
     const txDate = parseEthiopianBankTimestamp(txTimestamp);
+    if (txDate === null) return false;
+    if (isNaN(orderDate.getTime())) return false;
 
     const orderTime = orderDate.getTime();
     const txTime = txDate.getTime();

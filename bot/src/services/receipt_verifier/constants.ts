@@ -146,13 +146,20 @@ export const ETHIOPIAN_TIMEZONE_OFFSET_HOURS = 3;
  * If the raw timestamp string lacks explicit timezone information (+HH:MM or Z),
  * this function explicitly pins it to UTC+3 (+03:00) so that servers running in UTC
  * evaluate temporal recency accurately without false RECEIPT_EXPIRED rejections.
+ *
+ * Returns `null` when the value is absent or genuinely unparseable.
+ *
+ * This MUST NOT fall back to `new Date()`. Substituting the current time for an
+ * unknown transaction date makes the recency gate compare "now" against the order,
+ * so an arbitrarily old receipt would satisfy the window and stale-receipt detection
+ * would be silently defeated. Callers fail closed on `null`.
  */
-export function parseEthiopianBankTimestamp(rawDateStr: string | Date | undefined | null): Date {
-  if (!rawDateStr) return new Date();
-  if (rawDateStr instanceof Date) return isNaN(rawDateStr.getTime()) ? new Date() : rawDateStr;
+export function parseEthiopianBankTimestamp(rawDateStr: string | Date | undefined | null): Date | null {
+  if (rawDateStr === null || rawDateStr === undefined) return null;
+  if (rawDateStr instanceof Date) return isNaN(rawDateStr.getTime()) ? null : rawDateStr;
 
   const trimmed = String(rawDateStr).trim();
-  if (!trimmed) return new Date();
+  if (!trimmed) return null;
 
   // If already has explicit timezone offset or Zulu indicator, parse directly
   if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(trimmed)) {
@@ -197,7 +204,7 @@ export function parseEthiopianBankTimestamp(rawDateStr: string | Date | undefine
   const direct = new Date(trimmed);
   if (!isNaN(direct.getTime())) return direct;
 
-  return new Date();
+  return null;
 }
 
 /**

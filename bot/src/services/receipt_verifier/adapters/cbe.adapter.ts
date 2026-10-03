@@ -297,11 +297,14 @@ export class CbeBankAdapter extends BaseBankAdapter {
     return { name, identifier };
   }
 
-  private extractTimestamp(text: string): Date {
+  private extractTimestamp(text: string): Date | null {
     const dateMatch = text.match(CBE_DATE_ISO_PATTERN) || text.match(CBE_DATE_SLASH_PATTERN);
     if (dateMatch) {
-      return parseEthiopianBankTimestamp(dateMatch[1]);
+      const parsed = parseEthiopianBankTimestamp(dateMatch[1]);
+      if (parsed !== null) return parsed;
     }
-    return new Date();
+    // Fail closed: an unparseable timestamp must not become "now", or the recency
+    // gate would pass every stale receipt.
+    return null;
   }
 }

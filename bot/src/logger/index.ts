@@ -43,6 +43,11 @@ export const LOGGER_REDACT_PATHS = [
   '*.ISTAR_API_KEY',
   'RESELLER_API_KEY',
   '*.RESELLER_API_KEY',
+  // Egress proxy URIs embed user:pass credentials.
+  'proxyUrl',
+  '*.proxyUrl',
+  'RECEIPT_ETHIOPIA_PROXY_URL',
+  '*.RECEIPT_ETHIOPIA_PROXY_URL',
   'ADMIN_PASSWORD',
   'BOT_TOKEN',
   'token',

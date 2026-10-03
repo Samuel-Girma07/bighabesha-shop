@@ -10,6 +10,9 @@ import {
 import { HttpError } from '../src/lib/http.js';
 import { getConfig } from '../src/config/env.js';
 
+process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ';
+process.env.ADMIN_IDS = process.env.ADMIN_IDS || '111111111';
+
 describe('Reseller Provider Hardening (Gramix, iStar, Cascade)', () => {
   const mockConfig = {
     ...getConfig(),
