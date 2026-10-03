@@ -336,6 +336,35 @@ export function checkAntiReplay(
 }
 
 /**
+ * Per-ORDER fulfillment guard, complementing the per-REFERENCE check above.
+ *
+ * `checkAntiReplay` deliberately ignores the current order, so a second
+ * *different* bank reference submitted against an already-verified order sails
+ * through the anti-replay pillar and reaches fulfillment a second time. This
+ * query asks the orthogonal question: has this order already been matched to a
+ * confirmed transaction?
+ *
+ * Only `matched = 1` rows count. Evidence rows for failed attempts are written
+ * with `matched = 0`, so a customer who resubmits a corrected receipt after a
+ * failed attempt is not blocked by their own prior failure.
+ */
+export function hasMatchedEvidenceForOrder(
+  orderId: string,
+  db: Database.Database = getDatabase()
+): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 AS hit
+       FROM receipt_evidence
+       WHERE order_id = ? AND matched = 1
+       LIMIT 1`
+    )
+    .get(orderId) as { hit: number } | undefined;
+
+  return Boolean(row);
+}
+
+/**
  * Marks receipt evidence as successfully verified and matched within an active transaction.
  * Enforces the UNIQUE partial index on (bank, reference) WHERE matched = 1.
  * Throws ReceiptAlreadyUsedError if another process already claimed this reference.

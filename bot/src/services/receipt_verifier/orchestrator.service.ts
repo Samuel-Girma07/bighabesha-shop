@@ -11,6 +11,7 @@ import {
   updateEvidenceStatus,
   insertVerificationAudit,
   queryEvidence as daoQueryEvidence,
+  hasMatchedEvidenceForOrder,
   toVerificationAuditRecord,
   ReceiptEvidenceRow,
 } from '../../db/receipt_evidence.dao.js';
@@ -57,7 +58,25 @@ import {
   ReceiptExpiredError,
   UnsupportedBankError,
   AutoVerifyDisabledError,
+  OrderNotFulfillableError,
 } from './types.js';
+
+/**
+ * Order states in which the engine may execute an automated fulfillment.
+ *
+ * `awaiting_payment` is the normal case. `pending_approval` MUST also be
+ * allowed: a failed verification attempt moves the order into the
+ * manual-review queue, so it is the ordinary resting state after any rejected
+ * submission. Hard-restricting to `awaiting_payment` would make it impossible
+ * for a customer to submit a corrected receipt after a bad first attempt.
+ *
+ * Everything else is either already fulfilled (a second fulfillment would
+ * double-deliver and overwrite `fulfillment_payload`) or terminal.
+ */
+export const AUTO_FULFILLABLE_ORDER_STATUSES: ReadonlySet<string> = new Set([
+  'awaiting_payment',
+  'pending_approval',
+]);
 
 /**
  * Operator kill-switch for automated bank-portal verification.
@@ -153,6 +172,36 @@ export class ReceiptOrchestrator implements IReceiptOrchestrator {
     let gateResult: SecurityGateResult | undefined;
 
     try {
+      // 0a. Fulfillment eligibility guards.
+      //
+      // Placed before any upstream network call and before the gate, so an
+      // ineligible submission never contacts a bank portal. The success path
+      // previously had no status check at all, which meant a second valid bank
+      // reference against an already-fulfilled order could run
+      // `executeFulfillmentTx` again and overwrite the fulfillment payload.
+      if (!AUTO_FULFILLABLE_ORDER_STATUSES.has(order.status)) {
+        logger.warn(
+          { orderId: order.id, orderStatus: order.status },
+          'Rejected automated verification: order state does not permit fulfillment'
+        );
+        throw new OrderNotFulfillableError(order.status);
+      }
+
+      // Per-order replay guard. The anti-replay pillar checks the *reference*,
+      // and `checkAntiReplay` intentionally excludes the current order — so two
+      // different valid references on one order both passed it. This is the
+      // orthogonal check: has this order already been matched to a confirmed
+      // transaction? Rows with `matched = 0` are prior *failed* attempts, so a
+      // customer resubmitting a corrected receipt is not blocked by their own
+      // earlier failure.
+      if (hasMatchedEvidenceForOrder(order.id)) {
+        logger.warn(
+          { orderId: order.id, orderStatus: order.status },
+          'Rejected automated verification: order already matched to a confirmed transaction'
+        );
+        throw new OrderNotFulfillableError(order.status);
+      }
+
       // 0. Operator kill-switch. Placed before any upstream network call so that a
       //    disabled engine never contacts a bank portal (and never needs a working
       //    Ethiopian egress IP). Throwing routes into the standard fallback path, which

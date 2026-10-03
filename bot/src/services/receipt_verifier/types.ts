@@ -75,6 +75,7 @@ export type VerificationFailureCode =
   | 'AUTO_VERIFY_DISABLED'        // 503 Service Unavailable: Automated verification switched off by operator
   | 'CORRUPTED_FILE'              // 400 Bad Request: Magic byte validation or image parsing failed
   | 'RATE_LIMITED'                // 429 Too Many Requests: Rate limit exceeded for verification
+  | 'ORDER_NOT_FULFILLABLE'       // 409 Conflict: Order state forbids automated fulfillment
   | 'INTERNAL_ENGINE_ERROR';      // 500 Internal Server Error: Unexpected runtime failure
 
 /**
@@ -242,6 +243,29 @@ export class BankPortalUnavailableError extends ReceiptVerificationError {
       { bank, reason }
     );
     this.name = 'BankPortalUnavailableError';
+  }
+}
+
+/**
+ * Raised when an order's lifecycle state forbids automated fulfillment.
+ *
+ * The engine may only fulfil an order that is still awaiting payment or
+ * already sitting in the manual-review queue. Every other state is either
+ * already fulfilled (so a second fulfillment would double-deliver and
+ * overwrite the fulfillment payload) or terminal.
+ */
+export class OrderNotFulfillableError extends ReceiptVerificationError {
+  constructor(currentStatus: string, instance?: string) {
+    super(
+      'ORDER_NOT_FULFILLABLE',
+      409,
+      'Order Cannot Be Auto-Fulfilled',
+      `Order is in status "${currentStatus}", which does not permit automated fulfillment.`,
+      'This order has already been processed or is no longer awaiting payment. If you believe this is wrong, please contact support so an administrator can review it.',
+      instance,
+      { currentStatus }
+    );
+    this.name = 'OrderNotFulfillableError';
   }
 }
 
