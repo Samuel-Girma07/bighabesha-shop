@@ -279,42 +279,47 @@ export class ReceiptIngestionService implements IReceiptIngestionService {
     _options?: IngestionOptions
   ): Promise<ExtractedReceiptReference> {
     let text = '';
-    const links: string[] = [];
 
+    // pdf-parse@2.4.x exposes `PDFParse` as an ES class with no callable default
+    // export. The supported API is `new PDFParse({ data })` -> load() -> getText().
+    //
+    // The previous implementation additionally called `parser.getPageLinks()`,
+    // which is declared `private` in the library's own typings and expects an
+    // internal page object: the no-argument call always threw
+    // ("Cannot read properties of undefined (reading 'getViewport')"). The inner
+    // catch then invoked the class as a plain function, which also always threw
+    // ("Class constructor cannot be invoked without 'new'"), so both the link
+    // branch and the fallback were dead. Because getText() had already run by
+    // then, text extraction survived by accident, but `links` was never
+    // populated from the API and every PDF ingest emitted a spurious
+    // "Failed to parse PDF" warning.
     try {
       const pdfModule = await import('pdf-parse');
-      const PDFParse = (pdfModule as Record<string, unknown>).PDFParse ||
-        (pdfModule as Record<string, unknown>).default ||
-        pdfModule;
+      const PDFParse = (pdfModule as Record<string, unknown>).PDFParse;
 
       if (typeof PDFParse === 'function') {
-        try {
-          const parser = new (PDFParse as any)({ data: buffer });
-          if (typeof parser.load === 'function') {
-            await parser.load();
-            const res = await parser.getText();
-            text = typeof res === 'string' ? res : (res?.text || '');
-            const pageLinks = await parser.getPageLinks?.();
-            if (Array.isArray(pageLinks)) {
-              for (const pl of pageLinks) {
-                if (typeof pl === 'string') links.push(pl);
-                else if (pl?.url) links.push(pl.url);
-              }
-            }
-          } else {
-            const res = await (PDFParse as Function)(buffer);
-            text = res?.text || '';
-          }
-        } catch {
-          const res = await (PDFParse as Function)(buffer);
-          text = res?.text || '';
-        }
+        const PdfParser = PDFParse as new (options: { data: Buffer }) => {
+          load(): Promise<void>;
+          getText(): Promise<{ text?: string } | string>;
+        };
+        const parser = new PdfParser({ data: buffer });
+        await parser.load();
+        const res = await parser.getText();
+        text = typeof res === 'string' ? res : (res?.text || '');
       }
     } catch (err: unknown) {
-      logger.warn({ err }, 'Failed to parse PDF via pdf-parse; using raw buffer inspection');
+      // Text extraction is best-effort. The raw-byte scan below can still
+      // recover a reference, so a parser failure must not reject the upload.
+      logger.warn({ err }, 'Failed to extract PDF text via pdf-parse; falling back to raw buffer inspection');
     }
 
-    // Inspect raw PDF byte stream for embedded URLs and FT references
+    // Inspect raw PDF byte stream for embedded URLs and FT references.
+    //
+    // This is now the ONLY link extraction path. pdf-parse exposes no supported
+    // public call that returns a flat list of URLs, and PDF bodies are normally
+    // deflate-compressed, so this scan frequently cannot see the real URL.
+    // CBE's adapter PDF path does not use links either, so this is not load-bearing.
+    const links: string[] = [];
     const rawString = buffer.toString('latin1');
     const embeddedUrls = rawString.match(EMBEDDED_URLS_PATTERN) || [];
     for (const u of embeddedUrls) {
