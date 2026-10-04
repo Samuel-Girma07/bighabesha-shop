@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<!--
+  SYNTHETIC Telebirr receipt fixture.
+
+  Modelled on the real receipt page structure observed at
+  https://transactioninfo.ethiotelecom.et/receipt/<ref>, but every value is a
+  placeholder. No real payer name, account fragment, TIN, VAT number, balance or
+  transaction reference appears here, and none was taken from a live receipt.
+
+  What this fixture deliberately preserves, because the parser depends on it:
+    - bilingual Amharic/English labels ("<amharic>/<english>")
+    - the header-row / value-row pairing (3 label cells, then 3 value cells)
+    - "Settled Amount" differing from "Total Paid Amount"
+    - a masked credited-party account in "NNNN****NNNN" form (synthetic digits)
+    - "transaction status Completed" inside a single cell
+    - the DD-MM-YYYY payment date
+    - fee, VAT and total lines that must never supply the settled amount
+
+  Every value is invented. The masked account, reference, names, amounts and
+  balance are placeholders and do not correspond to any real transaction.
+-->
+<html lang="en">
+<head><meta charset="utf-8"><title>Telebirr Transaction information</title></head>
+<body>
+<table border="0" cellpadding="4">
+  <tr><td colspan="2"></td></tr>
+  <tr><td>TIN No.</td><td>0000000000</td></tr>
+  <tr><td>VAT Reg. No.</td><td>0000000000000</td></tr>
+  <tr><td>VAT Reg. Date</td><td>01/01/2020</td></tr>
+  <tr><td>P.O.Box</td><td>0000</td></tr>
+  <tr><td>Tel .</td><td>0000</td></tr>
+  <tr><td colspan="2">የቴሌብር ክፍያ መረጃ/telebirr Transaction information</td></tr>
+
+  <tr><td>የከፋይ ስም/Payer Name</td><td>TEST PAYER NAME</td></tr>
+  <tr><td>የከፋይ ቴሌብር ቁ./Payer telebirr no.</td><td>2519****0000</td></tr>
+  <tr><td>የከፋይ አካውንት አይነት/Payer account type</td><td>TEST TYPE</td></tr>
+  <tr><td>የከፋይ ቲን ቁ./ Payer TIN No</td><td></td></tr>
+  <tr><td>የከፋይ ተ.እ.ታ.ቁ./VAT Reg. No</td><td></td></tr>
+  <tr><td>የከፋይ ተ.እ.ታ.ቁ. ምዝገባ ቀን/VAT Reg. Date</td><td></td></tr>
+
+  <tr><td>የገንዘብ ተቀባይ ስም/Credited Party name</td><td>TEST BENEFICIARY NAME</td></tr>
+  <tr><td>የገንዘብ ተቀባይ ቴሌብር ቁ./Credited party account no</td><td>2599****0000</td></tr>
+  <tr><td>የክፍያው ሁኔታ/transaction status Completed</td></tr>
+
+  <tr><td>የክፍያ ዝርዝር/ Invoice details</td></tr>
+
+  <!-- Header row: three labels. The parser must pair these positionally with
+       the value row immediately below rather than within this row. -->
+  <tr>
+    <td>የክፍያ ቁጥር/Invoice No.</td>
+    <td>የክፍያ ቀን/Payment date</td>
+    <td>የተከፍለው መጠን/Settled Amount</td>
+  </tr>
+  <!-- Value row. Settled (1,000.00) must win over Total (1,060.00). -->
+  <tr>
+    <td>FT26TESTREF001</td>
+    <td>17-06-2025 09:15:00</td>
+    <td>1,000.00 Birr</td>
+  </tr>
+
+  <tr><td>የኤክሳይዝ ታክስ/Excise Tax (5%)</td><td>0.0 Birr</td></tr>
+  <tr><td>የማህተም ክፍያ/Stamp Duty</td><td>0.0 Birr</td></tr>
+  <tr><td>ቅናሽ/Discount Amount</td><td>0.0 Birr</td></tr>
+  <tr><td>የአገልግሎት ክፍያ/Service fee &nbsp;&nbsp;</td><td>54.00 Birr</td></tr>
+  <tr><td>የአገልግሎት ክፍያ ተ.እ.ታ/Service fee VAT</td><td>6.00 Birr</td></tr>
+  <tr><td>ጠቅላላ የተከፍለ/Total Paid Amount</td><td>1,060.00 Birr</td></tr>
+
+  <tr><td>የገንዘቡ ልክ በፊደል/Total Amount in word</td><td>one thousand birr and zero cent</td></tr>
+  <tr><td>የክፍያ ዘዴ/Payment Mode</td><td>telebirr</td></tr>
+  <tr><td>የክፍያ ምክንታት/Payment Reason</td><td>Send Money to Registered Customer</td></tr>
+  <tr><td>የክፍያ መንገድ/Payment channel</td><td>API/App</td></tr>
+  <tr><td>የደንበኛ መልዕክት/Customer Note</td><td></td></tr>
+  <tr><td>የግል ሂሳብ ቀሪ ሂሳብ/Your current E-Money Account balance</td><td>48,760.00 Birr</td></tr>
+</table>
+</body>
+</html>

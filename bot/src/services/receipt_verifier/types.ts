@@ -77,6 +77,7 @@ export type VerificationFailureCode =
   | 'CORRUPTED_FILE'              // 400 Bad Request: Magic byte validation or image parsing failed
   | 'RATE_LIMITED'                // 429 Too Many Requests: Rate limit exceeded for verification
   | 'ORDER_NOT_FULFILLABLE'       // 409 Conflict: Order state forbids automated fulfillment
+  | 'TRANSACTION_NOT_CONFIRMED'   // 422 Unprocessable: Portal did not confirm the payment completed
   | 'INTERNAL_ENGINE_ERROR';      // 500 Internal Server Error: Unexpected runtime failure
 
 /**
@@ -302,6 +303,34 @@ export class ProxyConfigError extends ReceiptVerificationError {
   }
 }
 
+/**
+ * Raised when the bank portal does not positively confirm a completed payment.
+ *
+ * Two conditions produce this, and both are the absence of proof rather than
+ * proof of absence:
+ *   - the page describes a DIFFERENT transaction than the one requested;
+ *   - the page carries no transaction status at all.
+ *
+ * The live Telebirr receipt renders an explicit "transaction status Completed".
+ * Requiring it closes the gap where a well-formed but unrelated portal page
+ * (including the 200-OK "this request is not correct" error page) was paired
+ * with the customer's own claimed reference and amount.
+ */
+export class UnconfirmedTransactionError extends ReceiptVerificationError {
+  constructor(reason: string, instance?: string) {
+    super(
+      'TRANSACTION_NOT_CONFIRMED',
+      422,
+      'Payment Not Confirmed by Bank',
+      reason,
+      'Our bank could not confirm that this payment completed. An administrator will review it manually — please keep your bank confirmation SMS.',
+      instance,
+      undefined
+    );
+    this.name = 'UnconfirmedTransactionError';
+  }
+}
+
 export class PortalGeoblockedError extends ReceiptVerificationError {
   /**
    * `proxyEndpoint` is sanitised here at the single choke point through which
@@ -455,6 +484,12 @@ export interface BankTransactionPayload {
    * The recency pillar fails closed on `null`.
    */
   transactionTimestamp: Date | null;
+  /**
+   * The bank's own verdict on the transaction, lower-cased
+   * (e.g. "completed"). Absent when the page did not state one, which is
+   * treated as unconfirmed rather than assumed successful.
+   */
+  transactionStatus?: string;
   /** Payment delivery channel (e.g. 'cbe_birr', 'internet_banking', 'telebirr_app') */
   paymentChannel?: string;
   /** Full unstructured diagnostic payload or HTML/PDF attributes for audit */

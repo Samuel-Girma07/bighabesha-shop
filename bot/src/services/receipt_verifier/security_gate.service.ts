@@ -176,13 +176,19 @@ export class SecurityGateService implements ISecurityGate {
 
     const cleanActual = this.normalizeAccountString(beneficiaryAccount);
     // Disallow empty, non-digit, or short account strings (must be at least 5 digits)
-    if (cleanActual.length < 5) return false;
+    if (cleanActual.replace(/\*/g, '').length < 5) return false;
 
     const whitelist = this.getWhitelistForBank(bank);
 
     return whitelist.some((acc) => {
       const cleanExpected = this.normalizeAccountString(acc);
-      if (cleanExpected.length < 5) return false;
+      if (cleanExpected.replace(/\*/g, '').length < 5) return false;
+
+      // Masked comparison: the portal hides the middle digits, so the
+      // configured value may carry the same wildcards.
+      if (cleanActual.includes('*') || cleanExpected.includes('*')) {
+        return this.maskedAccountMatches(cleanActual, cleanExpected);
+      }
 
       // Exact match
       if (cleanActual === cleanExpected) return true;
@@ -272,11 +278,37 @@ export class SecurityGateService implements ISecurityGate {
     return accounts;
   }
 
+  /**
+   * Normalises an account for whitelist comparison.
+   *
+   * Masking is preserved, because the bank portal renders credited accounts in
+   * masked form ("2519****1717"). Stripping the asterisks produced "25191717",
+   * which can never equal a configured account, so the pillar failed on every
+   * genuine Telebirr receipt. Operators now configure the masked form (e.g.
+   * "2519****1717") and only the visible digits are compared.
+   */
   private normalizeAccountString(raw: string): string {
-    const digits = raw.replace(NON_DIGIT_PATTERN, '');
-    if (digits.startsWith('251')) {
+    const masked = raw.replace(/[xX]/g, '*').replace(/[^\d*]/g, '');
+    const digits = masked.replace(/\*/g, '');
+    if (digits.startsWith('251') && !masked.includes('*')) {
       return '0' + digits.slice(3);
     }
-    return digits;
+    return masked;
+  }
+
+  /**
+   * Compares an actual account against a configured one, treating '*' in
+   * either value as a single-digit wildcard. Requires equal length so a short
+   * pattern cannot match a longer account by accident.
+   */
+  private maskedAccountMatches(cleanActual: string, cleanExpected: string): boolean {
+    if (cleanActual.length !== cleanExpected.length) return false;
+    for (let i = 0; i < cleanActual.length; i++) {
+      const a = cleanActual[i];
+      const e = cleanExpected[i];
+      if (e === '*' || a === '*') continue;
+      if (a !== e) return false;
+    }
+    return true;
   }
 }

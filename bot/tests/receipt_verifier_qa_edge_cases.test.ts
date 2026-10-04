@@ -373,6 +373,7 @@ describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial S
           <tr><th>Credited Party</th><td>0911223344</td></tr>
           <tr><th>Credited Party Name</th><td>&lt;script&gt;alert('xss')&lt;/script&gt;</td></tr>
           <tr><th>Debited Party Name</th><td><b>Hacker &amp; Co</b></td></tr>
+          <tr><td colspan="2">transaction status COMPLETED</td></tr>
         </table>
       `;
 

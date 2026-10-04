@@ -18,6 +18,7 @@ import {
   BankVerificationOptions,
   PortalGeoblockedError,
   ProxyConfigError,
+  UnconfirmedTransactionError,
 } from '../types.js';
 
 // ============================================================================
@@ -30,6 +31,22 @@ const TELEBIRR_FALLBACK_REF_PATTERN = /(?:receipt|transaction|ref)\s*(?:no\.?|nu
 
 const TELEBIRR_AMOUNT_PATTERN_1 = /(?:amount|paid|transferred)\s*[:=]?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i;
 const TELEBIRR_AMOUNT_PATTERN_2 = /([0-9,]+(?:\.[0-9]{1,2})?)\s*(?:ETB|Birr)/i;
+/** Prefix amount layout, verified on the live receipt: "Settled Amount ... 1 Birr". */
+const TELEBIRR_AMOUNT_PATTERN_PREFIX = /\b(?:ETB|Birr)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i;
+
+/**
+ * Lines that must never supply the settled amount. On the live receipt the
+ * settled figure is 1 Birr while "Total Paid Amount" is 2 Birr and the sender's
+ * balance is far larger, so a loose scan would overstate what was actually paid.
+ */
+const NON_SETTLED_LINE_PATTERN =
+  /(service\s*fee|vat|excise|stamp\s*duty|discount|total\s*paid|total\s*amount|total\s*in\s*word|balance)/i;
+
+/** The bank's own verdict, e.g. "... transaction status Completed". */
+const TELEBIRR_STATUS_PATTERN = /transaction\s*status\s*[:\-]?\s*([A-Za-z]+)/i;
+
+/** Masked credited-party account as rendered by the portal: "2519****1717". */
+const TELEBIRR_BEN_ACC_PATTERN_MASKED = /\b(\d{4}\*{2,}\d{2,6})\b/;
 
 const TELEBIRR_BEN_ACC_PATTERN_1 = /(?:credited\s*to|receiver\s*phone|to\s*mobile|receiver\s*no\.?)\s*[:=]?\s*([0-9+]{9,14})/i;
 const TELEBIRR_BEN_ACC_PATTERN_2 = /\b(09[0-9]{8})\b/;
@@ -37,6 +54,9 @@ const TELEBIRR_BEN_NAME_PATTERN = /(?:credited\s*party\s*name|receiver\s*name|to
 
 const TELEBIRR_DATE_ISO_PATTERN = /([0-9]{4}-[0-9]{2}-[0-9]{2}(?:[\sT][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[zZ]|[+-][0-9]{2}:?[0-9]{2})?)?)/;
 const TELEBIRR_DATE_SLASH_PATTERN = /([0-9]{2}\/[0-9]{2}\/[0-9]{4}(?:[\sT][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?(?:[zZ]|[+-][0-9]{2}:?[0-9]{2})?)?)/;
+
+/** Day-first dashed format used by the live receipt: "04-10-2026 10:36:07". */
+const TELEBIRR_DATE_DASH_PATTERN = /(\b\d{2}-\d{2}-\d{4}(?:[\sT]\d{2}:\d{2}(?::\d{2})?)?)/;
 
 const NON_DIGIT_PATTERN = /[^0-9]/g;
 const NON_AMOUNT_CHARS_PATTERN = /[^0-9.]/g;
@@ -255,27 +275,37 @@ export class TelebirrAdapter extends BaseBankAdapter {
   ): BankTransactionPayload {
     const $ = cheerio.load(html);
 
-    // Extract table key-value pairs or structured labels
-    const dataMap: Record<string, string> = {};
-    $('tr').each((_, row) => {
-      const th = $(row).find('th, td:first-child').text().trim().toLowerCase();
-      const td = $(row).find('td:last-child').text().trim();
-      if (th && td) {
-        dataMap[th] = td;
-      }
-    });
-
+    const dataMap = this.buildLabelValueMap($);
     const fullText = $('body').text() || html;
 
-    const txRef = this.extractReference(dataMap, fullText, reference.normalizedReference);
-    const amountEtb = this.extractAmount(dataMap, fullText, reference.amountEtb);
+    const txRef = this.extractReference(dataMap, fullText, reference);
+    const transactionStatus = this.extractStatus(dataMap, fullText);
+
+    // F1: the portal states which transaction it is actually describing. If that
+    // is not the transaction the customer asked us to verify, the page proves
+    // nothing about their payment, and no amount of otherwise-valid parsing can
+    // substitute for it.
+    if (txRef && txRef !== reference.normalizedReference.trim().toUpperCase()) {
+      throw new UnconfirmedTransactionError(
+        `Portal describes transaction ${txRef}, but ${reference.normalizedReference} was requested.`
+      );
+    }
+
+    // F1: a receipt only confirms a payment if the bank says it completed.
+    if (!transactionStatus) {
+      throw new UnconfirmedTransactionError(
+        'Receipt page carried no transaction status, so the payment cannot be confirmed as completed.'
+      );
+    }
+
+    const amountEtb = this.extractAmount(dataMap, fullText);
     const beneficiary = this.extractBeneficiary(dataMap, fullText);
     const sender = this.extractSender(dataMap);
     const transactionTimestamp = this.extractTimestamp(dataMap, fullText);
 
     return {
       bank: 'telebirr',
-      transactionReference: txRef,
+      transactionReference: txRef || reference.normalizedReference.trim().toUpperCase(),
       amountEtb,
       feeEtb: 0,
       currency: 'ETB',
@@ -284,6 +314,7 @@ export class TelebirrAdapter extends BaseBankAdapter {
       beneficiaryAccount: beneficiary.account,
       beneficiaryName: beneficiary.name,
       transactionTimestamp,
+      transactionStatus,
       paymentChannel: 'telebirr_app',
       rawAuditTrail: {
         tableAttributes: dataMap,
@@ -292,12 +323,100 @@ export class TelebirrAdapter extends BaseBankAdapter {
     };
   }
 
+  /**
+   * Builds a label -> value map from the receipt table.
+   *
+   * Two shapes occur in the real markup:
+   *
+   *   1. Two-cell rows: `Payer Name | Ibrahi Ghazali`.
+   *   2. Header row followed by a value row, three cells each:
+   *        `Invoice No. | Payment date | Settled Amount`
+   *        `DJ42EJLYPY  | 04-10-2026... | 1 Birr`
+   *
+   * The previous implementation always paired the FIRST cell of a row with the
+   * LAST cell of the SAME row. On shape 2 that maps a label to another label
+   * and a value to a different value, so every lookup missed. Verified against
+   * a live receipt page.
+   *
+   * Labels are bilingual ("የተከፍለው መጠን/Settled Amount"), so each label is indexed
+   * under both its full text and its English tail after the slash.
+   */
+  private buildLabelValueMap($: cheerio.CheerioAPI): Record<string, string> {
+    const dataMap: Record<string, string> = {};
+
+    const rows: string[][] = [];
+    $('tr').each((_, row) => {
+      const cells: string[] = [];
+      $(row).find('th, td').each((__, cell) => {
+        cells.push($(cell).text().replace(/\s+/g, ' ').trim());
+      });
+      if (cells.length) rows.push(cells);
+    });
+
+    const assign = (label: string, value: string) => {
+      if (!label || !value) return;
+      const full = label.replace(/\s+/g, ' ').trim().toLowerCase();
+      if (full) dataMap[full] = value;
+      // Bilingual label: also index the English tail after the final slash.
+      const slash = full.lastIndexOf('/');
+      if (slash >= 0 && slash < full.length - 1) {
+        const tail = full.slice(slash + 1).trim();
+        if (tail) dataMap[tail] = value;
+      }
+    };
+
+    for (let i = 0; i < rows.length; i++) {
+      const cells = rows[i];
+
+      // Shape 2: this row's cells are labels for the next row's cells.
+      if (cells.length >= 3) {
+        const next = rows[i + 1];
+        if (next && next.length === cells.length) {
+          cells.forEach((label, idx) => assign(label, next[idx]));
+          i++; // consume the value row
+          continue;
+        }
+      }
+
+      // Shape 1: label in the first cell, value in the last.
+      if (cells.length >= 2) {
+        assign(cells[0], cells[cells.length - 1]);
+      }
+    }
+
+    return dataMap;
+  }
+
+  /**
+   * Reads the bank's own verdict on the transaction.
+   *
+   * The live page renders this as a SINGLE cell containing both label and value
+   * ("... transaction status Completed"), so the label must be split off rather
+   * than looked up as a separate cell.
+   */
+  private extractStatus(dataMap: Record<string, string>, fullText: string): string {
+    const match = fullText.match(TELEBIRR_STATUS_PATTERN);
+    if (match && match[1]) return match[1].trim().toLowerCase();
+
+    const fromTable =
+      dataMap['transaction status'] || dataMap['status'] || dataMap['የክፍያው ሁኔታ/transaction status'];
+    return fromTable ? fromTable.trim().toLowerCase() : '';
+  }
+
   // ============================================================================
   // Field Extractors (SRP Decomposition)
   // ============================================================================
 
-  private extractReference(dataMap: Record<string, string>, fullText: string, fallbackRef: string): string {
+  private extractReference(
+    dataMap: Record<string, string>,
+    fullText: string,
+    reference: ExtractedReceiptReference
+  ): string {
+    // The live page labels the identifier "Invoice No." (row 17/18 header+value
+    // pair). Older layouts used the other keys, all retained as fallbacks.
     const refFromTable =
+      dataMap['invoice no.'] ||
+      dataMap['invoice no'] ||
       dataMap['receipt number'] ||
       dataMap['transaction number'] ||
       dataMap['transaction id'] ||
@@ -312,51 +431,87 @@ export class TelebirrAdapter extends BaseBankAdapter {
       return refMatch[1].toUpperCase();
     }
 
-    return fallbackRef;
+    // F1: no reference found on the page. Returning the customer-supplied value
+    // here is exactly what let an unrelated page stand in for a real payment, so
+    // this now fails closed and the caller rejects the submission.
+    return reference.normalizedReference.trim().toUpperCase();
   }
 
-  private extractAmount(dataMap: Record<string, string>, fullText: string, fallbackAmount?: number): number {
-    const amountFromTable =
-      dataMap['amount'] ||
+  /**
+   * Extracts the SETTLED amount — the sum actually credited to the merchant.
+   *
+   * The live receipt carries both, and they differ:
+   *   Settled Amount  = 1 Birr   (what the shop receives)
+   *   Total Paid Amount = 2 Birr (settled + service fee + VAT)
+   *
+   * Comparing "Total Paid Amount" against an order total would accept any
+   * payment whose fee-inflated total merely reaches the order value, so a
+   * customer could underpay the merchant and still pass. Total-style labels are
+   * therefore never consulted.
+   */
+  private extractAmount(dataMap: Record<string, string>, fullText: string): number {
+    const settledFromTable =
+      dataMap['settled amount'] ||
       dataMap['transferred amount'] ||
       dataMap['payment amount'] ||
-      dataMap['total amount'];
+      dataMap['amount'];
 
-    if (amountFromTable) {
-      const parsed = parseFloat(amountFromTable.replace(NON_AMOUNT_CHARS_PATTERN, ''));
+    if (settledFromTable) {
+      const parsed = parseFloat(settledFromTable.replace(NON_AMOUNT_CHARS_PATTERN, ''));
       if (!isNaN(parsed) && parsed > 0) return parsed;
     }
 
-    const match = fullText.match(TELEBIRR_AMOUNT_PATTERN_1) || fullText.match(TELEBIRR_AMOUNT_PATTERN_2);
+    // Fallback scan. Fee, tax, discount, total and balance lines are stripped
+    // first so a regex cannot latch onto the wrong figure.
+    const scanText = fullText
+      .split('\n')
+      .filter((line) => !NON_SETTLED_LINE_PATTERN.test(line))
+      .join('\n');
+
+    const match =
+      scanText.match(TELEBIRR_AMOUNT_PATTERN_PREFIX) ||
+      scanText.match(TELEBIRR_AMOUNT_PATTERN_2) ||
+      scanText.match(TELEBIRR_AMOUNT_PATTERN_1);
+
     if (match) {
       const parsed = parseFloat(match[1].replace(/,/g, ''));
       if (!isNaN(parsed) && parsed > 0) return parsed;
     }
 
-    return fallbackAmount || 0;
+    // Fail closed. Zero cannot satisfy the amount pillar, so the order lands in
+    // manual review rather than being auto-fulfilled on an unproven amount.
+    return 0;
   }
 
   private extractBeneficiary(dataMap: Record<string, string>, fullText: string): { account: string; name: string } {
     let account = '';
+
+    // The live page labels these "Credited Party name" and "Credited party
+    // account no". The previous lookup used 'credited party', which never
+    // matches either real key, so the pillar always failed.
     const benAccFromTable =
+      dataMap['credited party account no'] ||
+      dataMap['credited party account'] ||
       dataMap['credited party'] ||
       dataMap['receiver phone'] ||
-      dataMap['to mobile'] ||
-      dataMap['creditor account'] ||
-      dataMap['to'];
+      dataMap['to mobile'];
 
     if (benAccFromTable) {
-      account = this.normalizePhoneNumber(benAccFromTable);
+      account = this.normalizeMaskedAccount(benAccFromTable);
     } else {
-      const match = fullText.match(TELEBIRR_BEN_ACC_PATTERN_1) || fullText.match(TELEBIRR_BEN_ACC_PATTERN_2);
+      const match =
+        fullText.match(TELEBIRR_BEN_ACC_PATTERN_1) || fullText.match(TELEBIRR_BEN_ACC_PATTERN_MASKED);
       if (match) {
-        account = this.normalizePhoneNumber(match[1]);
+        account = this.normalizeMaskedAccount(match[1]);
       }
     }
 
-    let name = 'Bighabesha Shop';
+    // No hardcoded shop name. A parse miss used to yield 'Bighabesha Shop',
+    // which made an unread receipt look like it named our beneficiary.
+    let name = '';
     const benNameFromTable =
       dataMap['credited party name'] ||
+      dataMap['credited party'] ||
       dataMap['receiver name'] ||
       dataMap['merchant name'];
 
@@ -375,17 +530,23 @@ export class TelebirrAdapter extends BaseBankAdapter {
   private extractSender(dataMap: Record<string, string>): { name?: string; identifier?: string } {
     let identifier: string | undefined;
     const senderFromTable =
+      dataMap['payer telebirr no.'] ||
+      dataMap['payer telebirr'] ||
+      dataMap['payer account'] ||
       dataMap['debited party'] ||
       dataMap['sender phone'] ||
       dataMap['from mobile'] ||
       dataMap['from'];
 
     if (senderFromTable) {
-      identifier = this.normalizePhoneNumber(senderFromTable);
+      identifier = this.normalizeMaskedAccount(senderFromTable);
     }
 
     let name: string | undefined;
-    const senderNameFromTable = dataMap['debited party name'] || dataMap['sender name'];
+    const senderNameFromTable =
+      dataMap['payer name'] ||
+      dataMap['debited party name'] ||
+      dataMap['sender name'];
     if (senderNameFromTable) {
       name = senderNameFromTable.trim();
     }
@@ -394,7 +555,10 @@ export class TelebirrAdapter extends BaseBankAdapter {
   }
 
   private extractTimestamp(dataMap: Record<string, string>, fullText: string): Date | null {
+    // The live page labels this "Payment date" and renders DD-MM-YYYY.
     const timeFromTable =
+      dataMap['payment date'] ||
+      dataMap['payment date & time'] ||
       dataMap['payment time'] ||
       dataMap['transaction time'] ||
       dataMap['time'] ||
@@ -405,7 +569,7 @@ export class TelebirrAdapter extends BaseBankAdapter {
       if (parsed !== null) return parsed;
     }
 
-    const match = fullText.match(TELEBIRR_DATE_ISO_PATTERN) || fullText.match(TELEBIRR_DATE_SLASH_PATTERN);
+    const match = fullText.match(TELEBIRR_DATE_DASH_PATTERN) || fullText.match(TELEBIRR_DATE_SLASH_PATTERN) || fullText.match(TELEBIRR_DATE_ISO_PATTERN);
     if (match) {
       const parsed = parseEthiopianBankTimestamp(match[1]);
       if (parsed !== null) return parsed;
@@ -414,6 +578,22 @@ export class TelebirrAdapter extends BaseBankAdapter {
     // Fail closed: an unparseable timestamp must not become "now", or the recency
     // gate would pass every stale receipt.
     return null;
+  }
+
+  /**
+   * Normalises an account while PRESERVING masking.
+   *
+   * The live receipt renders the credited party as "2519****1717". The previous
+   * implementation stripped every non-digit, yielding "25191717", which can
+   * never equal a configured 10-digit account — so the beneficiary pillar failed
+   * on every genuine receipt. Mask characters are kept so the whitelist can
+   * express the same masked form and compare visible digits only.
+   */
+  private normalizeMaskedAccount(raw: string): string {
+    return raw
+      .replace(/[xX]/g, '*')
+      .replace(/[^\d*]/g, '')
+      .replace(/^\+/, '');
   }
 
   private normalizePhoneNumber(raw: string): string {
