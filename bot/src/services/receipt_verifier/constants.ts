@@ -146,13 +146,20 @@ export const ETHIOPIAN_TIMEZONE_OFFSET_HOURS = 3;
  * If the raw timestamp string lacks explicit timezone information (+HH:MM or Z),
  * this function explicitly pins it to UTC+3 (+03:00) so that servers running in UTC
  * evaluate temporal recency accurately without false RECEIPT_EXPIRED rejections.
+ *
+ * Returns `null` when the value is absent or genuinely unparseable.
+ *
+ * This MUST NOT fall back to `new Date()`. Substituting the current time for an
+ * unknown transaction date makes the recency gate compare "now" against the order,
+ * so an arbitrarily old receipt would satisfy the window and stale-receipt detection
+ * would be silently defeated. Callers fail closed on `null`.
  */
-export function parseEthiopianBankTimestamp(rawDateStr: string | Date | undefined | null): Date {
-  if (!rawDateStr) return new Date();
-  if (rawDateStr instanceof Date) return isNaN(rawDateStr.getTime()) ? new Date() : rawDateStr;
+export function parseEthiopianBankTimestamp(rawDateStr: string | Date | undefined | null): Date | null {
+  if (rawDateStr === null || rawDateStr === undefined) return null;
+  if (rawDateStr instanceof Date) return isNaN(rawDateStr.getTime()) ? null : rawDateStr;
 
   const trimmed = String(rawDateStr).trim();
-  if (!trimmed) return new Date();
+  if (!trimmed) return null;
 
   // If already has explicit timezone offset or Zulu indicator, parse directly
   if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(trimmed)) {
@@ -197,30 +204,44 @@ export function parseEthiopianBankTimestamp(rawDateStr: string | Date | undefine
   const direct = new Date(trimmed);
   if (!isNaN(direct.getTime())) return direct;
 
-  return new Date();
+  return null;
 }
 
 /**
  * Normalizes SQLite CURRENT_TIMESTAMP strings ("YYYY-MM-DD HH:MM:SS") into an absolute UTC Date.
  * SQLite CURRENT_TIMESTAMP is generated in UTC without a trailing 'Z'.
  * Without explicit 'Z', JavaScript engines parse the string in the host's local timezone.
+ *
+ * Returns `null` when the value is absent or genuinely unparseable.
+ *
+ * This MUST NOT fall back to `new Date()`. This parser anchors the recency
+ * window on the ORDER's creation time. Substituting the current time for an
+ * unknown order date slides the window to centre on "now", so an arbitrarily
+ * old receipt satisfies it and stale-receipt detection is silently defeated.
+ * Callers fail closed on `null` by routing to manual review. This mirrors the
+ * contract already applied to the bank-side `parseEthiopianBankTimestamp`.
  */
-export function parseUtcTimestamp(rawDate: string | Date | undefined | null): Date {
-  if (!rawDate) return new Date();
-  if (rawDate instanceof Date) return isNaN(rawDate.getTime()) ? new Date() : rawDate;
+export function parseUtcTimestamp(rawDate: string | Date | undefined | null): Date | null {
+  if (rawDate === null || rawDate === undefined) return null;
+  if (rawDate instanceof Date) return isNaN(rawDate.getTime()) ? null : rawDate;
 
   const trimmed = String(rawDate).trim();
-  if (!trimmed) return new Date();
+  if (!trimmed) return null;
 
   // If it's SQLite CURRENT_TIMESTAMP "YYYY-MM-DD HH:MM:SS" without timezone:
   if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(trimmed)) {
-    return new Date(trimmed.replace(' ', 'T') + 'Z');
+    return orNull(new Date(trimmed.replace(' ', 'T') + 'Z'));
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return new Date(`${trimmed}T00:00:00Z`);
+    return orNull(new Date(`${trimmed}T00:00:00Z`));
   }
   if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(trimmed)) {
-    return new Date(trimmed.replace(' ', 'T') + 'Z');
+    return orNull(new Date(trimmed.replace(' ', 'T') + 'Z'));
   }
-  return new Date(trimmed);
+  return orNull(new Date(trimmed));
+}
+
+/** Collapses an Invalid Date to `null` so callers get one failure shape. */
+function orNull(date: Date): Date | null {
+  return isNaN(date.getTime()) ? null : date;
 }

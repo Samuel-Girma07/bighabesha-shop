@@ -6,6 +6,8 @@
  * Implemented for Phase 2: API Architecture & Contracts
  */
 
+import { sanitizeProxyEndpoint } from '../../logger/index.js';
+
 // ============================================================================
 // 1. Core Enumerations & Literal Unions
 // ============================================================================
@@ -69,9 +71,12 @@ export type VerificationFailureCode =
   | 'QR_DECODE_FAILED'            // 422 Unprocessable: Image could not be decoded to QR matrix
   | 'BANK_PORTAL_UNAVAILABLE'     // 504 Gateway Timeout: Upstream bank connection timed out / reset
   | 'PORTAL_GEOBLOCKED'           // 502 Bad Gateway: Upstream gateway blocked non-Ethiopian egress
+  | 'PROXY_CONFIG_INVALID'        // 500 Internal Server Error: Configured egress proxy is unusable
   | 'UNSUPPORTED_BANK'            // 400 Bad Request: Rail or format not supported by automated engine
+  | 'AUTO_VERIFY_DISABLED'        // 503 Service Unavailable: Automated verification switched off by operator
   | 'CORRUPTED_FILE'              // 400 Bad Request: Magic byte validation or image parsing failed
   | 'RATE_LIMITED'                // 429 Too Many Requests: Rate limit exceeded for verification
+  | 'ORDER_NOT_FULFILLABLE'       // 409 Conflict: Order state forbids automated fulfillment
   | 'INTERNAL_ENGINE_ERROR';      // 500 Internal Server Error: Unexpected runtime failure
 
 /**
@@ -176,15 +181,43 @@ export class AmountMismatchError extends ReceiptVerificationError {
 }
 
 export class ReceiptExpiredError extends ReceiptVerificationError {
-  constructor(orderCreatedAt: Date, txTimestamp: Date, windowMinutes: { before: number; after: number }, instance?: string) {
+  constructor(orderCreatedAt: Date | null, txTimestamp: Date | null, windowMinutes: { before: number; after: number }, instance?: string) {
+    // A null timestamp means the receipt carried no readable date, so its age cannot
+    // be proven at all. That is a distinct (and stricter) condition than "too old".
+    // An unreadable ORDER date is equally unverifiable: the recency window is
+    // anchored on it, so with no anchor the receipt's age cannot be established.
+    const unverifiable =
+      orderCreatedAt === null ||
+      isNaN(orderCreatedAt.getTime()) ||
+      txTimestamp === null ||
+      isNaN(txTimestamp.getTime());
+
+    // `Date.prototype.toISOString()` throws RangeError on an Invalid Date. Building an
+    // error must never be the thing that throws, or it masks the real failure and
+    // escapes the orchestrator's fallback path. Degrade to an explicit marker instead.
+    const iso = (d: Date | null): string | null =>
+      d === null || isNaN(d.getTime()) ? null : d.toISOString();
+    const orderIso = iso(orderCreatedAt) ?? 'an unreadable order creation time';
+    const txIso = iso(txTimestamp);
+
+    const detail = unverifiable
+      ? `The bank receipt carried no readable transaction timestamp, so the age of this transfer cannot be verified against the order created at ${orderIso}.`
+      : `Transaction timestamp (${txIso}) is outside allowed window around order creation (${orderIso}).`;
+
     super(
       'RECEIPT_EXPIRED',
       422,
-      'Receipt Stale or Expired',
-      `Transaction timestamp (${txTimestamp.toISOString()}) is outside allowed window around order creation (${orderCreatedAt.toISOString()}).`,
-      'The transfer timestamp is outside the valid transaction window. Please complete transfers within 2 hours of checkout.',
+      unverifiable ? 'Receipt Timestamp Unverifiable' : 'Receipt Stale or Expired',
+      detail,
+      unverifiable
+        ? 'Our bank could not confirm when this transfer happened. An administrator will review it manually — please keep your bank confirmation SMS.'
+        : 'The transfer timestamp is outside the valid transaction window. Please complete transfers within 2 hours of checkout.',
       instance,
-      { orderCreatedAt: orderCreatedAt.toISOString(), txTimestamp: txTimestamp.toISOString(), windowMinutes }
+      {
+        orderCreatedAt: iso(orderCreatedAt),
+        txTimestamp: txIso,
+        windowMinutes,
+      }
     );
     this.name = 'ReceiptExpiredError';
   }
@@ -220,8 +253,64 @@ export class BankPortalUnavailableError extends ReceiptVerificationError {
   }
 }
 
+/**
+ * Raised when an order's lifecycle state forbids automated fulfillment.
+ *
+ * The engine may only fulfil an order that is still awaiting payment or
+ * already sitting in the manual-review queue. Every other state is either
+ * already fulfilled (so a second fulfillment would double-deliver and
+ * overwrite the fulfillment payload) or terminal.
+ */
+export class OrderNotFulfillableError extends ReceiptVerificationError {
+  constructor(currentStatus: string, instance?: string) {
+    super(
+      'ORDER_NOT_FULFILLABLE',
+      409,
+      'Order Cannot Be Auto-Fulfilled',
+      `Order is in status "${currentStatus}", which does not permit automated fulfillment.`,
+      'This order has already been processed or is no longer awaiting payment. If you believe this is wrong, please contact support so an administrator can review it.',
+      instance,
+      { currentStatus }
+    );
+    this.name = 'OrderNotFulfillableError';
+  }
+}
+
+/**
+ * Raised when the configured egress proxy is itself unusable: a malformed URI,
+ * an unsupported scheme, or a failed agent construction.
+ *
+ * Deliberately distinct from `PortalGeoblockedError`. This is an operator
+ * configuration fault, not a regional network block, and the two demand
+ * opposite responses: this one must be fixed in configuration, the other needs
+ * an in-country egress. The engine fails closed rather than silently discarding
+ * the operator's chosen egress and attempting direct egress that will be
+ * geo-blocked anyway.
+ */
+export class ProxyConfigError extends ReceiptVerificationError {
+  constructor(bank: SupportedBank, reason: string, instance?: string) {
+    super(
+      'PROXY_CONFIG_INVALID',
+      500,
+      'Egress Proxy Configuration Invalid',
+      `The configured Ethiopian egress proxy could not be used: ${reason}`,
+      'Receipt verification is temporarily unavailable and has been routed to our store administrators for manual review.',
+      instance,
+      { bank, reason }
+    );
+    this.name = 'ProxyConfigError';
+  }
+}
+
 export class PortalGeoblockedError extends ReceiptVerificationError {
-  constructor(bank: SupportedBank, proxyHost?: string, instance?: string) {
+  /**
+   * `proxyEndpoint` is sanitised here at the single choke point through which
+   * every geoblock passes. Callers may pass the raw configured proxy URI; the
+   * embedded `user:pass` credentials are stripped before the value can reach
+   * `details`, which is serialised into HTTP responses and operator alerts.
+   */
+  constructor(bank: SupportedBank, proxyEndpoint?: string, instance?: string) {
+    const safeEndpoint = sanitizeProxyEndpoint(proxyEndpoint);
     super(
       'PORTAL_GEOBLOCKED',
       502,
@@ -229,7 +318,7 @@ export class PortalGeoblockedError extends ReceiptVerificationError {
       `Access to ${bank.toUpperCase()} transaction verification portal was blocked or Ethiopian residential proxy failed.`,
       'Bank gateway routing encountered a regional network block. Receipt routed to administrator review queue for manual verification.',
       instance,
-      { bank, proxyHost }
+      safeEndpoint ? { bank, proxyEndpoint: safeEndpoint } : { bank }
     );
     this.name = 'PortalGeoblockedError';
   }
@@ -247,6 +336,28 @@ export class UnsupportedBankError extends ReceiptVerificationError {
       { detectedRail }
     );
     this.name = 'UnsupportedBankError';
+  }
+}
+
+/**
+ * Raised when the operator kill-switch `receipt_auto_verify_enabled` is off.
+ *
+ * This is NOT a customer-facing failure: the submission is accepted, audited and
+ * routed to the administrator manual-review queue exactly like any other fallback.
+ * No upstream bank portal is contacted, so no bank credentials or buyer data leave
+ * the host while the switch is disabled.
+ */
+export class AutoVerifyDisabledError extends ReceiptVerificationError {
+  constructor(instance?: string) {
+    super(
+      'AUTO_VERIFY_DISABLED',
+      503,
+      'Automated Verification Disabled',
+      'Automated bank receipt verification is currently switched off by the operator.',
+      'Your payment reference has been recorded and queued for administrator review. You will be notified once it is approved.',
+      instance
+    );
+    this.name = 'AutoVerifyDisabledError';
   }
 }
 
@@ -335,8 +446,15 @@ export interface BankTransactionPayload {
   beneficiaryAccount: string;
   /** Confirmed beneficiary account name (e.g. 'Samuel Girma') */
   beneficiaryName: string;
-  /** Verified bank transaction execution timestamp */
-  transactionTimestamp: Date;
+  /**
+   * Verified bank transaction execution timestamp.
+   *
+   * `null` when the portal markup contained no parseable date. Adapters must NOT
+   * substitute `new Date()` here: doing so would make the recency gate compare
+   * "now" against the order and silently pass, defeating stale-receipt detection.
+   * The recency pillar fails closed on `null`.
+   */
+  transactionTimestamp: Date | null;
   /** Payment delivery channel (e.g. 'cbe_birr', 'internet_banking', 'telebirr_app') */
   paymentChannel?: string;
   /** Full unstructured diagnostic payload or HTML/PDF attributes for audit */
@@ -397,8 +515,14 @@ export interface OrderSecurityContext {
   netPayableEtb: number;
   /** Payment rail selected by buyer during checkout */
   paymentRail: SupportedBank;
-  /** Order creation timestamp */
-  orderCreatedAt: Date;
+  /**
+   * Order creation timestamp.
+   *
+   * Nullable because `parseUtcTimestamp` fails closed: an unparseable
+   * `orders.created_at` yields `null` rather than silently substituting the
+   * current time, which would centre the recency window on "now".
+   */
+  orderCreatedAt: Date | null;
 }
 
 /** Store configuration mapping bank rails to approved beneficiary accounts */
@@ -629,8 +753,8 @@ export interface ISecurityGate {
    * Pillar 4: Recency Window assertion ensuring payment occurred within allowable timeframe.
    */
   assertRecency(
-    orderCreatedAt: Date,
-    txTimestamp: Date,
+    orderCreatedAt: Date | null,
+    txTimestamp: Date | null,
     windowMinutes?: RecencyWindowConfig
   ): boolean;
 }

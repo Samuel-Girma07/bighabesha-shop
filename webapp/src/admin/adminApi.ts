@@ -154,6 +154,25 @@ export function receiptIsInline(receiptFileId?: string | null): boolean {
 }
 
 /**
+ * Sentinel `receipt_file_id` written by POST /api/receipt when the buyer supplied a
+ * transaction reference but no image. It is a non-empty string, so a naive
+ * `receipt_file_id && ...` check would offer admins a slip viewer with nothing in it.
+ */
+const NON_IMAGE_RECEIPT_SENTINELS = new Set(['web_receipt_upload']);
+
+/**
+ * True only when a real retrievable receipt image exists for this order.
+ * A reference-only submission is still valid evidence — it just has no image to show.
+ */
+export function receiptHasImage(receiptFileId?: string | null): boolean {
+  if (!receiptFileId) return false;
+  if (NON_IMAGE_RECEIPT_SENTINELS.has(receiptFileId)) return false;
+  if (receiptFileId.startsWith('sms:')) return false; // SMS-verified orders carry a synthetic id
+  if (receiptFileId.startsWith('base64_upload_')) return false; // failed-persist memory fallback
+  return true;
+}
+
+/**
  * Fetches a SHORT-LIVED signed download URL for a receipt image.
  *
  * Replaces the old getReceiptImageUrl() which embedded the 24h admin session

@@ -1,7 +1,7 @@
 import https from 'node:https';
 import * as cheerio from 'cheerio';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import { logger } from '../../../logger/index.js';
+import { logger, redactSecret } from '../../../logger/index.js';
 import { CircuitBreaker } from '../circuit_breaker.js';
 import { BaseBankAdapter } from './base.adapter.js';
 import { getSetting } from '../../settings.service.js';
@@ -17,6 +17,7 @@ import {
   BankTransactionPayload,
   BankVerificationOptions,
   PortalGeoblockedError,
+  ProxyConfigError,
 } from '../types.js';
 
 // ============================================================================
@@ -97,7 +98,22 @@ export class TelebirrAdapter extends BaseBankAdapter {
       try {
         fetchOptions.agent = new HttpsProxyAgent(proxyUrl.trim());
       } catch (err: unknown) {
-        logger.warn({ proxyUrl, err: err instanceof Error ? err.message : String(err) }, 'Failed to configure HttpsProxyAgent for Telebirr');
+        // Fail closed. Previously this logged a warning and continued with
+        // `agent === undefined`, which meant DIRECT egress: the operator's
+        // chosen in-country egress was silently discarded and the request was
+        // geo-blocked, surfacing as PORTAL_GEOBLOCKED and hiding what was
+        // really a configuration fault. Throwing keeps the two conditions
+        // distinguishable, which matters because they need opposite fixes.
+        //
+        // `proxyUrl` embeds user:pass credentials, so it is never logged raw.
+        logger.error(
+          { proxyUrl: redactSecret(proxyUrl), err: err instanceof Error ? err.message : String(err) },
+          'Failed to configure HttpsProxyAgent for Telebirr; refusing to fall back to direct egress'
+        );
+        throw new ProxyConfigError(
+          'telebirr',
+          err instanceof Error ? err.message : 'proxy agent could not be constructed'
+        );
       }
     }
 
@@ -377,7 +393,7 @@ export class TelebirrAdapter extends BaseBankAdapter {
     return { name, identifier };
   }
 
-  private extractTimestamp(dataMap: Record<string, string>, fullText: string): Date {
+  private extractTimestamp(dataMap: Record<string, string>, fullText: string): Date | null {
     const timeFromTable =
       dataMap['payment time'] ||
       dataMap['transaction time'] ||
@@ -386,16 +402,18 @@ export class TelebirrAdapter extends BaseBankAdapter {
 
     if (timeFromTable) {
       const parsed = parseEthiopianBankTimestamp(timeFromTable);
-      if (!isNaN(parsed.getTime())) return parsed;
+      if (parsed !== null) return parsed;
     }
 
     const match = fullText.match(TELEBIRR_DATE_ISO_PATTERN) || fullText.match(TELEBIRR_DATE_SLASH_PATTERN);
     if (match) {
       const parsed = parseEthiopianBankTimestamp(match[1]);
-      if (!isNaN(parsed.getTime())) return parsed;
+      if (parsed !== null) return parsed;
     }
 
-    return new Date();
+    // Fail closed: an unparseable timestamp must not become "now", or the recency
+    // gate would pass every stale receipt.
+    return null;
   }
 
   private normalizePhoneNumber(raw: string): string {

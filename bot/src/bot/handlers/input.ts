@@ -158,6 +158,15 @@ function formatBuyerFailureReply(result: VerificationResult, order: Order): stri
         `Your receipt has been forwarded to our administrators for manual verification. You will be notified as soon as it is approved!`
       );
 
+    case 'AUTO_VERIFY_DISABLED':
+      return (
+        `✅ <b>Receipt Received (Order #${escapeHtml(orderId)})</b>\n\n` +
+        `We have recorded your transaction details. This order is now in <b>manual review</b> — ` +
+        `one of our administrators will verify your transfer shortly.\n\n` +
+        `You will receive your subscription / activation details as soon as it is approved. ` +
+        `Thank you for your patience!`
+      );
+
     default: {
       const detail = result.error?.detail || 'Verification could not be completed automatically.';
       return (

@@ -25,6 +25,7 @@ const __dirname = path.dirname(__filename);
 const migrationsDir = path.join(__dirname, '../src/db/migrations');
 
 process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ';
+process.env.ADMIN_IDS = process.env.ADMIN_IDS || '111111111';
 
 describe('Receipt Re-verification Flow Hardening (Issue 2)', () => {
   let db: Database.Database;

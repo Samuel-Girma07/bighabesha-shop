@@ -81,6 +81,54 @@ function sendProblemDetails(
   res.status(status).json(error);
 }
 
+/**
+ * Matches any embedded `scheme://user:pass@` credential in a URI.
+ * Used as a last-line sweep on outbound customer payloads so that no future
+ * error path can reintroduce a credential leak by putting a URL in a string
+ * field that is retained below.
+ */
+const PROXY_CREDENTIALS_PATTERN = /[a-z0-9+.-]+:\/\/[^\s/@:]+:[^\s/@]*@/gi;
+
+/**
+ * Projects an RFC 7807 problem onto a customer-safe shape.
+ *
+ * `details` carries operator diagnostics — proxy endpoints, order timestamps,
+ * parsed bank payloads — and is stripped entirely. Retained string fields are
+ * additionally swept for embedded credentials as defence in depth. The full
+ * problem is logged server-side by the caller.
+ *
+ * Exported for direct test coverage of the credential-leak invariant.
+ */
+export function toCustomerSafeProblem(problem: Rfc7807ProblemDetails | undefined): unknown {
+  if (!problem) return undefined;
+  const safe: Rfc7807ProblemDetails = { ...problem };
+  delete safe.details;
+  return Object.fromEntries(
+    Object.entries(safe).map(([key, value]) => [
+      key,
+      typeof value === 'string' ? value.replace(PROXY_CREDENTIALS_PATTERN, '[REDACTED]') : value,
+    ])
+  );
+}
+
+/**
+ * Strips the bank portal's full parsed page table (`rawAuditTrail`) from a
+ * successful verification result before it reaches the customer. It is retained
+ * on the persisted evidence row for audit, but it is raw bank markup, not
+ * something a buyer needs echoed back.
+ *
+ * Exported for direct test coverage of the data-minimisation invariant.
+ */
+export function toCustomerSafeResult(result: unknown): unknown {
+  const safe = { ...(result as Record<string, unknown>) };
+  const bankPayload = safe.bankPayload as Record<string, unknown> | undefined;
+  if (bankPayload && typeof bankPayload === 'object') {
+    const { rawAuditTrail: _auditTrail, ...rest } = bankPayload;
+    safe.bankPayload = rest;
+  }
+  return safe;
+}
+
 // ============================================================================
 // Auth & Payload Helpers
 // ============================================================================
@@ -272,7 +320,7 @@ receiptsRouter.post('/verify', async (req: Request, res: Response): Promise<void
           logger.warn({ orderId: order.id, err }, 'Async reseller fulfillment after webapp verification failed');
         });
       }
-      res.status(200).json(result);
+      res.status(200).json(toCustomerSafeResult(result));
     } else {
       if (botInstance) {
         void notifyAdminsVerificationFallback(botInstance, order, result).catch((err) => {
@@ -280,14 +328,20 @@ receiptsRouter.post('/verify', async (req: Request, res: Response): Promise<void
         });
       }
       const statusCode = result.error?.status || 422;
+      // Full problem (including `details`) is operator-only and goes to the log;
+      // the customer receives a credential-free projection.
+      logger.warn(
+        { orderId: order.id, code: result.error?.code, details: result.error?.details },
+        'Receipt verification rejected at API boundary'
+      );
       res.setHeader('Content-Type', 'application/problem+json');
-      res.status(statusCode).json(result.error);
+      res.status(statusCode).json(toCustomerSafeProblem(result.error));
     }
   } catch (err: unknown) {
     logger.error({ err, orderId }, 'Unhandled exception in /api/receipts/verify');
     if (err instanceof ReceiptVerificationError) {
       res.setHeader('Content-Type', 'application/problem+json');
-      res.status(err.problemDetails.status).json(err.problemDetails);
+      res.status(err.problemDetails.status).json(toCustomerSafeProblem(err.problemDetails));
       return;
     }
 

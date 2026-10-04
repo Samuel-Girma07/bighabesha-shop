@@ -2,6 +2,20 @@
 # Render.com Blueprint Specification for Bighabesha Shop
 # Free Tier + Backblaze B2 Continuous Cloud Replication (Litestream)
 # ==============================================================================
+#
+# Every variable below is READ by the application. Do not add "convenience" vars
+# that nothing consumes — an env var that is silently ignored is worse than a
+# missing one, because it creates false confidence.
+#
+#   * Automated bank-receipt verification is NOT configured here on purpose.
+#     It is a runtime setting stored in the `settings` table and toggled from the
+#     Admin Dashboard (key: `receipt_auto_verify_enabled`, default 0 / OFF).
+#     There is deliberately no RECEIPT_AUTO_VERIFY_ENABLED env var; adding one
+#     would be another dead knob.
+#   * `region: frankfurt` egresses from a German datacenter, which the Telebirr
+#     portal geo-blocks (HTTP 403/451). Automated verification therefore cannot
+#     succeed from this host even with the switch on. See the proxy notes below.
+# ==============================================================================
 
 services:
   - type: web
@@ -12,23 +26,95 @@ services:
     buildCommand: npm install -g pnpm@9 && pnpm install --frozen-lockfile && pnpm -r build
     startCommand: node scripts/run-with-litestream.mjs node bot/dist/index.js
     envVars:
+      # --- Core / boot-required -------------------------------------------------
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 10000
-      - key: WALLET_PAY_MODE
-        value: live
+      - key: LOG_LEVEL
+        value: info
       - key: BOT_TOKEN
         sync: false
       - key: ADMIN_IDS
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      # Boot-required in production. `bot/src/config/env.ts` refuses to start unless
+      # WALLET_PAY_MODE is explicitly "live" (mock auto-confirms real orders) and
+      # WALLET_PAY_API_KEY is set. Consumed by services/payments/index.ts,
+      # services/payments/live_wallet_pay.ts and bot.ts.
+      - key: WALLET_PAY_MODE
+        value: live
       - key: WALLET_PAY_API_KEY
         sync: false
       - key: WEBAPP_URL
         sync: false
-      # Backblaze B2 Continuous SQLite Replication & Receipt Persistence
+
+      # --- Networking ----------------------------------------------------------
+      # Express `trust proxy` hop count/expression. Defaults to "loopback" in
+      # production when empty, but set it explicitly.
+      - key: TRUST_PROXY
+        value: loopback
+      # Extra comma-separated CORS origins (WEBAPP_URL is always permitted).
+      - key: CORS_ORIGINS
+        value: ""
+
+      # --- Storefront / support / channel gates ---------------------------------
+      - key: SUPPORT_USERNAME
+        sync: false
+      - key: REQUIRED_CHANNEL_USERNAME
+        value: "@bighabesha_softwares"
+      - key: REQUIRED_CHANNEL_LINK
+        value: "https://t.me/bighabesha_softwares"
+      - key: FORCE_SUBSCRIBE
+        value: "true"
+
+      # --- Storage -------------------------------------------------------------
+      - key: DATA_DIR
+        value: ""
+      - key: B2_REGION
+        value: ""
+
+      # --- Telegram Premium reseller (B2B float line) ---------------------------
+      # RESELLER_PROVIDER: mock | gramix | istar | generic | both | cascade
+      # Without this, Premium orders fall back to the manual fulfillment queue.
+      - key: RESELLER_PROVIDER
+        value: both
+      - key: GRAMIX_API_KEY
+        sync: false
+      - key: ISTAR_API_KEY
+        sync: false
+      - key: RESELLER_API_KEY
+        sync: false
+      - key: RESELLER_API_URL
+        value: ""
+      - key: RESELLER_LOW_BALANCE_ALERT_USDT
+        value: "50"
+
+      # --- Ethiopian bank receipt verification ---------------------------------
+      # CBE portal listens on a non-standard port; PaaS firewalls often block it.
+      # The adapter transparently falls back to 443 on ECONNREFUSED.
+      - key: RECEIPT_CBE_PORT
+        value: "100"
+      # Receipt image size cap and default retention. Read via the Zod schema.
+      - key: RECEIPT_MAX_BYTES
+        value: "5242880"
+      - key: RECEIPT_RETENTION_DAYS
+        value: "90"
+      # Telebirr egress. The portal geo-blocks non-Ethiopian IPs, and this host is
+      # a German datacenter, so automated Telebirr verification is unreachable
+      # from here. A proxy URI is optional and unused while
+      # `receipt_auto_verify_enabled` is 0.
+      #
+      # IMPORTANT: this must be an HTTP/HTTPS (CONNECT) proxy. SOCKS5 is NOT
+      # supported — the client uses HttpsProxyAgent, which cannot speak SOCKS5.
+      - key: TELEBIRR_PROXY_URL
+        value: ""
+      # Backward-compatible alias for TELEBIRR_PROXY_URL.
+      - key: ETHIOPIA_PROXY_URL
+        value: ""
+
+      # --- Backblaze B2 continuous SQLite replication & receipt persistence -----
       - key: B2_BUCKET
         sync: false
       - key: B2_ENDPOINT

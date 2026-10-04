@@ -580,7 +580,7 @@ All verification engine keys are registered in `KNOWN_SETTING_KEYS` (`bot/src/se
 | `receipt_cbe_beneficiaries` | `string` (CSV) | `""` | Comma-separated secondary/alternative CBE account numbers permitted by whitelist. |
 | `receipt_telebirr_beneficiaries` | `string` (CSV) | `""` | Comma-separated secondary/alternative Telebirr accounts permitted by whitelist. |
 | `receipt_abyssinia_beneficiaries` | `string` (CSV) | `""` | Comma-separated secondary/alternative Abyssinia accounts permitted by whitelist. |
-| `receipt_ethiopia_proxy_url` | `string` (URI) | `""` | HTTP/SOCKS5 proxy URI for routing bank verification egress through Ethiopian residential IPs. |
+| `receipt_ethiopia_proxy_url` | `string` (URI) | `""` | HTTP/HTTPS proxy URI for routing bank verification egress through Ethiopian residential IPs. `socks5://` is rejected: the agent speaks HTTP CONNECT only. |
 
 ### 6.3 Example Payloads
 
