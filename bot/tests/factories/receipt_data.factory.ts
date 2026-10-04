@@ -100,6 +100,11 @@ export function generateSyntheticTelebirrHtml(options: SyntheticTelebirrHtmlOpti
   const debitedParty = options.debitedParty || '0988776655';
   const debitedName = options.debitedPartyName || 'Customer Abebe';
 
+  // The live portal states its verdict as "transaction status Completed" in a
+  // single cell. The Telebirr adapter now requires that positive confirmation
+  // (F1), so every generated receipt must carry it.
+  const statusRow = `<tr><td colspan="3">transaction status ${badge}</td></tr>`;
+
   if (options.tableLayoutVariant === 'extra_columns') {
     return `
       <!DOCTYPE html>
@@ -123,6 +128,7 @@ export function generateSyntheticTelebirrHtml(options: SyntheticTelebirrHtmlOpti
               <tr><td>Credited Party Name</td><td>${creditedName}</td><td>Merchant</td></tr>
               <tr><td>Debited Party</td><td>${debitedParty}</td><td>Verified</td></tr>
               <tr><td>Payment Time</td><td>${time}</td><td>Success</td></tr>
+              ${statusRow}
             </tbody>
           </table>
         </div>
@@ -173,6 +179,9 @@ export function generateSyntheticTelebirrHtml(options: SyntheticTelebirrHtmlOpti
           <tr>
             <th>Payment Time</th>
             <td>${time}</td>
+          </tr>
+          <tr>
+            <td colspan="2">transaction status ${badge}</td>
           </tr>
         </table>
       </div>

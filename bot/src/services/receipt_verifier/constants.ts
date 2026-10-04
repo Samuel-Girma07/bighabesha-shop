@@ -161,6 +161,25 @@ export function parseEthiopianBankTimestamp(rawDateStr: string | Date | undefine
   const trimmed = String(rawDateStr).trim();
   if (!trimmed) return null;
 
+  // 0. Day-first dashed format: DD-MM-YYYY[ T]HH:mm:ss(.sss)?
+  //
+  // Verified against a live Telebirr receipt page, which renders the payment
+  // date as "04-10-2026 10:36:07".
+  //
+  // This MUST be tested before the explicit-offset shortcut below. That regex
+  // is `[+-]\d{2}:?\d{2}$`, and the tail of "04-10-2026" is "-2026", which it
+  // matches as an offset — so the value reached `new Date()` first, where V8
+  // reads it month-first and silently yields April 10 instead of October 4.
+  // A day-first date must never be handed to the engine's default parser.
+  const dashDayFirstMatch = trimmed.match(/^(\d{2})-(\d{2})-(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?/);
+  if (dashDayFirstMatch) {
+    const [, d, m, y, hh = '00', mm = '00', ss = '00', ms] = dashDayFirstMatch;
+    const msStr = ms ? `.${ms}` : '';
+    const isoString = `${y}-${m}-${d}T${hh}:${mm}:${ss}${msStr}+03:00`;
+    const parsed = new Date(isoString);
+    if (!isNaN(parsed.getTime())) return parsed;
+  }
+
   // If already has explicit timezone offset or Zulu indicator, parse directly
   if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(trimmed)) {
     const d = new Date(trimmed);

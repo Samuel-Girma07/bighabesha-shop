@@ -178,7 +178,8 @@ describe('Recency pillar fails closed on an unverifiable timestamp', () => {
     const html = `
       <html><body>
         <table><tr><th>Amount</th><td>1,250.00</td></tr>
-        <tr><th>Receipt Number</th><td>FT_TB_NO_DATE_001</td></tr></table>
+        <tr><th>Receipt Number</th><td>FT_TB_NO_DATE_001</td></tr>
+        <tr><td>transaction status Completed</td></tr></table>
         <p>No date appears anywhere in this document.</p>
       </body></html>
     `;
@@ -197,7 +198,7 @@ describe('Recency pillar fails closed on an unverifiable timestamp', () => {
     expect(cbe.transactionTimestamp).toBeNull();
 
     const telebirr = new TelebirrAdapter().parseHtmlResponse(
-      `<html><body><p>Date: 2026-13-45 99:99:99</p><p>Receipt Number: FT_TB_BAD_DATE</p></body></html>`,
+      `<html><body><p>Date: 2026-13-45 99:99:99</p><p>Receipt Number: FT_TB_BAD_DATE</p><p>transaction status Completed</p></body></html>`,
       reference('FT_TB_BAD_DATE')
     );
     expect(telebirr.transactionTimestamp).toBeNull();
@@ -214,7 +215,7 @@ describe('Recency pillar fails closed on an unverifiable timestamp', () => {
     expect(isNaN(cbe.transactionTimestamp!.getTime())).toBe(false);
 
     const telebirr = new TelebirrAdapter().parseHtmlResponse(
-      `<html><body><p>Date: ${iso}</p><p>Receipt Number: FT_TB_WITH_DATE</p></body></html>`,
+      `<html><body><p>Date: ${iso}</p><p>Receipt Number: FT_TB_WITH_DATE</p><p>transaction status Completed</p></body></html>`,
       reference('FT_TB_WITH_DATE')
     );
     expect(telebirr.transactionTimestamp).not.toBeNull();

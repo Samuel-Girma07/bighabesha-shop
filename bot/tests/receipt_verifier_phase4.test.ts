@@ -395,6 +395,7 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
               <tr><th>Credited Party Name</th><td>Bighabesha Shop</td></tr>
               <tr><th>Debited Party</th><td>0988776655</td></tr>
               <tr><th>Payment Time</th><td>2026-09-08 10:15:00</td></tr>
+              <tr><td colspan="2">transaction status COMPLETED</td></tr>
             </table>
           </body>
         </html>
