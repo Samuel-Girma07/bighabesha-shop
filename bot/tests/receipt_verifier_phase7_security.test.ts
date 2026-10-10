@@ -15,7 +15,7 @@ import { isPrivateOrReservedIp } from '../src/services/receipt_verifier/adapters
 import { SecurityGateService } from '../src/services/receipt_verifier/security_gate.service.js';
 import { ReceiptIngestionService } from '../src/services/receipt_verifier/ingestion.service.js';
 import { CBE_PERMITTED_HOSTNAMES } from '../src/services/receipt_verifier/constants.js';
-import { validateVerificationSettings } from '../src/services/settings.service.js';
+import { isKnownSettingKey, validateVerificationSettings } from '../src/services/settings.service.js';
 
 process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ';
 process.env.ADMIN_IDS = process.env.ADMIN_IDS || '12345678,87654321';
@@ -217,7 +217,11 @@ describe('Phase 7: SAST & SCA Security Hardening Suite', () => {
     });
 
     it('bounds huge text payloads without memory or CPU exhaustion', async () => {
-      const hugeText = 'FT24252Y8WQM ' + 'A'.repeat(500_000);
+      // Padded with a real CBE receipt link so the payload is recognised rather
+      // than rejected outright: the point of the test is the bound, not the
+      // rejection path.
+      const token = 'v2-Ts7Qv4Nb2Xk9Rm5Pw3Zd';
+      const hugeText = 'https://mbreciept.cbe.com.et/' + token + ' ' + 'A'.repeat(500_000);
       const startTime = Date.now();
 
       const result = await ingestion.ingestText(hugeText);
@@ -225,7 +229,7 @@ describe('Phase 7: SAST & SCA Security Hardening Suite', () => {
 
       expect(durationMs).toBeLessThan(100);
       expect(result.bank).toBe('cbe');
-      expect(result.normalizedReference).toBe('FT24252Y8WQM');
+      expect(result.normalizedReference).toBe(token);
     });
   });
 
@@ -234,21 +238,31 @@ describe('Phase 7: SAST & SCA Security Hardening Suite', () => {
   // ============================================================================
 
   describe('4. Parameter Tampering & Port Whitelisting Defense (CWE-20)', () => {
-    it('strictly restricts receipt_cbe_port to allowed gateway ports (100 or 443)', () => {
-      // Valid ports
+    /**
+     * The port-100 SSRF surface this block used to guard no longer exists.
+     *
+     * `receipt_cbe_port` selected the ingress port of the legacy
+     * `apps.cbe.com.et` portal flow, which was retired. The CBE rail now talks
+     * to `mbreciept.cbe.com.et` on 443 like every other rail, so there is no port
+     * an operator can point at an internal service any more — the SSRF finding
+     * (T-03, docs/security/PHASE-7-DASHBOARD-SECURITY-REPORT.md:65) is resolved
+     * by deletion, not by an enum check on a value nothing reads.
+     *
+     * What is asserted instead is the invariant that keeps that deletion safe:
+     * the key must STAY registered. `GET /api/admin/settings` returns every
+     * stored row and the dashboard PUTs the whole object back, so an existing
+     * `'100'` that is no longer a known key makes every admin settings save fail
+     * with HTTP 400 — the same outage this very setting once caused. The
+     * end-to-end round-trip assertion lives in `admin_settings_roundtrip.test.ts`.
+     */
+    it('keeps the retired receipt_cbe_port key registered but unvalidated', () => {
+      expect(isKnownSettingKey('receipt_cbe_port')).toBe(true);
+
+      // No enum rule any more: the stored value passes through untouched,
+      // whatever it is, because no code path reads it.
       expect(validateVerificationSettings({ receipt_cbe_port: '100' }).isValid).toBe(true);
       expect(validateVerificationSettings({ receipt_cbe_port: '443' }).isValid).toBe(true);
-
-      // Malicious or unauthorized internal ports (SSRF / port probing attempts)
-      const invalid22 = validateVerificationSettings({ receipt_cbe_port: '22' });
-      expect(invalid22.isValid).toBe(false);
-      expect(invalid22.errors[0]).toContain('receipt_cbe_port must be either "100" or "443"');
-
-      const invalid8080 = validateVerificationSettings({ receipt_cbe_port: '8080' });
-      expect(invalid8080.isValid).toBe(false);
-
-      const invalidAlpha = validateVerificationSettings({ receipt_cbe_port: 'http' });
-      expect(invalidAlpha.isValid).toBe(false);
+      expect(validateVerificationSettings({ receipt_cbe_port: '22' }).isValid).toBe(true);
     });
   });
 });

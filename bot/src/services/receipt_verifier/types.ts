@@ -51,7 +51,11 @@ export type SecurityPillarId =
   | 'anti_replay'
   | 'beneficiary_whitelist'
   | 'exact_amount'
-  | 'recency_window';
+  | 'recency_window'
+  // Optional fifth pillar, appended only when the rail reports a trustworthy
+  // credited-party name AND an operator has configured the expected name. See
+  // `SecurityGateService.evaluateBeneficiaryNamePillar`.
+  | 'beneficiary_name';
 
 /** State of the circuit breaker protecting upstream bank portals */
 export type CircuitBreakerState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
@@ -73,6 +77,7 @@ export type VerificationFailureCode =
   | 'PORTAL_GEOBLOCKED'           // 502 Bad Gateway: Upstream gateway blocked non-Ethiopian egress
   | 'PROXY_CONFIG_INVALID'        // 500 Internal Server Error: Configured egress proxy is unusable
   | 'UNSUPPORTED_BANK'            // 400 Bad Request: Rail or format not supported by automated engine
+  | 'INVALID_RECEIPT_REFERENCE'   // 422 Unprocessable: Bank rejected the submitted reference as invalid/tampered
   | 'AUTO_VERIFY_DISABLED'        // 503 Service Unavailable: Automated verification switched off by operator
   | 'CORRUPTED_FILE'              // 400 Bad Request: Magic byte validation or image parsing failed
   | 'RATE_LIMITED'                // 429 Too Many Requests: Rate limit exceeded for verification
@@ -331,6 +336,49 @@ export class UnconfirmedTransactionError extends ReceiptVerificationError {
   }
 }
 
+/**
+ * Raised when the bank itself rejects the submitted reference as invalid or
+ * tampered.
+ *
+ * Distinct from `BankPortalUnavailableError`, and the distinction matters: CBE
+ * answers an unknown or tampered token with **HTTP 500** and an RFC 7807 body
+ * whose `detail` reads "Security Alert: Invalid or tampered legacy token!".
+ * Treating that as a generic upstream failure told the operator "the bank is
+ * down, retry" for what is actually a permanent, unfixable-by-retrying customer
+ * data error, and routed the order into the retry-heavy outage bucket instead of
+ * the manual-review queue where a human can look at the SMS.
+ *
+ * Deliberately distinct from `UnconfirmedTransactionError` too: that one means
+ * the bank understood the reference but has not completed the payment. This one
+ * means the bank never resolved a transaction at all.
+ */
+export class InvalidReceiptReferenceError extends ReceiptVerificationError {
+  /**
+   * Why the reference was rejected, kept verbatim for the operator audit trail.
+   *
+   * For an upstream rejection this is the bank's own RFC 7807 `detail` text
+   * (e.g. "Security Alert: Invalid or tampered legacy token!"). For a reference
+   * rejected locally, before any egress, it is the engine's own reason.
+   */
+  public readonly reason?: string;
+
+  constructor(reference: string, reason?: string, instance?: string) {
+    super(
+      'INVALID_RECEIPT_REFERENCE',
+      422,
+      'Receipt Reference Not Verifiable',
+      reason
+        ? `Reference '${reference}' cannot be verified as a CBE transaction: ${reason}`
+        : `Reference '${reference}' cannot be verified as a CBE transaction.`,
+      'This transaction reference is not one the bank recognises. Please forward the exact confirmation SMS (or the full receipt link) you received from your bank.',
+      instance,
+      { reference, reason: reason || null }
+    );
+    this.name = 'InvalidReceiptReferenceError';
+    this.reason = reason;
+  }
+}
+
 export class PortalGeoblockedError extends ReceiptVerificationError {
   /**
    * `proxyEndpoint` is sanitised here at the single choke point through which
@@ -473,7 +521,13 @@ export interface BankTransactionPayload {
   senderIdentifier?: string;
   /** Confirmed beneficiary account number or merchant identifier */
   beneficiaryAccount: string;
-  /** Confirmed beneficiary account name (e.g. 'Samuel Girma') */
+  /**
+   * Confirmed beneficiary account name, e.g. 'Bighabesha Shop'.
+   *
+   * Merchant name only, never a payer: this field is a *credited* party, but
+   * comments and fixtures around it once carried a real customer's name lifted
+   * off a live receipt, and that must never reach the repo again.
+   */
   beneficiaryName: string;
   /**
    * Verified bank transaction execution timestamp.
@@ -502,9 +556,13 @@ export interface BankVerificationOptions {
   timeoutMs?: number;
   /** Custom egress proxy URL for bypassing geo-blocks (e.g. for Telebirr) */
   proxyUrl?: string;
-  /** Force port 100 direct egress for CBE */
-  forcePort100?: boolean;
-  /** Bypass circuit breaker state (admin override only) */
+  /**
+   * Bypass circuit breaker state (admin override only)
+   *
+   * The former `forcePort100` knob was removed with the legacy CBE
+   * `apps.cbe.com.et` port-100 flow: the CBE rail now queries a single
+   * HTTPS/443 JSON endpoint, so there is no port left to force.
+   */
   bypassCircuitBreaker?: boolean;
 }
 

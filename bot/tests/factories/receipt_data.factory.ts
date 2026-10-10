@@ -365,7 +365,7 @@ export function createMockBankPayload(overrides: Partial<BankTransactionPayload>
     feeEtb: overrides.feeEtb || 0,
     senderName: overrides.senderName || 'ABEBE BIKILA',
     senderIdentifier: overrides.senderIdentifier || '100099887766',
-    beneficiaryAccount: overrides.beneficiaryAccount || '1000123456789',
+    beneficiaryAccount: overrides.beneficiaryAccount || FIXTURES.cbe.validAccount,
     beneficiaryName: overrides.beneficiaryName || 'Bighabesha Shop',
     transactionTimestamp: overrides.transactionTimestamp || new Date(),
     paymentChannel: overrides.paymentChannel || 'cbe_digital',
@@ -395,8 +395,12 @@ export function createMockReceiptSubmission(overrides: Partial<ReceiptSubmission
 
 export const FIXTURES = Object.freeze({
   cbe: {
-    validAccount: '1000123456789',
-    foreignAccount: '1000999999999',
+    // Both rails publish the credited account MASKED (Telebirr: NNNN****NNNN;
+    // CBE: 13 chars with asterisks) and neither exposes an unmasked number.
+    // Fixtures use the masked form so a whitelist comparison in a test reflects
+    // what production actually receives.
+    validAccount: '1000******000',
+    foreignAccount: '1000******777',
     validRef: 'FT24252Y8WQM',
     altRef: 'FT9988776655',
     beneficiaryName: 'Bighabesha Shop',

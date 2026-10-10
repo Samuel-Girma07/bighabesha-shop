@@ -3213,31 +3213,6 @@
   font-weight: 600;
 }
 
-.port-choice-pill {
-  padding: 6px 12px;
-  border-radius: var(--admin-radius-sm);
-  font-size: 12px;
-  font-weight: 700;
-  font-family: var(--font-admin-ui);
-  background: var(--admin-pill-bg);
-  border: 1px solid var(--admin-border);
-  color: var(--admin-text-muted);
-  cursor: pointer;
-  transition: all 0.18s ease;
-}
-
-.port-choice-pill.active {
-  background: var(--admin-accent-dim);
-  border-color: var(--admin-accent);
-  color: var(--admin-accent-text);
-  box-shadow: 0 0 10px var(--admin-accent-glow);
-}
-
-.port-choice-pill:hover:not(.active):not(:disabled) {
-  border-color: var(--admin-border-hover);
-  color: var(--admin-text-pure);
-}
-
 /* ── 5. Audit Evidence Modal Layout & 4-Pillar Security Gates ───────── */
 .audit-modal-container {
   max-width: 860px;

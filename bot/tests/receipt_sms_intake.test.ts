@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
 import { initDatabase, closeDatabase } from '../src/db/index.js';
-import { createOrder, getOrderById } from '../src/services/orders.service.js';
+import { createOrder, getOrderById, updateOrderStatus } from '../src/services/orders.service.js';
 import { setPendingAction, getPendingAction, clearPendingAction } from '../src/bot/session.js';
 import { handleTextInput, handlePhotoInput, handleDocumentInput } from '../src/bot/handlers/input.js';
 import { setReceiptOrchestratorForTest, resetReceiptOrchestrator } from '../src/services/receipt_verifier/index.js';
@@ -275,7 +275,10 @@ describe('Receipt SMS/Text Intake (SMS-only verification)', () => {
     }));
     setReceiptOrchestratorForTest({ processSubmission } as any);
 
-    const { ctx, repliedMessages, adminMessages } = makeTextCtx(buyerId, 'ETB 1,000.00 debited from your account. Ref: FT260904003');
+    const { ctx, repliedMessages, adminMessages } = makeTextCtx(
+      buyerId,
+      'ETB 1,000.00 debited from your account. Receipt: https://mbreciept.cbe.com.et/v2-Ts7Qv4Nb2Xk9Rm5Pw3Zd'
+    );
     const handled = await handleTextInput(ctx);
     expect(handled).toBe(true);
 
@@ -337,5 +340,96 @@ describe('Receipt SMS/Text Intake (SMS-only verification)', () => {
 
     expect(repliedMessages.some((m) => m.includes('Payment Verified'))).toBe(true);
     expect(getPendingAction(buyerId)).toBeFalsy();
+  });
+
+  /**
+   * P1 regression: the intake gate once hard-restricted submission to
+   * `awaiting_payment`. Every failed verification moves the order to
+   * `pending_approval` (the orchestrator's fallback path), so a single bad paste
+   * left the buyer permanently unable to send the corrected receipt that the
+   * manual-review queue is explicitly waiting for. `promptReceiptUpload` can
+   * still re-arm the session, but the gate then rejected the submission.
+   */
+  describe('resubmission after a failed attempt', () => {
+    const successSubmission = (orderId: string) => ({
+      success: true,
+      status: 'auto_verified' as const,
+      orderId,
+      bank: 'cbe' as const,
+      transactionReference: 'FT2609112244',
+      extractedData: {
+        bank: 'cbe' as const,
+        rawReference: 'FT2609112244',
+        normalizedReference: 'FT2609112244',
+        extractedAt: new Date(),
+        confidence: 0.9,
+        decodeMethod: 'sms_regex' as const,
+      },
+      bankPayload: {
+        bank: 'cbe' as const,
+        transactionReference: 'FT2609112244',
+        amountEtb: 1000,
+        feeEtb: 0,
+        currency: 'ETB' as const,
+        beneficiaryAccount: '1000123456789',
+        transactionTimestamp: new Date(),
+        rawAuditTrail: {},
+      },
+      needsAdminReview: false,
+      verifiedAt: new Date(),
+      processingDurationMs: 5,
+    });
+
+    it('accepts a corrected submission while the order rests in pending_approval', async () => {
+      const order = seedOrder();
+      // Exactly what a failed verification leaves behind.
+      updateOrderStatus(order.id, 'pending_approval', {
+        admin_notes: '[Fallback Review] Code: AMOUNT_MISMATCH',
+      });
+      expect(getOrderById(order.id)?.status).toBe('pending_approval');
+
+      const processSubmission = vi.fn(async () => successSubmission(order.id));
+      setReceiptOrchestratorForTest({ processSubmission } as any);
+
+      setPendingAction(buyerId, {
+        type: 'user_receipt_upload',
+        data: { orderId: order.id, attempts: 0 },
+      });
+
+      const { ctx, repliedMessages } = makeTextCtx(buyerId, 'FT2609112244');
+      const handled = await handleTextInput(ctx);
+      expect(handled).toBe(true);
+
+      // The submission reached the pipeline instead of being turned away...
+      expect(processSubmission).toHaveBeenCalledWith(
+        expect.objectContaining({ orderId: order.id, userId: buyerId, source: 'sms_forward' })
+      );
+      expect(repliedMessages.some((m) => m.includes('Cannot submit receipt'))).toBe(false);
+      expect(repliedMessages.some((m) => m.includes('Payment Verified'))).toBe(true);
+      expect(getPendingAction(buyerId)).toBeFalsy();
+    });
+
+    it('still refuses a submission for an already-fulfilled order', async () => {
+      const order = seedOrder();
+      updateOrderStatus(order.id, 'fulfilled', { fulfillment_payload: '3M Premium Key' });
+      expect(getOrderById(order.id)?.status).toBe('fulfilled');
+
+      const processSubmission = vi.fn(async () => successSubmission(order.id));
+      setReceiptOrchestratorForTest({ processSubmission } as any);
+
+      setPendingAction(buyerId, {
+        type: 'user_receipt_upload',
+        data: { orderId: order.id, attempts: 0 },
+      });
+
+      const { ctx, repliedMessages } = makeTextCtx(buyerId, 'FT2609112244');
+      const handled = await handleTextInput(ctx);
+      expect(handled).toBe(true);
+
+      // No second fulfillment can start: the pipeline is never invoked.
+      expect(processSubmission).not.toHaveBeenCalled();
+      expect(repliedMessages[0]).toContain('Cannot submit receipt: order is already <b>fulfilled</b>');
+      expect(getPendingAction(buyerId)).toBeFalsy();
+    });
   });
 });

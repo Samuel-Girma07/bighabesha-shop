@@ -15,7 +15,7 @@ import {
   type ReferralSummary,
   type PaymentRail,
 } from './api.ts';
-import { translations, Language } from './i18n.ts';
+import { translations, receiptNotePlaceholder, Language } from './i18n.ts';
 import {
   LogoIcon,
   CheckIcon,
@@ -1342,7 +1342,7 @@ const StoreFront: React.FC = () => {
                   </div>
                   <input
                     type="text"
-                    placeholder={t.paymentNotePlaceholder}
+                    placeholder={receiptNotePlaceholder(lang, selectedPaymentRail)}
                     value={receiptNote}
                     onChange={(e) => setReceiptNote(e.target.value)}
                     style={{

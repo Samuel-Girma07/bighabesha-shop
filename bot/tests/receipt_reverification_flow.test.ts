@@ -19,6 +19,13 @@ import {
   createTestOrderModel,
   FIXTURES,
 } from './factories/receipt_data.factory.js';
+import {
+  SYNTHETIC_CBE_TOKEN,
+  SYNTHETIC_CBE_TX_ID,
+  SYNTHETIC_MASKED_ACCOUNT,
+  buildCbeApiBody,
+  cbeReceiptUrl,
+} from './factories/cbe_api_response.factory.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,9 +42,12 @@ describe('Receipt Re-verification Flow Hardening (Issue 2)', () => {
 
     // Seed default settings and test configuration
     setSetting('receipt_auto_verify_enabled', '1');
-    setSetting('receipt_cbe_beneficiaries', JSON.stringify([FIXTURES.cbe.validAccount]));
+    // The bank publishes the credited account MASKED, so the whitelist is
+    // configured in the same masked form; the gate's wildcard comparison then
+    // matches only the digits the bank actually reveals.
+    setSetting('receipt_cbe_beneficiaries', JSON.stringify([SYNTHETIC_MASKED_ACCOUNT]));
     setSetting('receipt_telebirr_beneficiaries', JSON.stringify([FIXTURES.telebirr.validPhone]));
-    setSetting('cbe_account', FIXTURES.cbe.validAccount);
+    setSetting('cbe_account', SYNTHETIC_MASKED_ACCOUNT);
     setSetting('receipt_recency_before_mins', '120');
     setSetting('receipt_recency_after_mins', '120');
 
@@ -62,8 +72,8 @@ describe('Receipt Re-verification Flow Hardening (Issue 2)', () => {
       status: 'pending_approval',
     });
 
-    // Generate a valid CBE QR receipt image
-    const qrUrl = 'https://apps.cbe.com.et:100/?id=FT_REVERIFY_DISK_001';
+    // Generate a valid CBE QR receipt image carrying the live receipt link
+    const qrUrl = cbeReceiptUrl();
     const qrPng = await generateValidQrImage(qrUrl);
 
     // Save image to disk using receipt service
@@ -76,20 +86,12 @@ describe('Receipt Re-verification Flow Hardening (Issue 2)', () => {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(order.id, 1001, 'cbe', 'telegram_photo', saved.filePath, 'image/png', 1250, 'pending_manual_review');
 
-    // Mock upstream CBE bank portal response
-    const mockHtml = `
-      <html><body>
-        <div>Amount: 1,250.00 ETB</div>
-        <div>Reference: FT_REVERIFY_DISK_001</div>
-        <div>Credited Account: ${FIXTURES.cbe.validAccount}</div>
-        <div>Receiver: ${FIXTURES.cbe.beneficiaryName}</div>
-        <div>Date: ${new Date().toISOString()}</div>
-      </body></html>
-    `;
+    // Mock the upstream CBE transaction-detail API. Note the reference the
+    // pipeline records is the bank's own transaction id, not the pasted token.
     vi.spyOn(global, 'fetch').mockResolvedValueOnce(
-      new Response(mockHtml, {
+      new Response(buildCbeApiBody(), {
         status: 200,
-        headers: { 'content-type': 'text/html' },
+        headers: { 'content-type': 'application/json' },
       })
     );
 
@@ -98,13 +100,13 @@ describe('Receipt Re-verification Flow Hardening (Issue 2)', () => {
 
     expect(result.success).toBe(true);
     expect(result.status).toBe('auto_verified');
-    expect(result.transactionReference).toBe('FT_REVERIFY_DISK_001');
+    expect(result.transactionReference).toBe(SYNTHETIC_CBE_TX_ID);
 
     // Order should be fulfilled with stock payload allocated
     const updatedOrder = getOrderById(order.id)!;
     expect(updatedOrder.status).toBe('fulfilled');
     expect(updatedOrder.fulfillment_payload).toContain('REVERIFY_STOCK_001');
-    expect(updatedOrder.payment_ref).toBe('FT_REVERIFY_DISK_001');
+    expect(updatedOrder.payment_ref).toBe(SYNTHETIC_CBE_TX_ID);
 
     // Clean up test file
     await fsp.unlink(saved.filePath).catch(() => {});
@@ -135,27 +137,18 @@ describe('Receipt Re-verification Flow Hardening (Issue 2)', () => {
       'cbe',
       'telegram_photo',
       saved.filePath,
-      'FT_FALLBACK_REF_002',
-      'FT_FALLBACK_REF_002',
+      SYNTHETIC_CBE_TOKEN,
+      SYNTHETIC_CBE_TOKEN,
       'image/png',
       1250,
       'pending_manual_review'
     );
 
-    // Mock upstream CBE bank portal response for the reference code
-    const mockHtml = `
-      <html><body>
-        <div>Amount: 1,250.00 ETB</div>
-        <div>Reference: FT_FALLBACK_REF_002</div>
-        <div>Credited Account: ${FIXTURES.cbe.validAccount}</div>
-        <div>Receiver: ${FIXTURES.cbe.beneficiaryName}</div>
-        <div>Date: ${new Date().toISOString()}</div>
-      </body></html>
-    `;
+    // Mock upstream CBE transaction-detail API for the stored reference code
     vi.spyOn(global, 'fetch').mockResolvedValueOnce(
-      new Response(mockHtml, {
+      new Response(buildCbeApiBody(), {
         status: 200,
-        headers: { 'content-type': 'text/html' },
+        headers: { 'content-type': 'application/json' },
       })
     );
 
@@ -164,7 +157,7 @@ describe('Receipt Re-verification Flow Hardening (Issue 2)', () => {
 
     expect(result.success).toBe(true);
     expect(result.status).toBe('auto_verified');
-    expect(result.transactionReference).toBe('FT_FALLBACK_REF_002');
+    expect(result.transactionReference).toBe(SYNTHETIC_CBE_TX_ID);
 
     // Clean up test file
     await fsp.unlink(saved.filePath).catch(() => {});

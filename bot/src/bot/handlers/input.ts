@@ -3,7 +3,7 @@ import { getPendingAction, setPendingAction, clearPendingAction } from '../sessi
 import { formatPriceETB, updateVariantPrice, getProductById } from '../../services/catalog.service.js';
 import { addStockLink, importStockCSV, getTotalStockCount } from '../../services/stock.service.js';
 import { setSetting, getSetting } from '../../services/settings.service.js';
-import { isCircuitBreakerSettingKey } from '../../services/receipt_verifier/constants.js';
+import { AUTO_FULFILLABLE_ORDER_STATUSES, isCircuitBreakerSettingKey } from '../../services/receipt_verifier/constants.js';
 import { isAdmin, renderAdminProducts, renderAdminRates, renderAdminSettings, renderAdminStock } from './admin.js';
 import { submitReceipt, rejectReceipt, getOrderById, fulfillOrderWithProof, refundOrder, sanitizeUsername, InvalidUsernameError, Order } from '../../services/orders.service.js';
 import { notifyAdminsNewReceipt, notifyAdminsVerificationFallback, initiateCheckout } from './checkout.js';
@@ -12,7 +12,7 @@ import { previewBroadcastDraft } from './broadcast.js';
 import { renderAdminOrdersQueue } from './admin_queue.js';
 import { escapeHtml, splitTelegramCaption, formatFulfillmentDeliveryMessage } from '../../utils/html.js';
 import { logger, redactSecret } from '../../logger/index.js';
-import { renderPaymentRailSelection } from './checkout.js';
+import { renderPaymentRailSelection, receiptReferenceExample } from './checkout.js';
 import { getConfig } from '../../config/env.js';
 import { isResellerEligible, triggerAutoResellerDelivery } from '../../services/reseller.service.js';
 import type { VerificationResult, IReceiptOrchestrator } from '../../services/receipt_verifier/types.js';
@@ -24,6 +24,20 @@ const MAX_RECEIPT_TEXT_ATTEMPTS = 3;
 async function getOrchestrator(): Promise<IReceiptOrchestrator> {
   const { getReceiptOrchestrator } = await import('../../services/receipt_verifier/index.js');
   return getReceiptOrchestrator();
+}
+
+/**
+ * Whether a buyer may still submit a receipt against an order in this state.
+ *
+ * Delegates to the orchestrator's own `AUTO_FULFILLABLE_ORDER_STATUSES`, which
+ * is the same set that gates fulfillment, so intake can never accept a state the
+ * pipeline would refuse. It must include `pending_approval`: that is the resting
+ * state of every order whose first submission failed verification, so excluding
+ * it left customers permanently unable to send the corrected receipt the manual
+ * review queue is waiting for.
+ */
+function isReceiptSubmissionAllowed(orderStatus: string): boolean {
+  return AUTO_FULFILLABLE_ORDER_STATUSES.has(orderStatus);
 }
 
 let textIngestionService: { ingestText(rawText: string): Promise<unknown> } | undefined;
@@ -291,7 +305,7 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
       await ctx.reply('Order not found.');
       return true;
     }
-    if (targetOrder.status !== 'awaiting_payment') {
+    if (!isReceiptSubmissionAllowed(targetOrder.status)) {
       clearPendingAction(userId);
       await ctx.reply(`⚠️ Cannot submit receipt: order is already <b>${escapeHtml(targetOrder.status)}</b>.`, { parse_mode: 'HTML' });
       return true;
@@ -342,12 +356,16 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
       // Keep the pending action armed with an incremented attempt counter.
       setPendingAction(userId, { type: 'user_receipt_upload', data: { orderId, attempts: nextAttempts } }, 15);
 
+      // Same rail-aware example the upload prompt shows, so a buyer who is
+      // mid-retry is never told to type a format the engine rejects by design.
+      const refExample = receiptReferenceExample(targetOrder.payment_rail);
+
       const guidanceMsg = isAmharic
         ? `⚠️ <b>የትራንዛክሽን ቁጥር ማግኘት አልተቻለም</b>\n\n` +
-          `እባክዎ ከቴሌብር / CBE የደረሰዎትን ትክክለኛ የማረጋገጫ <b>SMS</b> አግብረው (forward) ወይም ሙሉ ጽሑፉን ቅድተው ይላኩ፣ ወይም የትራንዛክሽን ቁጥሩን ብቻ ይፃፉ (ለምሳሌ፦ <code>FT26090123456789</code>)።\n\n` +
+          `እባክዎ ከቴሌብር / CBE የደረሰዎትን ትክክለኛ የማረጋገጫ <b>SMS</b> አግብረው (forward) ወይም ሙሉ ጽሑፉን ቅድተው ይላኩ፣ ወይም የትራንዛክሽን ቁጥሩን ብቻ ይፃፉ (ለምሳሌ፦ <code>${refExample.example}</code>)።\n\n` +
           `ሙከራ <b>${nextAttempts}</b> ከ <b>${MAX_RECEIPT_TEXT_ATTEMPTS}</b>። ለመሰረዝ <b>/cancel</b> ይፃፉ።`
         : `⚠️ <b>Could not find a transaction reference</b>\n\n` +
-          `Please send the exact confirmation <b>SMS</b> you received from Telebirr / CBE — forward it or copy-paste the full text — or type only the transaction reference number (e.g. <code>FT26090123456789</code>).\n\n` +
+          `Please send the exact confirmation <b>SMS</b> you received from Telebirr / CBE — forward it or copy-paste the full text — or type only the transaction reference number (e.g. <code>${refExample.example}</code>).\n\n` +
           `Attempt <b>${nextAttempts}</b> of <b>${MAX_RECEIPT_TEXT_ATTEMPTS}</b>. Type <b>/cancel</b> to abort.`;
 
       await ctx.reply(guidanceMsg, { parse_mode: 'HTML' });
@@ -671,7 +689,7 @@ export async function handlePhotoInput(ctx: Context): Promise<boolean> {
       await ctx.reply('Order not found.');
       return true;
     }
-    if (targetOrder.status !== 'awaiting_payment') {
+    if (!isReceiptSubmissionAllowed(targetOrder.status)) {
       clearPendingAction(userId);
       await ctx.reply(`⚠️ Cannot submit receipt: order is already <b>${escapeHtml(targetOrder.status)}</b>.`, { parse_mode: 'HTML' });
       return true;
@@ -705,7 +723,7 @@ export async function handleDocumentInput(ctx: Context): Promise<boolean> {
       await ctx.reply('Order not found.');
       return true;
     }
-    if (targetOrder.status !== 'awaiting_payment') {
+    if (!isReceiptSubmissionAllowed(targetOrder.status)) {
       clearPendingAction(userId);
       await ctx.reply(`⚠️ Cannot submit receipt: order is already <b>${escapeHtml(targetOrder.status)}</b>.`, { parse_mode: 'HTML' });
       return true;

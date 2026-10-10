@@ -357,10 +357,16 @@ describe('Domain Defect Remediation Suite', () => {
         })),
       } as any);
 
+      // The CBE rail claims its reference from the receipt link in the confirmation
+      // SMS. A bare `FT…` inside prose is no longer a recognised intake form on
+      // that rail, so the test uses the format the bank actually sends.
+      const token = 'v2-Ts7Qv4Nb2Xk9Rm5Pw3Zd';
       let replyMsg = '';
       const mockCtx: any = {
         from: { id: 1001 },
-        message: { text: 'ETB 1,500.00 debited from your account. Ref: FT260904003' },
+        message: {
+          text: 'ETB 1,500.00 debited from your account. Receipt: https://mbreciept.cbe.com.et/' + token,
+        },
         reply: async (msg: string) => {
           replyMsg = msg;
         },

@@ -44,6 +44,12 @@ import {
   createMockBankPayload,
   FIXTURES,
 } from './factories/receipt_data.factory.js';
+import {
+  SYNTHETIC_CBE_TOKEN,
+  SYNTHETIC_MASKED_ACCOUNT,
+  cbeReference,
+  cbeReceiptUrl,
+} from './factories/cbe_api_response.factory.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,6 +57,31 @@ const migrationsDir = path.join(__dirname, '../src/db/migrations');
 
 process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ';
 process.env.ADMIN_IDS = process.env.ADMIN_IDS || '12345678,87654321';
+
+/**
+ * CBE receipts are verified against the transaction-detail JSON API, so every
+ * mock in this suite returns that document rather than an HTML page.
+ *
+ * `amountEtb` is the SETTLED figure the shop receives, which is deliberately
+ * distinct from what the payer was charged.
+ */
+function cbeJsonMock(amountEtb: string, overrides: Record<string, unknown> = {}): Response {
+  return new Response(
+    JSON.stringify({
+      id: 'TXR4K9Z7Q2WX',
+      status: 'COMPLETED',
+      amountCredited: amountEtb,
+      amountDebited: amountEtb,
+      totalChargeAmount: '0.00',
+      totalTaxAmount: '0.00',
+      creditAccountNo: SYNTHETIC_MASKED_ACCOUNT,
+      creditAccountHolder: FIXTURES.cbe.beneficiaryName,
+      dateTimes: [new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')],
+      ...overrides,
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } }
+  );
+}
 
 describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial Suite', () => {
   let db: Database.Database;
@@ -60,9 +91,12 @@ describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial S
 
     // Seed default settings and test configuration
     setSetting('receipt_auto_verify_enabled', '1');
-    setSetting('receipt_cbe_beneficiaries', JSON.stringify([FIXTURES.cbe.validAccount]));
+    // CBE publishes the credited account MASKED, so the whitelist is expressed in
+    // the same masked form and the gate's wildcard comparison matches only the
+    // digits the bank actually reveals.
+    setSetting('receipt_cbe_beneficiaries', JSON.stringify([SYNTHETIC_MASKED_ACCOUNT]));
     setSetting('receipt_telebirr_beneficiaries', JSON.stringify([FIXTURES.telebirr.validPhone]));
-    setSetting('cbe_account', FIXTURES.cbe.validAccount);
+    setSetting('cbe_account', SYNTHETIC_MASKED_ACCOUNT);
     setSetting('telebirr_account', FIXTURES.telebirr.validPhone);
     setSetting('receipt_recency_before_mins', '120');
     setSetting('receipt_recency_after_mins', '120');
@@ -119,25 +153,13 @@ describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial S
       const order = createTestOrderModel(db, { amountETB: 1250 });
       const orchestrator = new ReceiptOrchestrator();
 
-      const mockHtml = `
-        <html><body>
-          <div>Amount: 1,249.99 ETB</div>
-          <div>Reference: FT_UNDERPAY_1CENT</div>
-          <div>Credited Account: ${FIXTURES.cbe.validAccount}</div>
-          <div>Receiver: ${FIXTURES.cbe.beneficiaryName}</div>
-          <div>Date: ${new Date().toISOString()}</div>
-        </body></html>
-      `;
-      vi.spyOn(global, 'fetch').mockResolvedValueOnce(new Response(mockHtml, {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      }));
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(cbeJsonMock('1249.99'));
 
       const res = await orchestrator.processSubmission({
         orderId: order.id,
         userId: 1001,
         source: 'telegram_photo',
-        directReference: 'FT_UNDERPAY_1CENT',
+        directReference: SYNTHETIC_CBE_TOKEN,
       });
 
       expect(res.success).toBe(false);
@@ -171,25 +193,13 @@ describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial S
       const order = createTestOrderModel(db, { amountETB: 1500, discountETB: 250 });
       const orchestrator = new ReceiptOrchestrator();
 
-      const mockHtml = `
-        <html><body>
-          <div>Amount: 1,250.00 ETB</div>
-          <div>Reference: FT_DISCOUNT_MATCH</div>
-          <div>Credited Account: ${FIXTURES.cbe.validAccount}</div>
-          <div>Receiver: ${FIXTURES.cbe.beneficiaryName}</div>
-          <div>Date: ${new Date().toISOString()}</div>
-        </body></html>
-      `;
-      vi.spyOn(global, 'fetch').mockResolvedValueOnce(new Response(mockHtml, {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      }));
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(cbeJsonMock('1250.00'));
 
       const res = await orchestrator.processSubmission({
         orderId: order.id,
         userId: 1001,
         source: 'telegram_photo',
-        directReference: 'FT_DISCOUNT_MATCH',
+        directReference: SYNTHETIC_CBE_TOKEN,
       });
 
       expect(res.success).toBe(true);
@@ -271,33 +281,28 @@ describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial S
   // ============================================================================
 
   describe('3. Character Encoding & Special Symbols', () => {
-    it('parses Amharic / Unicode customer names from synthetic CBE vector PDF', async () => {
+    it('parses Amharic / Unicode party names from the CBE transaction-detail API', async () => {
       const adapter = new CbeBankAdapter();
-      const ref = {
-        bank: 'cbe' as const,
-        rawReference: 'FT_AMHARIC_01',
-        normalizedReference: 'FT_AMHARIC_01',
-        extractedAt: new Date(),
-        confidence: 0.99,
-        decodeMethod: 'pdf_stream' as const,
-      };
+      const ref = cbeReference();
 
-      const pdfBuffer = await generateSyntheticCbePdf({
-        reference: 'FT_AMHARIC_01',
-        amountEtb: 1250,
-        creditedAccount: FIXTURES.cbe.validAccount,
-        receiverName: FIXTURES.cbe.beneficiaryName,
-        payerName: 'ሳሙኤል ግርማ አበበ',
-        dateStr: '2026-09-08 11:30:00',
-      });
+      // The API publishes the beneficiary name in cleartext, including Ethiopic
+      // script, so the name pillar has a real observation to compare on this
+      // rail now that the adapter no longer fabricates a fallback name.
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        cbeJsonMock('1250.00', {
+          creditAccountHolder: FIXTURES.cbe.unicodeAmharicName,
+          debitAccountHolder: FIXTURES.cbe.unicodeAmharicPayer,
+        })
+      );
 
-      const payload = await adapter.parsePdfResponse(pdfBuffer, ref);
+      const payload = await adapter.verify(ref);
 
       expect(payload.bank).toBe('cbe');
-      expect(payload.transactionReference).toBe('FT_AMHARIC_01');
       expect(payload.amountEtb).toBe(1250);
-      expect(payload.beneficiaryAccount).toBe(FIXTURES.cbe.validAccount);
-    }, 90000);
+      expect(payload.beneficiaryAccount).toBe(SYNTHETIC_MASKED_ACCOUNT);
+      expect(payload.beneficiaryName).toBe(FIXTURES.cbe.unicodeAmharicName);
+      expect(payload.senderName).toBe(FIXTURES.cbe.unicodeAmharicPayer);
+    });
 
     it('parses Amharic / Unicode party names and phone accounts from Telebirr HTML', async () => {
       const adapter = new TelebirrAdapter();
@@ -330,29 +335,30 @@ describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial S
       expect(payload.senderName).toBe(FIXTURES.telebirr.unicodeAmharicPayer);
     });
 
-    it('normalizes whitespace variations in reference strings', async () => {
+    it('trims whitespace around a CBE token without altering its casing', async () => {
       const ingestion = new ReceiptIngestionService();
 
-      // Leading, trailing, and internal whitespaces
-      const text1 = '   FT24252Y8WQM   ';
-      const parsed1 = await ingestion.ingestText(text1);
-      expect(parsed1.normalizedReference).toBe('FT24252Y8WQM');
-
-      const text2 = 'Payment slip confirmed. Ref:  FT24252Y8WQM  \nThank you.';
-      const parsed2 = await ingestion.ingestText(text2);
-      expect(parsed2.normalizedReference).toBe('FT24252Y8WQM');
+      // Leading and trailing whitespace around the pasted token.
+      const parsed1 = await ingestion.ingestText('   ' + SYNTHETIC_CBE_TOKEN + '   ');
+      expect(parsed1.normalizedReference).toBe(SYNTHETIC_CBE_TOKEN);
     });
 
-    it('normalizes mixed-case references to canonical uppercase', async () => {
+    it('uppercases case-insensitive rails but preserves the case-sensitive CBE token', async () => {
       const ingestion = new ReceiptIngestionService();
 
-      const lowerCbe = 'ft24252y8wqm';
-      const parsedCbe = await ingestion.ingestText(lowerCbe);
-      expect(parsedCbe.normalizedReference).toBe('FT24252Y8WQM');
-
+      // Telebirr invoice numbers are genuinely case-insensitive, so the
+      // historical uppercasing is correct there.
       const lowerTelebirr = 'telebirr: Transferred 500 ETB to 0911223344. Transaction number: ra75od70c2';
       const parsedTelebirr = await ingestion.ingestText(lowerTelebirr);
       expect(parsedTelebirr.normalizedReference).toBe('RA75OD70C2');
+
+      // The CBE `v2-` token is a mixed-case credential the upstream API
+      // resolves byte-for-byte: `V2-…` and `v2-…` are different strings and
+      // only the exact one exists. Uppercasing it would corrupt every receipt.
+      const mixedCase = 'v2-aBc9dEf2Gh5Ij7Kl9Mn';
+      const parsedCbe = await ingestion.ingestText(mixedCase);
+      expect(parsedCbe.bank).toBe('cbe');
+      expect(parsedCbe.normalizedReference).toBe(mixedCase);
     });
 
     it('sanitizes HTML entities and XSS payload attempts in customer names', () => {
@@ -430,13 +436,13 @@ describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial S
     });
 
     it('successfully processes degraded and inverted QR code matrices', async () => {
-      const qrUrl = 'https://apps.cbe.com.et:100/?id=FT_DEGRADED_01';
+      const qrUrl = cbeReceiptUrl();
 
       // Degraded QR (low contrast, slight blur)
       const degradedBuffer = await generateDegradedQrImage(qrUrl, { contrast: 0.45, blur: 0.5 });
       const testRes = await ingestion.testQrMatrix(degradedBuffer);
       expect(testRes.success).toBe(true);
-      expect(testRes.extractedReference?.normalizedReference).toBe('FT_DEGRADED_01');
+      expect(testRes.extractedReference?.normalizedReference).toBe(SYNTHETIC_CBE_TOKEN);
 
       // Inverted QR (white on black)
       const invertedBuffer = await generateInvertedQrImage(qrUrl);
@@ -462,21 +468,8 @@ describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial S
       const order1 = createTestOrderModel(db, { userId: 1001, amountETB: 1250, paymentRail: 'cbe' });
       const order2 = createTestOrderModel(db, { userId: 1002, amountETB: 1250, paymentRail: 'cbe' });
 
-      const mockHtml = `
-        <html><body>
-          <div>Amount: 1,250.00 ETB</div>
-          <div>Reference: FT_RACE_CONDITION_001</div>
-          <div>Credited Account: ${FIXTURES.cbe.validAccount}</div>
-          <div>Receiver: ${FIXTURES.cbe.beneficiaryName}</div>
-          <div>Date: ${new Date().toISOString()}</div>
-        </body></html>
-      `;
-
       vi.spyOn(global, 'fetch').mockImplementation(() =>
-        Promise.resolve(new Response(mockHtml, {
-          status: 200,
-          headers: { 'content-type': 'text/html' },
-        }))
+        Promise.resolve(cbeJsonMock('1250.00'))
       );
 
       const orchestrator = new ReceiptOrchestrator();
@@ -487,13 +480,13 @@ describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial S
           orderId: order1.id,
           userId: 1001,
           source: 'telegram_photo',
-          directReference: 'FT_RACE_CONDITION_001',
+          directReference: SYNTHETIC_CBE_TOKEN,
         }),
         orchestrator.processSubmission({
           orderId: order2.id,
           userId: 1002,
           source: 'telegram_photo',
-          directReference: 'FT_RACE_CONDITION_001',
+          directReference: SYNTHETIC_CBE_TOKEN,
         }),
       ]);
 
@@ -591,14 +584,7 @@ describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial S
     it('CBE adapter trips circuit breaker on socket hangup and enforces fast-fail', async () => {
       const cb = new CircuitBreaker({ name: 'cbe_flaky_test', failureThreshold: 2, cooldownMs: 1000 });
       const adapter = new CbeBankAdapter(cb);
-      const ref = {
-        bank: 'cbe' as const,
-        rawReference: 'FT_SOCKET_HANGUP',
-        normalizedReference: 'FT_SOCKET_HANGUP',
-        extractedAt: new Date(),
-        confidence: 0.99,
-        decodeMethod: 'qr_matrix' as const,
-      };
+      const ref = cbeReference();
 
       vi.spyOn(global, 'fetch').mockImplementation(() => {
         const error = new Error('socket hang up');
@@ -643,7 +629,7 @@ describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial S
         orderId: order.id,
         userId: 1001,
         source: 'telegram_photo',
-        directReference: 'FT_UPSTREAM_OUTAGE',
+        directReference: SYNTHETIC_CBE_TOKEN,
       });
 
       expect(result.success).toBe(false);
@@ -722,21 +708,9 @@ describe('Phase 6: Quality Playbook - Receipt Verifier Edge-Case & Adversarial S
       expect(getOrderById(order.id)!.status).toBe('pending_approval');
 
       // Step 2: Customer provides reference code to Admin, Admin updates payment_ref and reverifies
-      updateOrderStatus(order.id, 'pending_approval', { payment_ref: 'FT_ADMIN_SAVED_01' });
+      updateOrderStatus(order.id, 'pending_approval', { payment_ref: SYNTHETIC_CBE_TOKEN });
 
-      const mockHtml = `
-        <html><body>
-          <div>Amount: 1,250.00 ETB</div>
-          <div>Reference: FT_ADMIN_SAVED_01</div>
-          <div>Credited Account: ${FIXTURES.cbe.validAccount}</div>
-          <div>Receiver: ${FIXTURES.cbe.beneficiaryName}</div>
-          <div>Date: ${new Date().toISOString()}</div>
-        </body></html>
-      `;
-      vi.spyOn(global, 'fetch').mockResolvedValueOnce(new Response(mockHtml, {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      }));
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(cbeJsonMock('1250.00'));
 
       const reverifyResult = await orchestrator.reverifyOrder(order.id, 9999);
 

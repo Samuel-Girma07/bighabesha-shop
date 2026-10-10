@@ -189,6 +189,43 @@ export function getDiagnosticBadgeDetails(
         hint: 'Bank portal blocked non-Ethiopian egress or proxy timed out.',
         fullTitle: 'Bank Portal Geoblocked',
       };
+    case 'PROXY_CONFIG_INVALID':
+      // Operator configuration fault, not a regional block — flagged danger so
+      // it is not mistaken for "retry later".
+      return {
+        label: 'Proxy Misconfigured',
+        severity: 'danger',
+        hint: 'Configured Ethiopian egress proxy is unusable; verification fails closed.',
+        fullTitle: 'Egress Proxy Misconfigured',
+      };
+    case 'INVALID_RECEIPT_REFERENCE':
+      return {
+        label: 'Bad Reference',
+        severity: 'danger',
+        hint: 'Bank rejected the reference as invalid or tampered; no transaction was resolved.',
+        fullTitle: 'Reference Not Recognised by Bank',
+      };
+    case 'AUTO_VERIFY_DISABLED':
+      return {
+        label: 'Auto-Verify Off',
+        severity: 'neutral',
+        hint: 'Automated verification is switched off; receipt routed to manual review on purpose.',
+        fullTitle: 'Auto-Verification Disabled',
+      };
+    case 'ORDER_NOT_FULFILLABLE':
+      return {
+        label: 'Order State',
+        severity: 'warning',
+        hint: 'Order status does not permit automated fulfillment; bank was never queried.',
+        fullTitle: 'Order State Forbids Fulfillment',
+      };
+    case 'TRANSACTION_NOT_CONFIRMED':
+      return {
+        label: 'Not Confirmed',
+        severity: 'warning',
+        hint: 'Bank did not report the transaction as completed.',
+        fullTitle: 'Payment Not Confirmed by Bank',
+      };
     case 'BENEFICIARY_MISMATCH':
       return {
         label: 'Account Mismatch',

@@ -25,6 +25,38 @@ export function isValidPaymentRail(rail: string): rail is PaymentRail {
   return (VALID_PAYMENT_RAILS as string[]).includes(rail);
 }
 
+/**
+ * The reference example a buyer is shown when we ask them to type the code from
+ * their confirmation SMS, resolved from the rail their order is actually on.
+ *
+ * The examples used to be a single hardcoded `FT26…` labelled "for CBE". That
+ * format no longer exists on any rail this bot verifies: CBE retired the `FT…`
+ * scheme when it moved to the `mbreciept.cbe.com.et` transaction-detail API,
+ * whose confirmation SMS carries a mixed-case `v2-…` token instead.
+ * `cbe.adapter.ts` now refuses anything that is not a `v2-` token *before any
+ * egress*, so the old copy walked customers straight into a guaranteed
+ * rejection while telling them it was the correct answer.
+ *
+ * `label` is an ASCII rail name on purpose: it is substituted into an existing
+ * Amharic frame (`ለ <label> ምሳሌ፦`) without composing or translating any
+ * Amharic, and the storefront already prints these same ASCII names beside the
+ * Amharic ones.
+ *
+ * Non-Telebirr rails fall back to the CBE shape because CBE is the only other
+ * reference format the engine can actually verify — `abyssinia` is selectable
+ * at checkout but has no adapter at all, so it fails as `UNSUPPORTED_BANK`
+ * whatever example it is shown.
+ */
+export function receiptReferenceExample(rail: string | null | undefined): { label: string; example: string } {
+  if (rail === 'telebirr') {
+    // Telebirr labels a plain alphanumeric invoice number on both the SMS and
+    // the receipt page ("የክፍያ ቁጥር/Invoice No."), and it is the path segment of
+    // the `transactioninfo.ethiotelecom.et/receipt/...` link.
+    return { label: 'Telebirr', example: 'RA75OD70C2' };
+  }
+  return { label: 'CBE', example: 'v2-AbCd3fGh1jKl5MnP9' };
+}
+
 export async function initiateCheckout(
   ctx: Context,
   productId: string,
@@ -309,19 +341,21 @@ export async function promptReceiptUpload(ctx: Context, orderId: string): Promis
     data: { orderId: order.id, attempts: 0 },
   });
 
+  const refExample = receiptReferenceExample(order.payment_rail);
+
   const text = isAmharic
     ? `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
       `📤 <b>የክፍያ ማረጋገጫ ይላኩ — ትዕዛዝ <code>${order.id}</code></b>\n\n` +
       `ከከፈሉ በኋላ ከባንክ / ከቴሌብር የደረሰዎትን <b>የማረጋገጫ SMS</b> ይላኩ፦\n` +
       `• SMS ዑን እዚህ ቻት <b>አግብረው (forward)</b> ወይም ሙሉ ጽሑፉን ቅድተው ይላኩ\n` +
-      `• ወይም የትራንዛክሽን ቁጥሩን ብቻ ይፃፉ (ለ CBE ምሳሌ፦ <code>FT26...</code>)\n\n` +
+      `• ወይም የትራንዛክሽን ቁጥሩን ብቻ ይፃፉ (ለ ${refExample.label} ምሳሌ፦ <code>${refExample.example}</code>)\n\n` +
       `⚡ <i>ትራንዛክሽኑን በቀጥታ ከባንክ እናረጋግጣለን እና ትዕዛዝዎን በራስ-ሰር እናስረክባለን። እስከ 3 ጊዜ መሞከር ይችላሉ።</i>\n` +
       `📷 <i>ፎቶዎች እና ስክሪንሾቶች አይቀበሉም — የ SMS ጽሑፍ ብቻ።</i>`
     : `<b>━━━━━ ʙɪɢʜᴀʙᴇꜱʜᴀ ꜱʜᴏᴘ ━━━━━</b>\n` +
       `📤 <b>Send Payment Confirmation — Order <code>${order.id}</code></b>\n\n` +
       `After paying, send the <b>confirmation SMS</b> you received from the bank / Telebirr:\n` +
       `• <b>Forward</b> the SMS to this chat, or copy-paste its full text\n` +
-      `• Or simply type the transaction reference number (e.g. <code>FT26...</code> for CBE)\n\n` +
+      `• Or simply type the transaction reference number (e.g. <code>${refExample.example}</code> for ${refExample.label})\n\n` +
       `⚡ <i>We verify the transaction directly with the bank and deliver your order automatically. You have up to 3 attempts.</i>\n` +
       `📷 <i>Photos and screenshots are no longer accepted — SMS text only.</i>`;
 

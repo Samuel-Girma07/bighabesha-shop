@@ -1,5 +1,5 @@
 import { getDatabase } from '../db/index.js';
-import { logger, redactSecret } from '../logger/index.js';
+import { logger, redactSecret, sanitizeProxyEndpoint } from '../logger/index.js';
 
 export interface SettingItem {
   key: string;
@@ -94,6 +94,89 @@ export function getAllSettings(): Record<string, string> {
 }
 
 /**
+ * Settings that must never leave the process in an API response.
+ *
+ * `GET /api/admin/settings` is readable by superadmin, ops AND finance (see
+ * `auth/permissions.ts` — all three hold `settings.read`), and the dashboard
+ * PUTs the whole object straight back. So before this denylist existed, every
+ * row in the `settings` table was handed to every one of those roles' browsers
+ * and then written verbatim into `audit_logs`, which Litestream replicates to
+ * Backblaze B2 indefinitely. Two of those rows are secrets:
+ *
+ *   - `download_link_secret` — the 32-byte HMAC key that
+ *     `download_tokens.service.ts` generates for itself on first use. It signs
+ *     every receipt download link, so disclosing it lets anyone mint a download
+ *     token for any order without ever holding an admin session.
+ *   - `receipt_ethiopia_proxy_url` — an egress proxy URI that embeds the
+ *     provider's `user:pass`. That is a third party's billing identity, and it
+ *     is useless for anything except reaching the proxy itself.
+ *
+ * This denylist is deliberately the inverse of `PUBLIC_SETTING_KEYS`, which is
+ * the allow-list served to unauthenticated Mini App clients: a key must appear
+ * in exactly one of them, never both. Adding a secret here does not make it
+ * public; adding it to `PUBLIC_SETTING_KEYS` would defeat this entirely.
+ */
+export const SECRET_SETTING_KEYS: ReadonlySet<string> = new Set([
+  'download_link_secret',
+  'receipt_ethiopia_proxy_url',
+]);
+
+/** Non-reversible description of a write-only secret, safe for any reader. */
+export interface SecretSettingStatus {
+  /** Whether a value is stored. Never reveals the value itself. */
+  configured: boolean;
+  /** Credential-free `host[:port]`, or '' when nothing is stored. */
+  endpoint: string;
+}
+
+export interface AdminSettingsSecretStatus {
+  receipt_ethiopia_proxy_url: SecretSettingStatus;
+}
+
+export interface AdminVisibleSettings {
+  /** Every stored setting EXCEPT `SECRET_SETTING_KEYS`. */
+  settings: Record<string, string>;
+  /** Write-only fields described without their values, for the dashboard. */
+  secretStatus: AdminSettingsSecretStatus;
+}
+
+/**
+ * The read path for the admin dashboard: the full settings map minus the
+ * secret denylist, plus enough metadata to render the write-only fields
+ * honestly — an operator must be able to confirm *which* proxy is live without
+ * the credential ever entering a browser, a PUT payload, or an audit row.
+ *
+ * `endpoint` comes from `sanitizeProxyEndpoint`, which is string-based on
+ * purpose: a malformed proxy URI must degrade to a harmless string instead of
+ * throwing, because this function sits on the path of every settings read and
+ * an exception here would take the whole dashboard down.
+ *
+ * Deliberately not a mutation of `getAllSettings()`: that function is also used
+ * by internal callers that legitimately need the raw values (e.g. the receipt
+ * verifier reading its own proxy), and narrowing it would break them.
+ */
+export function getAdminVisibleSettings(): AdminVisibleSettings {
+  const all = getAllSettings();
+  const settings: Record<string, string> = {};
+  for (const [key, value] of Object.entries(all)) {
+    if (!SECRET_SETTING_KEYS.has(key)) {
+      settings[key] = value;
+    }
+  }
+
+  const proxy = all.receipt_ethiopia_proxy_url ?? '';
+  return {
+    settings,
+    secretStatus: {
+      receipt_ethiopia_proxy_url: {
+        configured: proxy.trim().length > 0,
+        endpoint: sanitizeProxyEndpoint(proxy),
+      },
+    },
+  };
+}
+
+/**
  * Settings that are safe to expose to unauthenticated Mini App clients.
  * Deliberately excludes operational secrets: margin_pct, etb_per_usd,
  * low_stock_threshold, gemini_instructions, and any future private keys.
@@ -169,6 +252,24 @@ export const KNOWN_SETTING_KEYS: ReadonlySet<string> = new Set([
   'receipt_auto_verify_enabled',
   'receipt_recency_before_mins',
   'receipt_recency_after_mins',
+  // DEAD SETTING — RETAINED FOR ROUND-TRIP COMPATIBILITY ONLY.
+  //
+  // Nothing reads this. It configured the `apps.cbe.com.et:100` ingress of the
+  // legacy CBE portal flow, which was retired (see the header comment in
+  // `receipt_verifier/adapters/cbe.adapter.ts`); the CBE rail now talks to the
+  // `mbreciept.cbe.com.et` transaction-detail API on 443 like every other rail.
+  // The dashboard control is gone, and so is the validation branch — a value
+  // here can no longer influence anything.
+  //
+  // It stays in this set because it is already stored in live databases, and
+  // `GET /api/admin/settings` returns every row. `PUT /api/admin/settings`
+  // rejects the WHOLE request on the first unregistered key, so deregistering it
+  // would reintroduce the outage recorded for `download_link_secret` below and
+  // for this very key in
+  // docs/security/PHASE-7-DASHBOARD-SECURITY-REPORT.md:125 — every settings
+  // save (auto-verify switch, account numbers, FX rate, whitelists) answering
+  // HTTP 400 for a setting nobody reads. Ignore the value; do not add a control
+  // for it.
   'receipt_cbe_port',
   'receipt_circuit_breaker_threshold',
   'receipt_circuit_breaker_cooldown_sec',
@@ -179,6 +280,33 @@ export const KNOWN_SETTING_KEYS: ReadonlySet<string> = new Set([
   'receipt_telebirr_beneficiaries',
   'receipt_abyssinia_beneficiaries',
   'receipt_ethiopia_proxy_url',
+  // Expected credited-party NAME per rail, checked by the optional fifth
+  // security pillar. Ship empty on purpose: the name Telebirr renders for this
+  // shop's receiving account has not been captured yet, and a wrong value
+  // would reject genuine receipts. While blank the pillar is dormant and the
+  // masked-account whitelist carries the load.
+  'receipt_cbe_expected_name',
+  'receipt_telebirr_expected_name',
+  'receipt_abyssinia_expected_name',
+  // Service-owned, generated at runtime — NOT an admin-editable field.
+  //
+  // `download_tokens.service.ts` creates this HMAC signing secret on first use
+  // and persists it through `setSetting`, which writes to the same `settings`
+  // table as everything else. The admin dashboard used to GET *every* row and
+  // PUT the whole object straight back, so any key present in the table but
+  // absent here made `PUT /api/admin/settings` reject the entire request with
+  // HTTP 400 — silently making every settings save impossible (switch, account
+  // numbers, FX rate, whitelists). This is the same defect class already
+  // recorded for `receipt_cbe_port` in
+  // docs/security/PHASE-7-DASHBOARD-SECURITY-REPORT.md.
+  //
+  // It stays registered here even though the GET response now filters it out
+  // (see `SECRET_SETTING_KEYS`), because a dashboard tab that was open before
+  // that filter shipped still holds the old value in memory and WILL send it
+  // back. Registering the key keeps that round-trip a 200; the PUT handler
+  // strips the value before persisting it. Do not add an admin UI control for
+  // it, and never add it to PUBLIC_SETTING_KEYS.
+  'download_link_secret',
 ]);
 
 export function isKnownSettingKey(key: string): boolean {
@@ -188,6 +316,11 @@ export function isKnownSettingKey(key: string): boolean {
 /**
  * Canonical registry of the 18 settings that govern the Ethiopian Bank Receipt
  * Verification Engine and multi-rail payment configurations in the Admin Dashboard.
+ *
+ * Only keys with a validation rule below need to live here: this set gates
+ * `validateVerificationSettings`, whereas `KNOWN_SETTING_KEYS` is what the PUT
+ * endpoint accepts. The credited-party name keys are accepted and defaulted
+ * without a format rule, so they are deliberately absent.
  */
 export const VERIFICATION_SETTING_KEYS: ReadonlySet<string> = new Set([
   // Core Bank Accounts & Whitelist (6 keys)
@@ -231,6 +364,11 @@ export const DEFAULT_VERIFICATION_SETTINGS: Readonly<Record<string, string>> = {
   receipt_telebirr_beneficiaries: '["0000000000"]',
   receipt_abyssinia_beneficiaries: '["0000000000000"]',
   receipt_ethiopia_proxy_url: '',
+  // Credited-party name pillar (opt-in). Empty = pillar dormant; see the
+  // `BANK_BENEFICIARY_CONFIG_MAP.expectedNameSettingKey` rationale.
+  receipt_cbe_expected_name: '',
+  receipt_telebirr_expected_name: '',
+  receipt_abyssinia_expected_name: '',
 };
 
 export interface VerificationSettingsValidationResult {
@@ -248,7 +386,10 @@ export function validateVerificationSettings(
   const errors: string[] = [];
 
   for (const [key, val] of Object.entries(settings)) {
-    if (!VERIFICATION_SETTING_KEYS.has(key) && key !== 'receipt_cbe_port') continue;
+    // Keys with no rule below (the credited-party name keys, and the retired
+    // `receipt_cbe_port`) are skipped: they are registered, so the PUT endpoint
+    // accepts them, and they have no format to enforce.
+    if (!VERIFICATION_SETTING_KEYS.has(key)) continue;
 
     const strVal = String(val).trim();
 
@@ -336,12 +477,11 @@ export function validateVerificationSettings(
         break;
       }
 
-      case 'receipt_cbe_port': {
-        if (strVal !== '100' && strVal !== '443') {
-          errors.push(`receipt_cbe_port must be either "100" or "443" (received: "${strVal}")`);
-        }
-        break;
-      }
+      // No `receipt_cbe_port` case on purpose. The port-100 branch of the
+      // legacy CBE flow is retired and nothing reads the setting, so an enum
+      // check on it was validating a value with no consumer. It remains
+      // registered in `KNOWN_SETTING_KEYS` (see the note there) purely so an
+      // already-stored `'100'` round-trips as a 200 instead of a 400.
     }
   }
 

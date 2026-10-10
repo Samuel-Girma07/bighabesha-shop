@@ -28,6 +28,7 @@ import { TelebirrAdapter } from './adapters/telebirr.adapter.js';
 import { BankAdapterRegistry, IBankAdapterRegistry } from './adapters/registry.js';
 import { SecurityGateService } from './security_gate.service.js';
 import {
+  AUTO_FULFILLABLE_ORDER_STATUSES,
   DEFAULT_RECENCY_BEFORE_MINUTES,
   DEFAULT_RECENCY_AFTER_MINUTES,
   RFC7807_BASE_URL,
@@ -62,21 +63,12 @@ import {
 } from './types.js';
 
 /**
- * Order states in which the engine may execute an automated fulfillment.
- *
- * `awaiting_payment` is the normal case. `pending_approval` MUST also be
- * allowed: a failed verification attempt moves the order into the
- * manual-review queue, so it is the ordinary resting state after any rejected
- * submission. Hard-restricting to `awaiting_payment` would make it impossible
- * for a customer to submit a corrected receipt after a bad first attempt.
- *
- * Everything else is either already fulfilled (a second fulfillment would
- * double-deliver and overwrite `fulfillment_payload`) or terminal.
+ * `AUTO_FULFILLABLE_ORDER_STATUSES` is defined in `constants.ts` (so the intake
+ * handlers can share it without loading this module's dependency graph) and
+ * re-exported here, where it was originally declared and where the pipeline
+ * enforces it.
  */
-export const AUTO_FULFILLABLE_ORDER_STATUSES: ReadonlySet<string> = new Set([
-  'awaiting_payment',
-  'pending_approval',
-]);
+export { AUTO_FULFILLABLE_ORDER_STATUSES };
 
 /**
  * Operator kill-switch for automated bank-portal verification.
@@ -335,10 +327,20 @@ export class ReceiptOrchestrator implements IReceiptOrchestrator {
 
     // 2. Locate transaction reference if available
     let reference: string | undefined;
+    //
+    // `reference` (raw) is preferred over `normalized_reference` here, and the
+    // order was flipped deliberately.
+    //
+    // `normalized_reference` is uppercased by `insertReceiptEvidence`, which is
+    // lossless for the historical `FT…` / Telebirr references but NOT for the CBE
+    // `v2-` token, which is a mixed-case credential the upstream API resolves
+    // byte-for-byte. Feeding an uppercased token back into intake made admin
+    // re-verification of a CBE receipt fail closed on every attempt, reporting
+    // the reference as unverifiable — for a receipt already submitted correctly.
     const candidateRefs = [
       order.payment_ref,
-      latestEvidence?.normalized_reference,
       latestEvidence?.reference,
+      latestEvidence?.normalized_reference,
     ];
     for (const cr of candidateRefs) {
       if (cr && typeof cr === 'string') {
@@ -508,6 +510,18 @@ export class ReceiptOrchestrator implements IReceiptOrchestrator {
 
       case 'beneficiary_whitelist':
         return new BeneficiaryMismatchError(bankPayload.bank, bankPayload.beneficiaryAccount, []);
+
+      // The money reached a different party: the account column alone looked
+      // plausible (it is masked) but the published name does not belong to this
+      // shop. Report it as a beneficiary mismatch so admins get the right
+      // diagnostic and the buyer gets the right remediation, instead of it
+      // falling through to the generic INTERNAL_ENGINE_ERROR branch below.
+      case 'beneficiary_name':
+        return new BeneficiaryMismatchError(
+          bankPayload.bank,
+          bankPayload.beneficiaryName || 'UNKNOWN',
+          []
+        );
 
       case 'exact_amount':
         return new AmountMismatchError(netPayableEtb, bankPayload.amountEtb);

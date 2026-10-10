@@ -16,6 +16,7 @@ import {
   getVerificationDiagnosticToast,
   updateAdminSettingsApi,
   BankVerificationSettings,
+  VerificationFailureCode,
 } from '../adminApi.ts';
 
 // ── Test Mock Fixtures ───────────────────────────────────────────────────────
@@ -237,6 +238,40 @@ describe('2. VerificationDiagnosticBadge & Toast Diagnostics', () => {
       expectedSeverity: 'danger',
       expectedHintSubstring: 'Manual inspection required',
     },
+    // Codes the backend emits but this table used to omit entirely, so an
+    // operator saw a generic "[Err: PROXY_CONFIG_INVALID]" badge for failures
+    // that have a known, specific cause. Kept adjacent to INTERNAL_ENGINE_ERROR
+    // on purpose: these are the cases that used to degrade into it.
+    {
+      code: 'PROXY_CONFIG_INVALID',
+      expectedLabel: '[Proxy Misconfigured]',
+      expectedSeverity: 'danger',
+      expectedHintSubstring: 'fails closed',
+    },
+    {
+      code: 'INVALID_RECEIPT_REFERENCE',
+      expectedLabel: '[Bad Reference]',
+      expectedSeverity: 'danger',
+      expectedHintSubstring: 'no transaction was resolved',
+    },
+    {
+      code: 'AUTO_VERIFY_DISABLED',
+      expectedLabel: '[Auto-Verify Off]',
+      expectedSeverity: 'neutral',
+      expectedHintSubstring: 'switched off',
+    },
+    {
+      code: 'ORDER_NOT_FULFILLABLE',
+      expectedLabel: '[Order State]',
+      expectedSeverity: 'warning',
+      expectedHintSubstring: 'does not permit automated fulfillment',
+    },
+    {
+      code: 'TRANSACTION_NOT_CONFIRMED',
+      expectedLabel: '[Not Confirmed]',
+      expectedSeverity: 'warning',
+      expectedHintSubstring: 'did not report the transaction as completed',
+    },
   ];
 
   errorCodes.forEach(({ code, bank, expectedLabel, expectedSeverity, expectedHintSubstring }) => {
@@ -285,6 +320,90 @@ describe('2. VerificationDiagnosticBadge & Toast Diagnostics', () => {
     const toastMismatch = getVerificationDiagnosticToast('AMOUNT_MISMATCH');
     expect(toastMismatch.severity).toBe('error');
     expect(toastMismatch.remediationHint).toContain('remaining balance');
+  });
+
+  it('gives the newly-mapped failure codes a real diagnostic, not the generic engine error', () => {
+    // Each of these used to fall through to `default` and render
+    // "Verification Engine Error" / "[Err: <CODE>]", hiding a known cause.
+    const cases = [
+      {
+        code: 'PROXY_CONFIG_INVALID',
+        title: 'Egress Proxy Misconfigured',
+        badgeLabel: 'Proxy Misconfigured',
+        severity: 'error',
+        hintSubstring: 'proxy URI in Settings',
+      },
+      {
+        code: 'INVALID_RECEIPT_REFERENCE',
+        title: 'Reference Not Recognised by Bank',
+        badgeLabel: 'Bad Reference',
+        severity: 'error',
+        hintSubstring: 'exact confirmation SMS',
+      },
+      {
+        code: 'AUTO_VERIFY_DISABLED',
+        title: 'Auto-Verification Disabled',
+        badgeLabel: 'Auto-Verify Off',
+        severity: 'info',
+        hintSubstring: 'manually',
+      },
+      {
+        code: 'ORDER_NOT_FULFILLABLE',
+        title: 'Order State Forbids Fulfillment',
+        badgeLabel: 'Order State',
+        severity: 'warning',
+        hintSubstring: 'awaiting payment',
+      },
+      {
+        code: 'TRANSACTION_NOT_CONFIRMED',
+        title: 'Payment Not Confirmed by Bank',
+        badgeLabel: 'Not Confirmed',
+        severity: 'warning',
+        hintSubstring: 'banking app',
+      },
+    ] as const;
+
+    for (const { code, title, badgeLabel, severity, hintSubstring } of cases) {
+      const toast = getVerificationDiagnosticToast(code, 'cbe');
+      expect(toast.title, code).toBe(title);
+      expect(toast.badgeLabel, code).toBe(badgeLabel);
+      expect(toast.severity, code).toBe(severity);
+      expect(toast.remediationHint, code).toContain(hintSubstring);
+      // The generic fallbacks are what we are proving we no longer hit.
+      expect(toast.title, code).not.toBe('Verification Engine Error');
+      expect(toast.badgeLabel, code).not.toContain('Err:');
+      expect(toast.remediationHint, code).not.toContain('application error logs');
+    }
+  });
+
+  it('keeps the backend failure-code union in sync with the diagnostics table', () => {
+    // Guards the drift that caused this gap: a code added to the backend union
+    // must have a case here, or an operator gets the generic engine error.
+    const everyCode: VerificationFailureCode[] = [
+      'RECEIPT_ALREADY_USED',
+      'BENEFICIARY_MISMATCH',
+      'AMOUNT_MISMATCH',
+      'RECEIPT_EXPIRED',
+      'QR_DECODE_FAILED',
+      'BANK_PORTAL_UNAVAILABLE',
+      'PORTAL_GEOBLOCKED',
+      'PROXY_CONFIG_INVALID',
+      'UNSUPPORTED_BANK',
+      'INVALID_RECEIPT_REFERENCE',
+      'AUTO_VERIFY_DISABLED',
+      'CORRUPTED_FILE',
+      'RATE_LIMITED',
+      'ORDER_NOT_FULFILLABLE',
+      'TRANSACTION_NOT_CONFIRMED',
+      'INTERNAL_ENGINE_ERROR',
+    ];
+
+    for (const code of everyCode) {
+      const toast = getVerificationDiagnosticToast(code, 'cbe');
+      if (code === 'INTERNAL_ENGINE_ERROR') continue;
+      expect(toast.badgeLabel, code).not.toContain('Err:');
+      expect(getDiagnosticBadgeDetails(code, 'cbe').label, code).not.toContain('Err:');
+    }
   });
 });
 

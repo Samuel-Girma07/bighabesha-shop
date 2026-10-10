@@ -6,6 +6,7 @@ import {
   DEFAULT_RECENCY_BEFORE_MINUTES,
   DEFAULT_RECENCY_AFTER_MINUTES,
   DEFAULT_AMOUNT_TOLERANCE_ETB,
+  beneficiaryNameMatches,
   parseEthiopianBankTimestamp,
   parseUtcTimestamp,
 } from './constants.js';
@@ -21,6 +22,46 @@ import {
 
 const NON_DIGIT_PATTERN = /[^0-9]/g;
 const MILLISECONDS_IN_MINUTE = 60_000;
+
+/**
+ * Rails whose adapter reports the credited-party name as the portal actually
+ * rendered it, so the name pillar compares a real observation.
+ *
+ * WHY CBE IS ABSENT — the current reason is a MISSING OBSERVATION, not a known
+ * bad value. No inbound customer -> shop payment on this shop's CBE account has
+ * ever been captured, so the credited-party name the bank actually renders for
+ * that account is still unknown. We therefore cannot write
+ * `receipt_cbe_expected_name` with any confidence, and enforcing the pillar
+ * against a guess would reject genuine receipts over a transliteration
+ * difference nobody has yet seen — strictly worse than having no name check on
+ * that rail at all.
+ *
+ * The historical reason is retired, and must not be reintroduced as an
+ * explanation: CBE used to be absent because `cbe.adapter.ts` fell back to the
+ * literal `'Bighabesha Shop'` whenever its beneficiary-name regex missed, so the
+ * check compared a fabricated value against the shop's own name and passed every
+ * receipt. That fabricated fallback is gone — the CBE adapter now reports
+ * `creditAccountHolder` verbatim, or `''` when the bank sent nothing, which is
+ * exactly the honest observation this pillar needs. Code cleanliness is
+ * therefore no longer the blocker; the capture is.
+ *
+ * WHAT WOULD UNBLOCK IT: one live customer -> shop CBE payment, read off the
+ * bank's own confirmation (the `creditAccountHolder` field in the transaction
+ * detail response, or the name printed on the receipt). Record the name exactly
+ * as the bank renders it in `receipt_cbe_expected_name`, add `'cbe'` to this
+ * set, and the pillar becomes enforceable on that rail. Both steps are needed:
+ * the setting alone leaves the pillar dormant, and the set entry alone would
+ * compare against an empty expected name (which `evaluateBeneficiaryNamePillar`
+ * treats as unconfigured, not as a failure).
+ */
+const NAME_PILLAR_ENFORCED_RAILS: ReadonlySet<SupportedBank> = new Set<SupportedBank>(['telebirr']);
+
+/**
+ * Settings keys already reported as unconfigured. A busy manual-review queue
+ * re-evaluates the gate constantly, and an operator who has not filled the name
+ * in yet should get one actionable warning rather than one per submission.
+ */
+const warnedUnconfiguredNameKeys = new Set<string>();
 
 /**
  * 4-Pillar Security Gate enforcing Anti-Replay, Beneficiary Whitelisting,
@@ -40,6 +81,12 @@ export class SecurityGateService implements ISecurityGate {
       this.evaluateAmountPillar(order, bankPayload),
       this.evaluateRecencyPillar(order, bankPayload),
     ];
+
+    // Optional fifth pillar. Appended ONLY when it is actually being enforced,
+    // so a dormant check never pads the audit trail with a decorative pass and
+    // the admin-facing "4-Pillar Security Evaluation" text stays truthful.
+    const beneficiaryNameEvaluation = this.evaluateBeneficiaryNamePillar(bankPayload);
+    if (beneficiaryNameEvaluation) evaluations.push(beneficiaryNameEvaluation);
 
     const allPassed = evaluations.every((e) => e.passed);
     const failedPillar = evaluations.find((e) => !e.passed);
@@ -94,6 +141,61 @@ export class SecurityGateService implements ISecurityGate {
       details: passed
         ? `Beneficiary account '${bankPayload.beneficiaryAccount}' matches official whitelist.`
         : `Beneficiary account '${bankPayload.beneficiaryAccount}' is not authorized.`,
+    };
+  }
+
+  /**
+   * Optional fifth pillar: compare the credited-party NAME published in
+   * cleartext by the bank portal against the operator's expected name for the
+   * rail.
+   *
+   * This exists because the account whitelist is inherently loose on the mobile
+   * rails — Telebirr renders the credited account masked (`NNNN****NNNN`), so a
+   * whitelist hit proves only the visible digits. The name is not masked, so it
+   * is a materially stronger signal and worth asserting independently.
+   *
+   * Returns `null` — i.e. "pillar not in force" — when the rail is excluded
+   * (see `NAME_PILLAR_ENFORCED_RAILS`) or when the expected name is unset. An
+   * unset value must never fail an order: the engine has to stay safe to run
+   * before the real recipient name has been captured from a live payment, so the
+   * masked-account pillar carries the load until an operator opts in.
+   */
+  private evaluateBeneficiaryNamePillar(
+    bankPayload: BankTransactionPayload
+  ): SecurityPillarEvaluation | null {
+    const bank = bankPayload.bank;
+    if (bank === 'unknown' || !NAME_PILLAR_ENFORCED_RAILS.has(bank)) return null;
+
+    const config = BANK_BENEFICIARY_CONFIG_MAP[bank];
+    if (!config) return null;
+
+    const settingKey = config.expectedNameSettingKey;
+    const expectedName = getSetting(settingKey, '').trim();
+
+    if (!expectedName) {
+      if (!warnedUnconfiguredNameKeys.has(settingKey)) {
+        warnedUnconfiguredNameKeys.add(settingKey);
+        logger.warn(
+          { settingKey, bank },
+          'Beneficiary name pillar is unconfigured; relying on the masked-account whitelist alone'
+        );
+      }
+      return null;
+    }
+
+    const actualName = (bankPayload.beneficiaryName || '').trim();
+    const passed = beneficiaryNameMatches(expectedName, actualName);
+
+    return {
+      pillar: 'beneficiary_name',
+      passed,
+      expected: expectedName,
+      // A portal that renders no name at all is `UNKNOWN`, not a pass: absence
+      // of evidence is not evidence of the right recipient.
+      actual: actualName || 'UNKNOWN',
+      details: passed
+        ? `Credited-party name '${actualName}' matches the configured beneficiary name.`
+        : `Credited-party name '${actualName || 'UNKNOWN'}' does not match the configured beneficiary name.`,
     };
   }
 

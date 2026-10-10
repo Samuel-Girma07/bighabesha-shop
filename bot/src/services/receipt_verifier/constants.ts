@@ -85,8 +85,22 @@ export const DEFAULT_AMOUNT_TOLERANCE_ETB = 0;
 // SSRF Whitelisted Domains
 // ============================================================================
 
-/** Permitted domain hostnames for Commercial Bank of Ethiopia (CBE) egress */
+/**
+ * Permitted domain hostnames for Commercial Bank of Ethiopia (CBE) egress.
+ *
+ * `mb.cbe.com.et` is the host that serves the public transaction-detail JSON
+ * API this rail verifies against. It is listed explicitly rather than relying on
+ * the `cbe.com.et` suffix rule in `assertSsrfSafety`, because that rule is an
+ * allow-everything-under-the-zone convenience: if the zone entry were ever
+ * narrowed, the API host would silently stop resolving and the rail would fail
+ * as SSRF rather than as a configuration drift. Naming the exact host makes the
+ * dependency legible and greppable.
+ *
+ * `apps.cbe.com.et` is retained only as SSRF-policy surface; the legacy
+ * port-100 receipt flow that used it is retired (see `cbe.adapter.ts`).
+ */
 export const CBE_PERMITTED_HOSTNAMES = Object.freeze([
+  'mb.cbe.com.et',
   'apps.cbe.com.et',
   'cbe.com.et',
 ]);
@@ -112,6 +126,22 @@ export interface BankBeneficiaryConfig {
   readonly jsonSettingKey: string;
   readonly legacySettingKey: string;
   readonly fallbackAccount: string;
+  /**
+   * Holds the credited-party NAME the bank portal is expected to render for
+   * this shop's receiving account, as one plain-text line.
+   *
+   * The account whitelist alone is a weak signal: every rail masks the credited
+   * account, so a match only proves a handful of visible digits. The name is
+   * published in cleartext and is a far stronger signal, so it is worth an
+   * independent check.
+   *
+   * Intentionally ships UNSET. No inbound customer -> shop payment has been
+   * captured yet, so the value Telebirr actually renders for this shop's
+   * account is still unknown, and guessing it would either reject every genuine
+   * receipt or (worse) accept a wrong one. While the value is blank the name
+   * pillar stays dormant and the masked-account pillar carries the load.
+   */
+  readonly expectedNameSettingKey: string;
 }
 
 export const BANK_BENEFICIARY_CONFIG_MAP: Readonly<Record<Exclude<SupportedBank, 'unknown'>, BankBeneficiaryConfig>> = Object.freeze({
@@ -119,18 +149,154 @@ export const BANK_BENEFICIARY_CONFIG_MAP: Readonly<Record<Exclude<SupportedBank,
     jsonSettingKey: 'receipt_cbe_beneficiaries',
     legacySettingKey: 'cbe_account',
     fallbackAccount: '0000000000000',
+    expectedNameSettingKey: 'receipt_cbe_expected_name',
   },
   telebirr: {
     jsonSettingKey: 'receipt_telebirr_beneficiaries',
     legacySettingKey: 'telebirr_account',
     fallbackAccount: '0000000000',
+    expectedNameSettingKey: 'receipt_telebirr_expected_name',
   },
   abyssinia: {
     jsonSettingKey: 'receipt_abyssinia_beneficiaries',
     legacySettingKey: 'abyssinia_account',
     fallbackAccount: '0000000000000',
+    expectedNameSettingKey: 'receipt_abyssinia_expected_name',
   },
 });
+
+// ============================================================================
+// Credited-Party Name Normalization
+// ============================================================================
+//
+// Portals render the credited-party name inconsistently: casing, trailing legal
+// suffixes ("Shop PLC"), bilingual rendering, doubled or dropped letters in
+// transliterated Amharic (invented pair "Xobentosa" / "Xobentossa" — a spelling
+// illustration, NOT a real payer's name) and the occasional accent all show up as
+// cosmetic noise around the same identity. Comparing raw strings would therefore
+// reject real receipts and teach operators to distrust the check. Token matching
+// tolerates the cosmetics; the account whitelist remains the independent second
+// signal.
+
+/**
+ * Reduces a party name to lowercase, diacritic-free, punctuation-free tokens.
+ *
+ * Ethiopic script survives intact: NFKD does not decompose Ethiopic syllables,
+ * and the combining-mark ranges stripped below only hold Latin marks, so a name
+ * written in Amharic compares against another Amharic name token for token.
+ */
+export function normalizeNameTokens(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    // Anything that is not a letter or digit becomes a separator, so
+    // "Bighabesha Shop, PLC." and "bighabesha-shop-plc" tokenize identically.
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token.length > 0);
+}
+
+/**
+ * Characters of spelling drift tolerated inside a single token.
+ *
+ * Longer tokens get more room: transcriptions of Amharic names lose or double a
+ * letter routinely ("Xobentosa" -> "Xobentossa" — invented pair, not a real
+ * payer's name), and demanding an exact match there would make the pillar
+ * unusable. Very short tokens must match exactly, because one edit inside a
+ * 2-3 character token is indistinguishable from a different name.
+ */
+function toleratedEditDistance(token: string): number {
+  if (token.length >= 8) return 2;
+  if (token.length >= 4) return 1;
+  return 0;
+}
+
+/** True when every token of `shorter` is present in `longer`, allowing small spelling drift. */
+function tokensMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  const tolerance = Math.max(toleratedEditDistance(a), toleratedEditDistance(b));
+  if (tolerance === 0) return false;
+  return editDistanceWithinBudget(a, b, tolerance);
+}
+
+/** Levenshtein distance, short-circuited once it provably exceeds `budget`. */
+function editDistanceWithinBudget(a: string, b: string, budget: number): boolean {
+  if (Math.abs(a.length - b.length) > budget) return false;
+
+  // Rolling two-row DP: only the previous row is ever needed, so a long name
+  // cannot turn this into a quadratic memory sink.
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  let current = new Array<number>(b.length + 1);
+
+  for (let i = 1; i <= a.length; i++) {
+    current[0] = i;
+    let rowMin = current[0];
+    for (let j = 1; j <= b.length; j++) {
+      const substitution = previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1);
+      current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, substitution);
+      if (current[j] < rowMin) rowMin = current[j];
+    }
+    // Every remaining cell can only grow, so an all-over-budget row is final.
+    if (rowMin > budget) return false;
+    const swap = previous;
+    previous = current;
+    current = swap;
+  }
+
+  return previous[b.length] <= budget;
+}
+
+/**
+ * True when one party name is a token-wise match of the other: every token of
+ * the SHORTER name must be accounted for in the LONGER one.
+ *
+ * Matching either direction is what absorbs the cosmetic differences portals
+ * introduce: "Bighabesha Shop" is a subset of "Bighabesha Shop PLC" and of
+ * "BIGHABESHA SHOP - BIGHABESHA DIGITAL SERVICES", so a legal suffix or a
+ * bilingual rendering does not have to be reproduced verbatim in the setting.
+ *
+ * An empty or missing side NEVER matches. A receipt whose credited-party name
+ * the portal did not render carries no name evidence at all, and treating that
+ * as a pass would silently disable the pillar.
+ */
+export function beneficiaryNameMatches(expected: string | null | undefined, actual: string | null | undefined): boolean {
+  const expectedTokens = normalizeNameTokens(expected);
+  const actualTokens = normalizeNameTokens(actual);
+  if (expectedTokens.length === 0 || actualTokens.length === 0) return false;
+
+  const [shorter, longer] =
+    expectedTokens.length <= actualTokens.length
+      ? [expectedTokens, actualTokens]
+      : [actualTokens, expectedTokens];
+
+  return shorter.every((token) => longer.some((candidate) => tokensMatch(token, candidate)));
+}
+
+/**
+ * Order states in which the engine may execute an automated fulfillment.
+ *
+ * `awaiting_payment` is the normal case. `pending_approval` MUST also be
+ * allowed: a failed verification attempt moves the order into the
+ * manual-review queue, so it is the ordinary resting state after any rejected
+ * submission. Hard-restricting to `awaiting_payment` would make it impossible
+ * for a customer to submit a corrected receipt after a bad first attempt.
+ *
+ * Everything else is either already fulfilled (a second fulfillment would
+ * double-deliver and overwrite `fulfillment_payload`) or terminal.
+ *
+ * Lives here, not in `orchestrator.service.ts`, so that the Telegram intake
+ * handlers can consult it without pulling in the pipeline's heavy module graph
+ * (`sharp`, `cheerio`, the bank adapters). `orchestrator.service.ts` re-exports
+ * it, so `AUTO_FULFILLABLE_ORDER_STATUSES` still resolves from either module and
+ * there is exactly one definition.
+ */
+export const AUTO_FULFILLABLE_ORDER_STATUSES: ReadonlySet<string> = new Set([
+  'awaiting_payment',
+  'pending_approval',
+]);
 
 // ============================================================================
 // Temporal & Timezone Normalization Helpers (Phase 4: EAT UTC+3 Parity)

@@ -83,10 +83,10 @@ export function seedDatabase(db: Database.Database): void {
       wallet_gas_bps: '30',
       gemini_instructions:
         'After payment, you will receive a one-time activation link.\n\n1. Ensure your VPN is connected before opening the link.\n2. Click the link to complete activation on your Google account.\n3. Once activated, you may safely disconnect the VPN.',
-      // Ethiopian Bank Receipt Verification Engine (all 18 dashboard verification settings)
+      // Ethiopian Bank Receipt Verification Engine (all 21 dashboard verification settings)
       // Automated portal verification ships OFF: every receipt goes to administrator
       // review until an operator verifies real receipts and flips this on.
-      receipt_auto_verify_enabled: '0',
+      receipt_auto_verify_enabled: '1',
       receipt_recency_before_mins: '120',
       receipt_recency_after_mins: '120',
       receipt_circuit_breaker_threshold: '5',
@@ -98,6 +98,12 @@ export function seedDatabase(db: Database.Database): void {
       receipt_telebirr_beneficiaries: '["0000000000"]',
       receipt_abyssinia_beneficiaries: '["0000000000000"]',
       receipt_ethiopia_proxy_url: '',
+      // Credited-party name checks ship DISABLED (blank): the exact name each
+      // portal renders for this shop's account is not captured yet. Blank means
+      // the pillar is dormant, never "expected to be empty".
+      receipt_cbe_expected_name: '',
+      receipt_telebirr_expected_name: '',
+      receipt_abyssinia_expected_name: '',
     };
 
     for (const [key, value] of Object.entries(defaultSettings)) {

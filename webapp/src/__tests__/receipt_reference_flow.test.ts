@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { receiptHasImage, receiptIsInline } from '../admin/adminApi.ts';
-import { translations } from '../i18n.ts';
+import { receiptNotePlaceholder, translations } from '../i18n.ts';
 
 describe('receiptHasImage (admin slip-viewer gate)', () => {
   it('is false when there is no receipt at all', () => {
@@ -62,7 +62,23 @@ describe('Mini App receipt copy parity with the Telegram bot', () => {
   });
 
   it('shows a reference-shaped placeholder rather than generic note copy', () => {
-    expect(en.paymentNotePlaceholder).toMatch(/FT\d+/);
-    expect(am.paymentNotePlaceholder).toMatch(/FT\d+/);
+    // The example must be a shape the backend actually accepts. `FT…` was
+    // retired with the legacy CBE portal: `cbe.adapter.ts` rejects anything that
+    // is not a `v2-` token before it leaves the host, so a buyer who typed the
+    // advertised example was rejected by construction. Telebirr still labels a
+    // plain alphanumeric invoice number.
+    expect(receiptNotePlaceholder('en', 'cbe')).toMatch(/v2-[A-Za-z0-9]{16,24}/);
+    expect(receiptNotePlaceholder('am', 'cbe')).toMatch(/v2-[A-Za-z0-9]{16,24}/);
+    // Telebirr still labels a plain alphanumeric invoice number, so its example
+    // must NOT carry the CBE `v2-` prefix.
+    expect(receiptNotePlaceholder('en', 'telebirr')).toMatch(/e\.g\. [A-Za-z0-9]{8,20} /);
+    expect(receiptNotePlaceholder('am', 'telebirr')).not.toContain('v2-');
+
+    // ...and never the retired format, in either language or on either rail.
+    for (const lang of ['en', 'am'] as const) {
+      for (const rail of ['telebirr', 'cbe', 'abyssinia', null]) {
+        expect(receiptNotePlaceholder(lang, rail)).not.toMatch(/FT\d/);
+      }
+    }
   });
 });

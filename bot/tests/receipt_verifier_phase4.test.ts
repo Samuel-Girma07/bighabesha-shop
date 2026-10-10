@@ -29,6 +29,14 @@ import {
   setReceiptOrchestratorForTest,
 } from '../src/services/receipt_verifier/index.js';
 import { receiptsRouter, adminReceiptsRouter } from '../src/api/receipts.js';
+import {
+  SYNTHETIC_CBE_TOKEN,
+  SYNTHETIC_CBE_TX_ID,
+  SYNTHETIC_MASKED_ACCOUNT,
+  buildCbeApiBody,
+  cbeReference,
+  cbeReceiptUrl,
+} from './factories/cbe_api_response.factory.js';
 import { createHmac } from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -152,9 +160,12 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
 
     // Seed default settings and test data
     setSetting('receipt_auto_verify_enabled', '1');
-    setSetting('receipt_cbe_beneficiaries', JSON.stringify(['1000123456789']));
+    // CBE publishes the credited account MASKED, so the whitelist is expressed in
+    // the same masked form; the gate's wildcard comparison then matches only the
+    // digits the bank actually reveals.
+    setSetting('receipt_cbe_beneficiaries', JSON.stringify([SYNTHETIC_MASKED_ACCOUNT]));
     setSetting('receipt_telebirr_beneficiaries', JSON.stringify(['0911223344']));
-    setSetting('cbe_account', '1000123456789');
+    setSetting('cbe_account', SYNTHETIC_MASKED_ACCOUNT);
     setSetting('telebirr_account', '0911223344');
 
     db.prepare(`INSERT INTO users (id, username, first_name) VALUES (1001, 'buyer1001', 'Buyer')`).run();
@@ -180,13 +191,13 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
     const ingestion = new ReceiptIngestionService();
 
     it('decodes a valid CBE QR matrix from an image buffer with multi-pass reader', async () => {
-      const qrText = 'https://apps.cbe.com.et:100/?id=FT24252Y8WQM';
+      const qrText = cbeReceiptUrl();
       const pngBuffer = await generateQrPng(qrText);
 
       const result = await ingestion.ingestBuffer(pngBuffer, 'image/png');
 
       expect(result.bank).toBe('cbe');
-      expect(result.normalizedReference).toBe('FT24252Y8WQM');
+      expect(result.normalizedReference).toBe(SYNTHETIC_CBE_TOKEN);
       expect(result.decodeMethod).toBe('qr_matrix');
       expect(result.confidence).toBeGreaterThan(0.9);
       expect(result.sourceUrl).toBe(qrText);
@@ -204,14 +215,14 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
     });
 
     it('testQrMatrix measures execution duration and returns structured diagnostics', async () => {
-      const qrText = 'https://apps.cbe.com.et:100/?id=FT9988776655';
+      const qrText = cbeReceiptUrl();
       const pngBuffer = await generateQrPng(qrText);
 
       const testRes = await ingestion.testQrMatrix(pngBuffer);
 
       expect(testRes.success).toBe(true);
       expect(testRes.rawText).toBe(qrText);
-      expect(testRes.extractedReference?.normalizedReference).toBe('FT9988776655');
+      expect(testRes.extractedReference?.normalizedReference).toBe(SYNTHETIC_CBE_TOKEN);
       expect(testRes.decodeDurationMs).toBeGreaterThan(0);
       expect(testRes.passesAttempted).toBeGreaterThanOrEqual(1);
     });
@@ -244,11 +255,14 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
     });
 
     it('extracts reference from CBE and Telebirr debit SMS text', async () => {
-      const cbeSms = 'Dear Customer, your account was debited with ETB 1,250.00 for transfer to 1000510711258. Ref: FT24252Y8WQM. Thank you for banking with CBE.';
+      const cbeSms =
+        'Dear Customer, your account was debited with ETB 1,250.00 for transfer to 1000******000. View your receipt: '
+        + cbeReceiptUrl()
+        + '. Thank you for banking with CBE.';
       const cbeRes = await ingestion.ingestText(cbeSms);
 
       expect(cbeRes.bank).toBe('cbe');
-      expect(cbeRes.normalizedReference).toBe('FT24252Y8WQM');
+      expect(cbeRes.normalizedReference).toBe(SYNTHETIC_CBE_TOKEN);
       expect(cbeRes.amountEtb).toBe(1250);
       expect(cbeRes.decodeMethod).toBe('sms_regex');
 
@@ -297,73 +311,61 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
   // ============================================================================
 
   describe('3. Bank Adapters (CBE & Telebirr)', () => {
-    it('CbeBankAdapter parses vector PDF response and extracts transaction details', async () => {
+    it('CbeBankAdapter verifies against the transaction-detail JSON API', async () => {
       const adapter = new CbeBankAdapter();
-      const ref = {
-        bank: 'cbe' as const,
-        rawReference: 'FT24252Y8WQM',
-        normalizedReference: 'FT24252Y8WQM',
-        extractedAt: new Date(),
-        confidence: 0.99,
-        decodeMethod: 'qr_matrix' as const,
-      };
+      const ref = cbeReference();
 
-      const mockHtml = `
-        <html>
-          <body>
-            <div>Commercial Bank of Ethiopia</div>
-            <div>Transaction Reference: FT24252Y8WQM</div>
-            <div>Amount: 1,250.00 ETB</div>
-            <div>Credited Account: 1000123456789</div>
-            <div>Receiver Name: SAMUEL GIRMA</div>
-            <div>Debited Account: 100029384729</div>
-            <div>Payer Name: ABEBE BIKILA</div>
-            <div>Payment Date: 2026-09-08 09:44:12</div>
-          </body>
-        </html>
-      `;
-
-      vi.spyOn(global, 'fetch').mockResolvedValueOnce(new Response(mockHtml, {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      }));
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(buildCbeApiBody(), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      );
 
       const payload = await adapter.verify(ref);
 
       expect(payload.bank).toBe('cbe');
-      expect(payload.transactionReference).toBe('FT24252Y8WQM');
+      expect(payload.transactionReference).toBe(SYNTHETIC_CBE_TX_ID);
       expect(payload.amountEtb).toBe(1250);
-      expect(payload.beneficiaryAccount).toBe('1000123456789');
-      expect(payload.beneficiaryName).toBe('SAMUEL GIRMA');
-      expect(payload.senderName).toBe('ABEBE BIKILA');
+      // The bank masks the credited account server-side; the mask must survive.
+      expect(payload.beneficiaryAccount).toBe(SYNTHETIC_MASKED_ACCOUNT);
+      expect(payload.beneficiaryName).toBe('Bighabesha Shop');
+      expect(payload.senderName).toBe('TEST PAYER ALPHA');
       expect(payload.currency).toBe('ETB');
+      expect(payload.transactionStatus).toBe('COMPLETED');
+      // Fee is no longer a hardcoded 0.
+      expect(payload.feeEtb).toBe(12);
     });
 
-    it('CbeBankAdapter enforces SSRF safety and blocks unapproved domains', async () => {
+    it('CbeBankAdapter never fetches a customer-supplied sourceUrl', async () => {
       const adapter = new CbeBankAdapter();
-      const maliciousRef = {
-        bank: 'cbe' as const,
-        rawReference: 'FT123',
-        normalizedReference: 'FT123',
-        sourceUrl: 'https://evil-hacker.com/?id=FT123',
-        extractedAt: new Date(),
-        confidence: 0.9,
-        decodeMethod: 'qr_matrix' as const,
-      };
+      const requestedUrls: string[] = [];
+      const fetchMock = vi.fn(async (url: any) => {
+        requestedUrls.push(String(url));
+        return new Response(buildCbeApiBody(), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      });
+      vi.spyOn(global, 'fetch').mockImplementation(fetchMock as never);
 
-      await expect(adapter.verify(maliciousRef)).rejects.toThrow('SSRF violation');
+      const hostileRef = cbeReference(SYNTHETIC_CBE_TOKEN, {
+        sourceUrl: 'https://evil-hacker.com/?id=' + SYNTHETIC_CBE_TOKEN,
+      });
+
+      await adapter.verify(hostileRef);
+
+      // The fetch target is BUILT from the reference, never taken from input,
+      // so SSRF is structurally impossible on this rail rather than merely
+      // filtered by an allow-list after the fact.
+      expect(requestedUrls).toHaveLength(1);
+      expect(requestedUrls[0]).toContain('mb.cbe.com.et');
+      expect(requestedUrls[0]).not.toContain('evil-hacker.com');
     });
 
     it('CbeBankAdapter throws BankPortalUnavailableError when fetch times out', async () => {
       const adapter = new CbeBankAdapter();
-      const ref = {
-        bank: 'cbe' as const,
-        rawReference: 'FT24252Y8WQM',
-        normalizedReference: 'FT24252Y8WQM',
-        extractedAt: new Date(),
-        confidence: 0.99,
-        decodeMethod: 'qr_matrix' as const,
-      };
+      const ref = cbeReference();
 
       vi.spyOn(global, 'fetch').mockImplementationOnce(() => {
         const error = new Error('The operation was aborted');
@@ -456,7 +458,7 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
         transactionReference: 'FT_VALID_001',
         amountEtb: 1500,
         currency: 'ETB' as const,
-        beneficiaryAccount: '1000123456789',
+        beneficiaryAccount: SYNTHETIC_MASKED_ACCOUNT,
         beneficiaryName: 'Bighabesha Shop',
         transactionTimestamp: now,
         rawAuditTrail: {},
@@ -510,7 +512,7 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
         transactionReference: 'FT_UNDERPAID',
         amountEtb: 1000, // less than 1500
         currency: 'ETB' as const,
-        beneficiaryAccount: '1000123456789',
+        beneficiaryAccount: SYNTHETIC_MASKED_ACCOUNT,
         beneficiaryName: 'Bighabesha Shop',
         transactionTimestamp: new Date(),
         rawAuditTrail: {},
@@ -539,7 +541,7 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
         transactionReference: 'FT_STALE',
         amountEtb: 1500,
         currency: 'ETB' as const,
-        beneficiaryAccount: '1000123456789',
+        beneficiaryAccount: SYNTHETIC_MASKED_ACCOUNT,
         beneficiaryName: 'Bighabesha Shop',
         transactionTimestamp: staleTimestamp,
         rawAuditTrail: {},
@@ -565,22 +567,14 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
         paymentRail: 'cbe',
       });
 
-      const qrPng = await generateQrPng(`https://apps.cbe.com.et:100/?id=FT_AUTO_001`);
+      const qrPng = await generateQrPng(cbeReceiptUrl());
 
-      const mockHtml = `
-        <html><body>
-          <div>Amount: 1,250.00 ETB</div>
-          <div>Reference: FT_AUTO_001</div>
-          <div>Credited Account: 1000123456789</div>
-          <div>Receiver: Bighabesha Shop</div>
-          <div>Date: ${new Date().toISOString()}</div>
-        </body></html>
-      `;
-
-      vi.spyOn(global, 'fetch').mockResolvedValueOnce(new Response(mockHtml, {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      }));
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(buildCbeApiBody(), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      );
 
       const orchestrator = new ReceiptOrchestrator();
       const result = await orchestrator.processSubmission({
@@ -593,12 +587,12 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
 
       expect(result.success).toBe(true);
       expect(result.status).toBe('auto_verified');
-      expect(result.transactionReference).toBe('FT_AUTO_001');
+      expect(result.transactionReference).toBe(SYNTHETIC_CBE_TX_ID);
 
       // Verify order state in SQLite
       const updatedOrder = getOrderById(order.id)!;
       expect(updatedOrder.status).toBe('fulfilled');
-      expect(updatedOrder.payment_ref).toBe('FT_AUTO_001');
+      expect(updatedOrder.payment_ref).toBe(SYNTHETIC_CBE_TX_ID);
       expect(updatedOrder.fulfillment_payload).toContain('https://google.com/activate/TEST_CODE_001');
 
       // Verify stock was decremented
@@ -616,20 +610,10 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
       const order1 = createOrder({ userId: 1001, productId: 'gemini_pro', amountETB: 1250, paymentRail: 'cbe' });
       const order2 = createOrder({ userId: 1001, productId: 'gemini_pro', amountETB: 1250, paymentRail: 'cbe' });
 
-      const mockHtml = `
-        <html><body>
-          <div>Amount: 1,250.00 ETB</div>
-          <div>Reference: FT_REPLAY_123</div>
-          <div>Credited Account: 1000123456789</div>
-          <div>Receiver: Bighabesha Shop</div>
-          <div>Date: ${new Date().toISOString()}</div>
-        </body></html>
-      `;
-
       vi.spyOn(global, 'fetch').mockImplementation(() =>
-        Promise.resolve(new Response(mockHtml, {
+        Promise.resolve(new Response(buildCbeApiBody(), {
           status: 200,
-          headers: { 'content-type': 'text/html' },
+          headers: { 'content-type': 'application/json' },
         }))
       );
 
@@ -640,7 +624,7 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
         orderId: order1.id,
         userId: 1001,
         source: 'telegram_photo',
-        directReference: 'FT_REPLAY_123',
+        directReference: SYNTHETIC_CBE_TOKEN,
       });
       expect(res1.success).toBe(true);
 
@@ -649,7 +633,7 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
         orderId: order2.id,
         userId: 1001,
         source: 'telegram_photo',
-        directReference: 'FT_REPLAY_123',
+        directReference: SYNTHETIC_CBE_TOKEN,
       });
 
       expect(res2.success).toBe(false);
@@ -679,7 +663,7 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
         orderId: order.id,
         userId: 1001,
         source: 'telegram_photo',
-        directReference: 'FT_TIMEOUT_TEST',
+        directReference: SYNTHETIC_CBE_TOKEN,
       });
 
       expect(result.success).toBe(false);
@@ -698,20 +682,11 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
       vi.spyOn(global, 'fetch').mockImplementation(() => {
         attemptCount++;
         const dateStr = attemptCount === 1
-          ? new Date(Date.now() - 5 * 3600 * 1000).toISOString() // stale for initial attempt
-          : new Date().toISOString(); // fresh for admin reverification
-        const html = `
-          <html><body>
-            <div>Amount: 1,250.00 ETB</div>
-            <div>Reference: FT_REVERIFY_99</div>
-            <div>Credited Account: 1000123456789</div>
-            <div>Receiver: Bighabesha Shop</div>
-            <div>Date: ${dateStr}</div>
-          </body></html>
-        `;
-        return Promise.resolve(new Response(html, {
+          ? new Date(Date.now() - 5 * 3600 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z') // stale for initial attempt
+          : new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'); // fresh for admin reverification
+        return Promise.resolve(new Response(buildCbeApiBody({ dateTimes: [dateStr] }), {
           status: 200,
-          headers: { 'content-type': 'text/html' },
+          headers: { 'content-type': 'application/json' },
         }));
       });
 
@@ -722,7 +697,7 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
         orderId: order.id,
         userId: 1001,
         source: 'manual_admin_entry',
-        directReference: 'FT_REVERIFY_99',
+        directReference: SYNTHETIC_CBE_TOKEN,
       });
 
       // Admin re-verifies
@@ -785,17 +760,11 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
       const order = createOrder({ userId: 1001, productId: 'gemini_pro', amountETB: 1250, paymentRail: 'cbe' });
       const initData = createValidInitData(1001);
 
-      const mockHtml = `
-        <html><body>
-          <div>Amount: 1,250.00 ETB</div>
-          <div>Reference: FT_API_SUCCESS</div>
-          <div>Credited Account: 1000123456789</div>
-          <div>Receiver: Bighabesha Shop</div>
-          <div>Date: ${new Date().toISOString()}</div>
-        </body></html>
-      `;
       vi.spyOn(global, 'fetch').mockImplementation(() =>
-        Promise.resolve(new Response(mockHtml, { status: 200, headers: { 'content-type': 'text/html' } }))
+        Promise.resolve(new Response(buildCbeApiBody(), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }))
       );
 
       const res = await makeRequest(server, '/api/receipts/verify', {
@@ -803,7 +772,7 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
         headers: { Authorization: `tma ${initData}` },
         body: {
           orderId: order.id,
-          reference: 'FT_API_SUCCESS',
+          reference: SYNTHETIC_CBE_TOKEN,
         },
       });
 
@@ -813,7 +782,7 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
     });
 
     it('POST /api/receipts/test-qr decodes uploaded base64 image and returns passes', async () => {
-      const qrPng = await generateQrPng('https://apps.cbe.com.et:100/?id=FT_TEST_QR_API');
+      const qrPng = await generateQrPng(cbeReceiptUrl());
       const base64Str = `data:image/png;base64,${qrPng.toString('base64')}`;
 
       const res = await makeRequest(server, '/api/receipts/test-qr', {
@@ -823,7 +792,7 @@ describe('Phase 4: Bank Receipt Verification Engine Suite', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.rawText).toContain('FT_TEST_QR_API');
+      expect(res.body.rawText).toBe(cbeReceiptUrl());
     });
 
     it('GET /api/receipts/status/:orderId returns audit evidence and attempt history', async () => {

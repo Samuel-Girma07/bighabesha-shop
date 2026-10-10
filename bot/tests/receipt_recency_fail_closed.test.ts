@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { initDatabase, closeDatabase } from '../src/db/index.js';
@@ -8,6 +8,20 @@ import { CbeBankAdapter } from '../src/services/receipt_verifier/adapters/cbe.ad
 import { TelebirrAdapter } from '../src/services/receipt_verifier/adapters/telebirr.adapter.js';
 import { parseEthiopianBankTimestamp } from '../src/services/receipt_verifier/constants.js';
 import type { BankTransactionPayload, ExtractedReceiptReference } from '../src/services/receipt_verifier/types.js';
+import {
+  buildCbeApiBody,
+  cbeReference,
+} from './factories/cbe_api_response.factory.js';
+
+/** Minimal `Response`-alike for the CBE JSON API; the adapter reads status + text(). */
+function jsonResponse(body: string, status = 200): Response {
+  return {
+    status,
+    statusText: status === 200 ? 'OK' : 'Internal Server Error',
+    headers: new Headers({ 'content-type': 'application/json' }),
+    text: async () => body,
+  } as unknown as Response;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -158,19 +172,15 @@ describe('Recency pillar fails closed on an unverifiable timestamp', () => {
   // Adapters must propagate `null`, never substitute `new Date()`
   // ==========================================================================
 
-  it('returns a null timestamp from the CBE adapter when the slip has no date', () => {
+  it('returns a null timestamp from the CBE adapter when the receipt carries no date', async () => {
     const adapter = new CbeBankAdapter();
-    const html = `
-      <html><body>
-        <table><tr><th>Amount</th><td>1,250.00</td></tr>
-        <tr><th>Reference</th><td>FT_NO_DATE_001</td></tr>
-        <tr><th>Credited Account</th><td>1000123456789</td></tr></table>
-        <p>No date appears anywhere in this document.</p>
-      </body></html>
-    `;
+    const fetchMock = vi.fn(async () => jsonResponse(buildCbeApiBody({ dateTimes: null })));
+    vi.stubGlobal('fetch', fetchMock);
 
-    const parsed = adapter.parseHtmlResponse(html, reference('FT_NO_DATE_001'));
-    expect(parsed.transactionTimestamp).toBeNull();
+    const payload = await adapter.verify(cbeReference('v2-Ts7Qv4Nb2Xk9Rm5Pw3Zd'));
+
+    expect(payload.transactionTimestamp).toBeNull();
+    vi.unstubAllGlobals();
   });
 
   it('returns a null timestamp from the Telebirr adapter when the receipt has no date', () => {
@@ -188,14 +198,14 @@ describe('Recency pillar fails closed on an unverifiable timestamp', () => {
     expect(parsed.transactionTimestamp).toBeNull();
   });
 
-  it('returns a null timestamp when a date is present but not a real calendar date', () => {
+  it('returns a null timestamp when a date is present but not a real calendar date', async () => {
     // This is the case the old `!isNaN(parsed.getTime())` guard silently missed:
     // the date pattern matched, the parser ran, and the parser returned "now".
-    const cbe = new CbeBankAdapter().parseHtmlResponse(
-      `<html><body><p>Date: 2026-13-45 99:99:99</p><p>Reference: FT_BAD_DATE</p></body></html>`,
-      reference('FT_BAD_DATE')
-    );
+    const cbeFetch = vi.fn(async () => jsonResponse(buildCbeApiBody({ dateTimes: ['2026-13-45T99:99:99Z'] })));
+    vi.stubGlobal('fetch', cbeFetch);
+    const cbe = await new CbeBankAdapter().verify(cbeReference('v2-Ts7Qv4Nb2Xk9Rm5Pw3Zd'));
     expect(cbe.transactionTimestamp).toBeNull();
+    vi.unstubAllGlobals();
 
     const telebirr = new TelebirrAdapter().parseHtmlResponse(
       `<html><body><p>Date: 2026-13-45 99:99:99</p><p>Receipt Number: FT_TB_BAD_DATE</p><p>transaction status Completed</p></body></html>`,
@@ -204,15 +214,14 @@ describe('Recency pillar fails closed on an unverifiable timestamp', () => {
     expect(telebirr.transactionTimestamp).toBeNull();
   });
 
-  it('still parses a real timestamp on both adapters', () => {
-    const iso = new Date().toISOString();
+  it('still parses a real timestamp on both adapters', async () => {
+    const iso = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-    const cbe = new CbeBankAdapter().parseHtmlResponse(
-      `<html><body><p>Date: ${iso}</p><p>Reference: FT_WITH_DATE</p></body></html>`,
-      reference('FT_WITH_DATE')
-    );
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(buildCbeApiBody({ dateTimes: [iso] }))));
+    const cbe = await new CbeBankAdapter().verify(cbeReference('v2-Ts7Qv4Nb2Xk9Rm5Pw3Zd'));
     expect(cbe.transactionTimestamp).not.toBeNull();
     expect(isNaN(cbe.transactionTimestamp!.getTime())).toBe(false);
+    vi.unstubAllGlobals();
 
     const telebirr = new TelebirrAdapter().parseHtmlResponse(
       `<html><body><p>Date: ${iso}</p><p>Receipt Number: FT_TB_WITH_DATE</p><p>transaction status Completed</p></body></html>`,

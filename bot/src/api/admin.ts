@@ -20,7 +20,7 @@ import {
   deleteStockItem,
 } from '../services/stock.service.js';
 import {
-  getAllSettings,
+  getAdminVisibleSettings,
   setSetting,
   setSettings,
   isKnownSettingKey,
@@ -949,8 +949,14 @@ adminRouter.get('/users', requireAdminAuth, requirePermission('users.view'), (_r
 
 // 8. Settings Management
 adminRouter.get('/settings', requireAdminAuth, requirePermission('settings.read'), (_req: Request, res: Response): void => {
-  const settings = getAllSettings();
-  res.json({ settings });
+  // Never the raw table. `settings.read` is held by superadmin, ops AND finance,
+  // and two rows in that table are secrets: `download_link_secret` (signs every
+  // receipt download link) and `receipt_ethiopia_proxy_url` (embeds user:pass).
+  // `getAdminVisibleSettings` drops both and reports the proxy as a
+  // credential-free `host[:port]` endpoint instead, which is all the dashboard
+  // needs to show an operator what is configured.
+  const { settings, secretStatus } = getAdminVisibleSettings();
+  res.json({ settings, secretStatus });
 });
 
 adminRouter.put('/settings', requireAdminAuth, requirePermission('settings.write'), (req: Request, res: Response): void => {
@@ -960,9 +966,21 @@ adminRouter.put('/settings', requireAdminAuth, requirePermission('settings.write
     return;
   }
 
+  // `download_link_secret` is service-owned and write-only — the GET response no
+  // longer includes it, but a dashboard tab that was open before that filter
+  // shipped still holds the old value in React state and WILL echo it back on
+  // its next save. Strip it silently instead of rejecting the request: a 400
+  // here is precisely the failure mode that, earlier today, made EVERY settings
+  // save fail with `Unknown setting key(s): download_link_secret` and took out
+  // the auto-verification switch, merchant account numbers, FX rate and
+  // whitelists with it. Ignore is not reject. Copy first so `req.body` is left
+  // intact for anything else that inspects it.
+  const writableSettings: Record<string, string> = { ...(settings as Record<string, string>) };
+  delete writableSettings.download_link_secret;
+
   // Reject unknown keys outright — a typo'd key would otherwise be stored
   // silently and shadow nothing, while the real knob keeps its old value.
-  const unknownKeys = Object.keys(settings).filter((k) => !isKnownSettingKey(k));
+  const unknownKeys = Object.keys(writableSettings).filter((k) => !isKnownSettingKey(k));
   if (unknownKeys.length > 0) {
     res.status(400).json({
       error: `Unknown setting key(s): ${unknownKeys.join(', ')}. Valid keys: ${[...KNOWN_SETTING_KEYS].sort().join(', ')}`,
@@ -971,7 +989,7 @@ adminRouter.put('/settings', requireAdminAuth, requirePermission('settings.write
   }
 
   // Validate verification settings formats and bounds
-  const validation = validateVerificationSettings(settings);
+  const validation = validateVerificationSettings(writableSettings);
   if (!validation.isValid) {
     res.status(400).json({
       error: `Settings validation failed: ${validation.errors.join('; ')}`,
@@ -980,9 +998,9 @@ adminRouter.put('/settings', requireAdminAuth, requirePermission('settings.write
     return;
   }
 
-  const changedKeys = Object.keys(settings);
+  const changedKeys = Object.keys(writableSettings);
   // Atomic batch persistence across all changed keys in a single transaction
-  setSettings(settings);
+  setSettings(writableSettings);
 
   // Invalidate cached bootstrap catalog so public settings refresh immediately in memory
   invalidate('bootstrap:catalog');
@@ -998,11 +1016,17 @@ adminRouter.put('/settings', requireAdminAuth, requirePermission('settings.write
     action: 'settings.update',
     targetType: 'setting',
     targetId: changedKeys.join(','),
-    changes: settings,
+    // `recordAudit` redacts SECRET_SETTING_KEYS at serialisation, so the proxy
+    // password never reaches the `audit_logs` table even though it is a
+    // legitimate part of this payload.
+    changes: writableSettings,
     ip: req.ip,
   });
 
-  res.json({ success: true, settings: getAllSettings() });
+  // Filtered for the same reason as the GET above: this response used to leak
+  // both secrets on every single settings save, and it is the one that is easy
+  // to miss because the happy path looks identical.
+  res.json({ success: true, ...getAdminVisibleSettings() });
 });
 
 // 9. Broadcast Announcement (background job — never blocks the request)

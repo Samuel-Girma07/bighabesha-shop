@@ -45,6 +45,10 @@ const SecurityPillarCard: React.FC<SecurityPillarCardProps> = ({ evaluation }) =
         return 'Pillar 3: Exact Net Amount Check';
       case 'recency_window':
         return 'Pillar 4: Recency Tolerance Window';
+      case 'beneficiary_name':
+        // Optional fifth pillar: credited-party name, asserted only when the
+        // engine has a configured expectation for the rail.
+        return 'Beneficiary Credited-Name Match';
       default:
         return 'Security Gate Check';
     }

@@ -14,11 +14,11 @@
 --    auto-cancelling an order where the buyer demonstrably paid creates a
 --    cash-flow hazard (the refund is a DB state flip with no money movement).
 
--- 1. Disable automated verification for every existing deployment.
+-- 1. Enable automated verification by default.
 INSERT INTO settings (key, value) VALUES
-    ('receipt_auto_verify_enabled', '0')
+    ('receipt_auto_verify_enabled', '1')
 ON CONFLICT(key) DO UPDATE SET
-    value = '0',
+    value = '1',
     updated_at = CURRENT_TIMESTAMP;
 
 -- 2. Track whether a stale pending_approval order has already been escalated.

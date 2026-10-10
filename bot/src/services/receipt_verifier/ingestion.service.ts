@@ -46,8 +46,38 @@ const {
 // Statically Instantiated Regular Expressions
 // ============================================================================
 
-const CBE_URL_PATTERN = /https?:\/\/apps\.cbe\.com\.et(?::100)?\/(?:[^\s"'?#]*[?&]id=|(?:[^\s"'?#]*\/)?(?:customer\/receipt|receipt)\/)([A-Za-z0-9_\-]+)/i;
-const CBE_FT_PATTERN = /\b(FT[0-9A-Z_\-]{6,24})\b/i;
+/**
+ * CBE confirmation SMS receipt link: `https://mbreciept.cbe.com.et/v2-<token>`.
+ *
+ * The captured segment is the path segment VERBATIM, `v2-` prefix included.
+ * That prefix is not cosmetic: it is part of the credential the upstream
+ * transaction-detail API resolves. Dropping it yields HTTP 500
+ * ("Security Alert: Invalid or tampered legacy token!") for an otherwise
+ * perfectly valid receipt, so the prefix is captured rather than stripped.
+ *
+ * The token body is case-SENSITIVE, which is why the caller preserves the
+ * original casing instead of uppercasing the reference.
+ *
+ * The legacy `apps.cbe.com.et/?id={FT}` form is deliberately absent: that
+ * endpoint needs the customer's FT code with the last 8 digits of the shop
+ * account appended, which this bot never knew, so the form could never have
+ * verified. See `cbe.adapter.ts` for the full retirement rationale.
+ */
+const CBE_RECEIPT_URL_PATTERN = /https?:\/\/mbreciept\.cbe\.com\.et\/(v2-[A-Za-z0-9]{16,24})/i;
+
+/**
+ * A bare `v2-<token>` the customer pasted on its own, without the surrounding
+ * link.
+ *
+ * Checked inside `tryParseCbe` (which runs FIRST in `parseTextPayload`) rather
+ * than in `tryParseStandaloneCode`, because the generic standalone fallback
+ * `STANDALONE_ALPHA_PATTERN` already claimed bare mixed-case tokens for
+ * Telebirr: a real CBE token is exactly 20 characters, i.e. the fallback's
+ * upper bound, so a pasted CBE code was routed to the wrong bank's portal and
+ * produced an error naming the wrong bank to the operator. Claiming the explicit
+ * `v2-` form here means the generic fallback can never see one.
+ */
+const CBE_BARE_TOKEN_PATTERN = /^(v2-[A-Za-z0-9]{16,24})$/i;
 
 const TELEBIRR_URL_PATTERN = /https?:\/\/(?:transactioninfo\.ethiotelecom\.et|telebirr\.et)\/(?:(?:[^\s"'?#]*\/)?receipt\/|[^\s"'?#]*[?&]id=)([A-Za-z0-9_\-]+)/i;
 const TELEBIRR_GENERIC_URL_PATTERN = /https?:\/\/(?:transactioninfo\.ethiotelecom\.et|telebirr\.et)\/[^\s"']+/i;
@@ -363,16 +393,25 @@ export class ReceiptIngestionService implements IReceiptIngestionService {
     rawSnippet: string,
     decodeMethod: DecodeMethod
   ): ExtractedReceiptReference | null {
-    const cbeUrlMatch = text.match(CBE_URL_PATTERN);
-    const cbeFtMatch = text.match(CBE_FT_PATTERN);
+    const cbeUrlMatch = text.match(CBE_RECEIPT_URL_PATTERN);
+    const cbeBareTokenMatch = cbeUrlMatch ? null : text.trim().match(CBE_BARE_TOKEN_PATTERN);
 
-    if (!cbeUrlMatch && !cbeFtMatch) {
+    if (!cbeUrlMatch && !cbeBareTokenMatch) {
       return null;
     }
 
     const fullUrl = cbeUrlMatch ? cbeUrlMatch[0] : undefined;
-    const rawRef = cbeUrlMatch ? cbeUrlMatch[1] : cbeFtMatch![1];
-    const normalized = rawRef.trim().toUpperCase();
+    const rawRef = cbeUrlMatch ? cbeUrlMatch[1] : cbeBareTokenMatch![1];
+
+    // Deliberately NOT uppercased, unlike every other rail here.
+    //
+    // The `v2-` token is a mixed-case credential: the upstream API resolves it
+    // byte-for-byte, so `v2-hfHCx...` and `V2-HFHCX...` are different tokens and
+    // only the first exists. The old `.toUpperCase()` normalisation was safe for
+    // `FT…` references, which really are case-insensitive, and would have
+    // silently corrupted every CBE receipt this rail will ever see.
+    const normalized = rawRef.trim();
+
     const amount = this.extractAmount(text);
 
     return {
@@ -452,6 +491,19 @@ export class ReceiptIngestionService implements IReceiptIngestionService {
     decodeMethod: DecodeMethod
   ): ExtractedReceiptReference | null {
     const trimmed = text.trim();
+
+    // NOTE: no CBE branch belongs here. `tryParseCbe` runs earlier in
+    // `parseTextPayload` and already claims the explicit `v2-<token>` form, so
+    // by the time this generic fallback runs there is no CBE token left to take.
+    // Adding one would be dead code AND would re-open the misroute this ordering
+    // exists to prevent: this fallback's token class overlaps the CBE token class
+    // and, with CBE registered first in the adapter registry, a CBE token that
+    // reached here would be labelled Telebirr.
+    //
+    // The `FT…` branch below still labels bare FT references `cbe`, because the
+    // checkout instructions tell the customer to type one. The rail now rejects
+    // them at the adapter (`INVALID_RECEIPT_REFERENCE`) rather than silently
+    // querying a dead endpoint, so nothing is auto-verified from a legacy code.
 
     const standaloneFt = trimmed.match(STANDALONE_FT_PATTERN);
     if (standaloneFt) {

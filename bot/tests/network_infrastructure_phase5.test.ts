@@ -80,70 +80,89 @@ describe('Phase 5: Network & Infrastructure Hardening', () => {
     });
   });
 
-  describe('CBE Port 100 Outbound Firewall Fallback', () => {
-    it('falls back to standard HTTPS port 443 when port 100 query fails', async () => {
+  /**
+   * The "CBE Port 100 Outbound Firewall Fallback" this file used to assert no
+   * longer exists, and its absence is the point.
+   *
+   * The old rail fetched `https://apps.cbe.com.et:100/?id={FT}` and, when the
+   * outbound firewall dropped port 100, silently retried the same URL on 443.
+   * That flow is retired: it could never verify anything (the legacy endpoint
+   * additionally required the last 8 digits of the shop account appended to the
+   * FT code, which the bot has no way to know), and `apps.cbe.com.et:443` has
+   * nothing listening at all. The rail now talks to a single HTTPS/443 JSON
+   * endpoint, so there is no second port to fall back to — the retry branch,
+   * `RECEIPT_CBE_PORT` and the port-100 SSRF allowance went with it.
+   *
+   * These assertions guard against that dead code creeping back in.
+   */
+  describe('CBE legacy port-100 egress is retired', () => {
+    it('queries exactly one HTTPS/443 API URL and never probes a second port', async () => {
       const adapter = new CbeBankAdapter(new CircuitBreaker({ failureThreshold: 10 }));
 
       const requestedUrls: string[] = [];
-      const mockFetch = vi.fn(async (url: any) => {
-        requestedUrls.push(String(url));
-        if (String(url).includes(':100/')) {
-          // Simulate outbound firewall dropping/rejecting port 100
-          const err = new Error('connect ECONNREFUSED apps.cbe.com.et:100');
-          (err as any).code = 'ECONNREFUSED';
-          throw err;
-        }
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: any) => {
+          requestedUrls.push(String(url));
+          return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Headers({ 'content-type': 'application/json' }),
+            text: async () =>
+              JSON.stringify({
+                id: 'TXR4K9Z7Q2WX',
+                status: 'COMPLETED',
+                amountCredited: '500.00',
+                creditAccountNo: '1000******000',
+                creditAccountHolder: 'Bighabesha Shop',
+                dateTimes: [new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')],
+              }),
+          } as unknown as Response;
+        })
+      );
 
-        // Port 443 fallback succeeds
-        return {
-          ok: true,
-          status: 200,
-          statusText: 'OK',
-          headers: new Headers({ 'content-type': 'text/html' }),
-          arrayBuffer: async () => Buffer.from(`
-            <html>
-              <body>
-                <div>Transaction Reference: FT26TESTPORTFALLBACK</div>
-                <div>Amount: 500.00 ETB</div>
-                <div>Receiver Account: 1000123456789</div>
-                <div>Receiver Name: Bighabesha Shop</div>
-                <div>Date: 2026-09-16 15:30:00</div>
-              </body>
-            </html>
-          `),
-        } as unknown as Response;
-      });
+      const payload = await adapter.verify(cbeReference('v2-Ts7Qv4Nb2Xk9Rm5Pw3Zd'));
 
-      vi.stubGlobal('fetch', mockFetch);
-
-      const payload = await adapter.verify(cbeReference('FT26TESTPORTFALLBACK'));
-
-      // Verify both port 100 and port 443 were queried in sequence
-      expect(requestedUrls.length).toBe(2);
-      expect(requestedUrls[0]).toContain(':100/');
-      expect(requestedUrls[1]).not.toContain(':100/');
-      expect(requestedUrls[1]).toContain('apps.cbe.com.et');
-      expect(payload.transactionReference).toBe('FT26TESTPORTFALLBACK');
+      expect(requestedUrls).toHaveLength(1);
+      expect(requestedUrls[0]).toContain('https://mb.cbe.com.et/');
+      expect(requestedUrls[0]).not.toContain(':100');
       expect(payload.amountEtb).toBe(500);
     });
 
-    it('rethrows abort/timeout without attempting the port 443 fallback', async () => {
+    it('rejects a legacy FT reference locally, so no egress is attempted at all', async () => {
+      const adapter = new CbeBankAdapter(new CircuitBreaker({ failureThreshold: 10 }));
+      const mockFetch = vi.fn();
+      vi.stubGlobal('fetch', mockFetch);
+
+      await expect(adapter.verify(cbeReference('FT26TESTPORTFALLBACK'))).rejects.toThrow(
+        /cannot be verified as a CBE transaction/
+      );
+
+      // Not merely "no fallback": no call whatsoever. The throw happens before
+      // the breaker wrapper, so an unroutable customer code cannot record a
+      // portal failure and trip the breaker for everyone else.
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('surfaces an aborted request as BankPortalUnavailableError, with no retry', async () => {
       const adapter = new CbeBankAdapter(new CircuitBreaker({ failureThreshold: 10 }));
 
       const requestedUrls: string[] = [];
       const abortError = Object.assign(new Error('This operation was aborted'), { name: 'AbortError' });
-      vi.stubGlobal('fetch', vi.fn(async (url: any) => {
-        requestedUrls.push(String(url));
-        throw abortError;
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: any) => {
+          requestedUrls.push(String(url));
+          throw abortError;
+        })
+      );
 
-      await expect(adapter.verify(cbeReference('FT26TESTABORT'))).rejects.toBeInstanceOf(
+      await expect(adapter.verify(cbeReference('v2-Ts7Qv4Nb2Xk9Rm5Pw3Zd'))).rejects.toBeInstanceOf(
         BankPortalUnavailableError
       );
 
-      // Exactly one attempt (port 100): an aborted request must never trigger a fallback retry.
-      expect(requestedUrls.length).toBe(1);
-      expect(requestedUrls[0]).toContain(':100/');
+      expect(requestedUrls).toHaveLength(1);
     });
   });
 

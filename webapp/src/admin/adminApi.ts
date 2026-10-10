@@ -346,18 +346,47 @@ export async function fetchAdminUsersApi(): Promise<{ users: AdminUser[] }> {
   return parseJsonResponse<{ users: AdminUser[] }>(res, 'Failed to load users');
 }
 
-export async function fetchAdminSettingsApi(): Promise<{ settings: Record<string, string> }> {
-  const res = await adminFetch(`${API_BASE}/api/admin/settings`);
-  return parseJsonResponse<{ settings: Record<string, string> }>(res, 'Failed to load settings');
+/**
+ * Non-reversible description of a write-only setting.
+ *
+ * `receipt_ethiopia_proxy_url` embeds the proxy provider's `user:pass`, so the
+ * server filters it out of every response. `configured` tells the dashboard
+ * whether a value exists and `endpoint` is the credential-free `host[:port]` —
+ * enough to show an operator what is live, with nothing to leak.
+ */
+export interface AdminSecretSettingStatus {
+  configured: boolean;
+  endpoint: string;
 }
 
-export async function updateAdminSettingsApi(settings: Record<string, string>): Promise<{ success: boolean; settings?: Record<string, string> }> {
+export interface AdminSettingsSecretStatus {
+  receipt_ethiopia_proxy_url: AdminSecretSettingStatus;
+}
+
+export interface AdminSettingsResponse {
+  settings: Record<string, string>;
+  /** Absent on an older server build — treat as "nothing configured". */
+  secretStatus?: AdminSettingsSecretStatus;
+}
+
+export async function fetchAdminSettingsApi(): Promise<AdminSettingsResponse> {
+  const res = await adminFetch(`${API_BASE}/api/admin/settings`);
+  return parseJsonResponse<AdminSettingsResponse>(res, 'Failed to load settings');
+}
+
+/**
+ * `settings` may contain a write-only key (`receipt_ethiopia_proxy_url`) — the
+ * server accepts it, and it is the only way to set or clear the value. The
+ * response is filtered exactly like the GET, so a successful save never hands
+ * the credential back.
+ */
+export async function updateAdminSettingsApi(settings: Record<string, string>): Promise<{ success: boolean } & AdminSettingsResponse> {
   const res = await adminFetch(`${API_BASE}/api/admin/settings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ settings }),
   });
-  return parseJsonResponse<{ success: boolean; settings?: Record<string, string> }>(res, 'Failed to update settings');
+  return parseJsonResponse<{ success: boolean } & AdminSettingsResponse>(res, 'Failed to update settings');
 }
 
 export async function broadcastMessageApi(message: string, target: string, photoFileId?: string): Promise<{ success: boolean; jobId?: string; message?: string }> {
@@ -418,6 +447,14 @@ export type VerificationStatus =
   | 'rejected'
   | 'upstream_failure';
 
+/**
+ * Machine-readable error codes emitted by the backend engine.
+ *
+ * Mirrors `VerificationFailureCode` in `bot/src/services/receipt_verifier/types.ts`.
+ * Keep the two in step: a code added there and not here falls through to the
+ * `default` branch below and an operator sees a generic "Engine Error" badge for
+ * a failure with a perfectly well-known cause.
+ */
 export type VerificationFailureCode =
   | 'RECEIPT_ALREADY_USED'
   | 'BENEFICIARY_MISMATCH'
@@ -426,16 +463,24 @@ export type VerificationFailureCode =
   | 'QR_DECODE_FAILED'
   | 'BANK_PORTAL_UNAVAILABLE'
   | 'PORTAL_GEOBLOCKED'
+  | 'PROXY_CONFIG_INVALID'
   | 'UNSUPPORTED_BANK'
+  | 'INVALID_RECEIPT_REFERENCE'
+  | 'AUTO_VERIFY_DISABLED'
   | 'CORRUPTED_FILE'
   | 'RATE_LIMITED'
+  | 'ORDER_NOT_FULFILLABLE'
+  | 'TRANSACTION_NOT_CONFIRMED'
   | 'INTERNAL_ENGINE_ERROR';
 
 export type SecurityPillarId =
   | 'anti_replay'
   | 'beneficiary_whitelist'
   | 'exact_amount'
-  | 'recency_window';
+  | 'recency_window'
+  // Optional fifth pillar, only present when the engine enforces a configured
+  // expected beneficiary name (Telebirr only, and only once an operator sets it).
+  | 'beneficiary_name';
 
 export interface SecurityPillarEvaluation {
   pillar: SecurityPillarId;
@@ -602,6 +647,39 @@ export function getVerificationDiagnosticToast(
         severity: 'warning',
         remediationHint: 'Inspect Ethiopian residential proxy configuration in Settings.',
       };
+    case 'PROXY_CONFIG_INVALID':
+      // Operator fault, not a regional block: the two need opposite responses,
+      // so this must not be folded into PORTAL_GEOBLOCKED.
+      return {
+        title: 'Egress Proxy Misconfigured',
+        message: `The configured Ethiopian egress proxy could not be used, so ${bankLabel} verification fails closed.`,
+        badgeLabel: 'Proxy Misconfigured',
+        badgeClass: 'diagnostic-badge danger',
+        severity: 'error',
+        remediationHint: 'Correct the proxy URI in Settings; the engine fails closed until the proxy works.',
+      };
+    case 'INVALID_RECEIPT_REFERENCE':
+      // Permanent customer-data error, not an outage: the bank never resolved a
+      // transaction, so retrying cannot help.
+      return {
+        title: 'Reference Not Recognised by Bank',
+        message: `The bank rejected the submitted reference as invalid or tampered, so no transaction was resolved.`,
+        badgeLabel: 'Bad Reference',
+        badgeClass: 'diagnostic-badge danger',
+        severity: 'error',
+        remediationHint: 'Ask the buyer to forward the exact confirmation SMS or the full receipt link.',
+      };
+    case 'AUTO_VERIFY_DISABLED':
+      // Expected while the manual-only kill switch is on: nothing was lost, the
+      // submission is sitting in the review queue on purpose.
+      return {
+        title: 'Auto-Verification Disabled',
+        message: 'Automated verification is switched off by the operator, so this receipt was routed to manual review.',
+        badgeLabel: 'Auto-Verify Off',
+        badgeClass: 'diagnostic-badge neutral',
+        severity: 'info',
+        remediationHint: 'No action needed on the rail; review and approve this order manually.',
+      };
     case 'BENEFICIARY_MISMATCH':
       return {
         title: 'Beneficiary Account Mismatch',
@@ -673,6 +751,27 @@ export function getVerificationDiagnosticToast(
         badgeClass: 'diagnostic-badge warning',
         severity: 'warning',
         remediationHint: 'Wait 60 seconds before initiating another re-verification.',
+      };
+    case 'ORDER_NOT_FULFILLABLE':
+      // A lifecycle conflict, not a payment problem: re-verifying cannot change it.
+      return {
+        title: 'Order State Forbids Fulfillment',
+        message: `Order status does not permit automated fulfillment, so ${bankLabel} was never queried for it.`,
+        badgeLabel: 'Order State',
+        badgeClass: 'diagnostic-badge warning',
+        severity: 'warning',
+        remediationHint: 'Check the order is still awaiting payment or in manual review before re-verifying.',
+      };
+    case 'TRANSACTION_NOT_CONFIRMED':
+      // Absence of proof, not proof of absence: the portal never stated a
+      // completed status, which is not the same as a declined payment.
+      return {
+        title: 'Payment Not Confirmed by Bank',
+        message: `${bankLabel} did not report this transaction as completed, so it cannot be auto-fulfilled.`,
+        badgeLabel: 'Not Confirmed',
+        badgeClass: 'diagnostic-badge warning',
+        severity: 'warning',
+        remediationHint: 'Ask the buyer for the full receipt SMS and confirm the payment in the banking app.',
       };
     case 'INTERNAL_ENGINE_ERROR':
     default:

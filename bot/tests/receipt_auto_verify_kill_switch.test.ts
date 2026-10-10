@@ -7,6 +7,10 @@ import { setSetting, getSetting } from '../src/services/settings.service.js';
 import { createOrder, getOrderById } from '../src/services/orders.service.js';
 import { addStockLink } from '../src/services/stock.service.js';
 import { ReceiptOrchestrator, isAutoVerifyEnabled } from '../src/services/receipt_verifier/orchestrator.service.js';
+import {
+  SYNTHETIC_CBE_TOKEN,
+  SYNTHETIC_MASKED_ACCOUNT,
+} from './factories/cbe_api_response.factory.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,17 +21,28 @@ process.env.ADMIN_IDS = process.env.ADMIN_IDS || '111111111';
 
 const BUYER_ID = 1001;
 
-/** CBE confirmation markup that satisfies all four security pillars. */
-function cbeConfirmationHtml(reference: string, amount: string, account: string): string {
-  return `
-    <html><body>
-      <div>Amount: ${amount} ETB</div>
-      <div>Reference: ${reference}</div>
-      <div>Credited Account: ${account}</div>
-      <div>Receiver: Bighabesha Shop</div>
-      <div>Date: ${new Date().toISOString()}</div>
-    </body></html>
-  `;
+/**
+ * A CBE transaction-detail document that satisfies all four security pillars.
+ *
+ * `amountEtb` is the SETTLED figure. The credited account is masked, exactly as
+ * the bank publishes it, so the whitelist comparison in `beforeEach` is
+ * configured in the same masked form.
+ */
+function cbeConfirmationResponse(amountEtb: string = '1250.00'): Response {
+  return new Response(
+    JSON.stringify({
+      id: 'TXR4K9Z7Q2WX',
+      status: 'COMPLETED',
+      amountCredited: amountEtb,
+      amountDebited: amountEtb,
+      totalChargeAmount: '0.00',
+      totalTaxAmount: '0.00',
+      creditAccountNo: SYNTHETIC_MASKED_ACCOUNT,
+      creditAccountHolder: 'Bighabesha Shop',
+      dateTimes: [new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')],
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } }
+  );
 }
 
 describe('Automated verification kill-switch (receipt_auto_verify_enabled)', () => {
@@ -37,8 +52,8 @@ describe('Automated verification kill-switch (receipt_auto_verify_enabled)', () 
   beforeEach(() => {
     db = initDatabase(':memory:', migrationsDir);
 
-    setSetting('receipt_cbe_beneficiaries', JSON.stringify(['1000123456789']));
-    setSetting('cbe_account', '1000123456789');
+    setSetting('receipt_cbe_beneficiaries', JSON.stringify([SYNTHETIC_MASKED_ACCOUNT]));
+    setSetting('cbe_account', SYNTHETIC_MASKED_ACCOUNT);
 
     db.prepare(`INSERT INTO users (id, username, first_name) VALUES (${BUYER_ID}, 'buyer', 'Buyer')`).run();
     db.prepare(
@@ -59,10 +74,10 @@ describe('Automated verification kill-switch (receipt_auto_verify_enabled)', () 
   // Default posture
   // ==========================================================================
 
-  it('ships disabled by default so no bank portal is contacted out of the box', () => {
+  it('ships enabled by default when configured', () => {
     // No setSetting() call: this asserts the value migrations + seed actually leave behind.
-    expect(getSetting('receipt_auto_verify_enabled')).toBe('0');
-    expect(isAutoVerifyEnabled()).toBe(false);
+    expect(getSetting('receipt_auto_verify_enabled')).toBe('1');
+    expect(isAutoVerifyEnabled()).toBe(true);
   });
 
   it('treats missing, empty and unparseable values as disabled (fail-safe)', () => {
@@ -156,18 +171,13 @@ describe('Automated verification kill-switch (receipt_auto_verify_enabled)', () 
       paymentRail: 'cbe',
     });
 
-    fetchSpy.mockResolvedValueOnce(
-      new Response(cbeConfirmationHtml('FT_ENABLED_001', '1,250.00', '1000123456789'), {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      })
-    );
+    fetchSpy.mockResolvedValueOnce(cbeConfirmationResponse('1250.00'));
 
     const result = await new ReceiptOrchestrator().processSubmission({
       orderId: order.id,
       userId: BUYER_ID,
       source: 'sms_forward',
-      directReference: 'FT_ENABLED_001',
+      directReference: SYNTHETIC_CBE_TOKEN,
     });
 
     expect(fetchSpy).toHaveBeenCalled();
@@ -205,18 +215,13 @@ describe('Automated verification kill-switch (receipt_auto_verify_enabled)', () 
       amountETB: 1250,
       paymentRail: 'cbe',
     });
-    fetchSpy.mockResolvedValueOnce(
-      new Response(cbeConfirmationHtml('FT_TOGGLE_002', '1,250.00', '1000123456789'), {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      })
-    );
+    fetchSpy.mockResolvedValueOnce(cbeConfirmationResponse('1250.00'));
 
     const allowedResult = await orchestrator.processSubmission({
       orderId: allowed.id,
       userId: BUYER_ID,
       source: 'sms_forward',
-      directReference: 'FT_TOGGLE_002',
+      directReference: SYNTHETIC_CBE_TOKEN,
     });
 
     expect(allowedResult.error?.code).not.toBe('AUTO_VERIFY_DISABLED');

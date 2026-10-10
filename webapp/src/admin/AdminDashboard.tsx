@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   adminLoginApi,
   adminVerify2FAApi,
@@ -29,6 +29,7 @@ import {
   getVerificationDiagnosticToast,
   AdminOverviewData,
   AdminOverviewPoint,
+  AdminSettingsSecretStatus,
   AdminStockSummary,
   AdminStockItem,
   AdminUser,
@@ -279,6 +280,26 @@ function formatDateTime(dateStr?: string | null): { date: string; time: string }
   return { date, time };
 }
 
+/**
+ * Keys the server treats as write-only. They are stripped out of every settings
+ * response before it is allowed anywhere near React state.
+ *
+ * The server already filters these out of GET /settings, so this is
+ * belt-and-braces. But belt-and-braces is the right posture for a field that
+ * embeds the proxy provider's `user:pass`: the invariant that actually matters
+ * is "this credential never enters React state", and enforcing it at the point
+ * of entry means a stale cached response, a test double, or an older server
+ * build cannot quietly reintroduce it. Everything the dashboard needs in order
+ * to describe the field arrives separately as `secretStatus`.
+ */
+const WRITE_ONLY_SETTING_KEYS = ['receipt_ethiopia_proxy_url'];
+
+function stripWriteOnlySettings(settings: Record<string, string>): Record<string, string> {
+  const clean: Record<string, string> = { ...settings };
+  for (const key of WRITE_ONLY_SETTING_KEYS) delete clean[key];
+  return clean;
+}
+
 export const AdminDashboard: React.FC = () => {
   // Theme Management (Light Mode & Dark Mode with persistence)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -364,6 +385,59 @@ export const AdminDashboard: React.FC = () => {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [userSearch, setUserSearch] = useState('');
   const [settings, setSettings] = useState<Record<string, string>>({});
+  /**
+   * True once a settings control has been edited but not yet persisted.
+   *
+   * While set, the 10s live sync deliberately refuses to overwrite `settings`.
+   * Otherwise an unsaved edit silently reverts within ten seconds and reads as
+   * "the server rejected my save" — which is exactly the wrong conclusion, since
+   * nothing was ever sent. Every other tab keeps refreshing as before.
+   */
+  const [settingsDirty, setSettingsDirty] = useState<boolean>(false);
+  /**
+   * Mirror of `settingsDirty` for the live-sync callback.
+   *
+   * `loadAllAdminData` is captured by the 10s interval effect, whose dependency
+   * list deliberately does not change on every keystroke — so the `settingsDirty`
+   * it closes over is the value from the render that installed the timer, i.e.
+   * permanently `false`. Reading the ref instead is what makes the guard work
+   * from inside a callback scheduled by an old closure.
+   */
+  const settingsDirtyRef = useRef<boolean>(false);
+  useEffect(() => {
+    settingsDirtyRef.current = settingsDirty;
+  }, [settingsDirty]);
+  /**
+   * Server truth about the write-only settings, safe to hold: `configured` plus
+   * a credential-free `host[:port]`. Optional so an older server build that does
+   * not send the block at all degrades to "nothing configured".
+   */
+  const [settingsSecretStatus, setSettingsSecretStatus] = useState<AdminSettingsSecretStatus | null>(null);
+  /**
+   * True once the operator has asked to replace a stored proxy value.
+   *
+   * Separate from `proxyDraft` on purpose. Revealing the input is not yet an
+   * edit, and treating it as one would mean that clicking "Replace" and then
+   * saving would silently CLEAR the proxy, because the field starts empty.
+   */
+  const [proxyEditing, setProxyEditing] = useState<boolean>(false);
+  /**
+   * Staging area for a replacement egress-proxy URI.
+   *
+   * `null` means "no replacement staged". The credential is held here rather than
+   * in `settings` so it is never part of the ordinary form payload: it reaches
+   * the API only when Save explicitly splices it in, and it is the single place
+   * that needs clearing on save, cancel, or logout.
+   */
+  const [proxyDraft, setProxyDraft] = useState<string | null>(null);
+
+  // Derived view-state for the write-only proxy control. All three are safe to
+  // render: `endpoint` is the credential-free `host[:port]` the server derived.
+  const proxyConfigured = settingsSecretStatus?.receipt_ethiopia_proxy_url?.configured ?? false;
+  const proxyEndpointHint = settingsSecretStatus?.receipt_ethiopia_proxy_url?.endpoint ?? '';
+  // With no stored value there is nothing to protect, so show the input straight
+  // away. Otherwise the credential-free hint is shown until Replace is pressed.
+  const proxyInputVisible = proxyEditing || !proxyConfigured;
   const [payoutRows, setPayoutRows] = useState<AdminPayout[]>([]);
 
   // Broadcast State
@@ -388,6 +462,7 @@ export const AdminDashboard: React.FC = () => {
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [modalBusy, setModalBusy] = useState(false);
   const [settingsBusy, setSettingsBusy] = useState(false);
+  const [autoVerifyBusy, setAutoVerifyBusy] = useState(false);
   const [stockBusy, setStockBusy] = useState(false);
 
   // Receipt viewer
@@ -441,7 +516,7 @@ export const AdminDashboard: React.FC = () => {
         canSee('orders.view') ? fetchAdminOrdersApi(orderFilter, orderSearch).catch(() => ({ orders: [] })) : Promise.resolve({ orders: [] }),
         canSee('stock.manage') ? fetchAdminStockApi().catch(() => ({ summary: {}, items: [] })) : Promise.resolve({ summary: {}, items: [] }),
         canSee('users.view') ? fetchAdminUsersApi().catch(() => ({ users: [] })) : Promise.resolve({ users: [] }),
-        canSee('settings.read') ? fetchAdminSettingsApi().catch(() => ({ settings: {} })) : Promise.resolve({ settings: {} }),
+        canSee('settings.read') ? fetchAdminSettingsApi().catch(() => ({ settings: {} as Record<string, string>, secretStatus: undefined })) : Promise.resolve({ settings: {} as Record<string, string>, secretStatus: undefined }),
         canSee('payouts.manage') ? fetchPayoutsApi('pending').catch(() => ({ payouts: [] })) : Promise.resolve({ payouts: [] }),
       ]);
 
@@ -449,7 +524,14 @@ export const AdminDashboard: React.FC = () => {
       setOrders(ords.orders);
       setStockData(stk);
       setUsers(usrs.users);
-      setSettings(stgs.settings);
+      // Never clobber in-progress edits: the Settings tab is the only surface
+      // with unsaved state, and a background refresh must not discard it.
+      // `stripWriteOnlySettings` additionally guarantees the proxy credential
+      // cannot reach `settings` state even if a response did carry it.
+      if (!settingsDirtyRef.current) setSettings(stripWriteOnlySettings(stgs.settings));
+      // `secretStatus` is server truth with no local draft to protect, so it
+      // refreshes on every sync even while the form holds unsaved edits.
+      setSettingsSecretStatus(stgs.secretStatus ?? null);
       setPayoutRows(pyts.payouts || []);
       setLastSync(new Date());
     } catch (err: unknown) {
@@ -467,6 +549,15 @@ export const AdminDashboard: React.FC = () => {
       loadAllAdminData(timeRange, categoryRail);
     }
   }, [isLoggedIn, orderFilter, timeRange, categoryRail]);
+
+  // Leaving the Settings tab discards the unsaved-edit guard: the draft is only
+  // meaningful while the operator is looking at the form. The next entry into
+  // the tab re-reads the persisted values through `loadAllAdminData`.
+  useEffect(() => {
+    if (activeTab !== 'settings') {
+      setSettingsDirty(false);
+    }
+  }, [activeTab]);
 
   // Live Auto-Sync interval (10s)
   useEffect(() => {
@@ -740,6 +831,115 @@ export const AdminDashboard: React.FC = () => {
   };
 
   // Settings Action
+  /**
+   * Applies an unsaved edit to the local settings form and flags the tab dirty
+   * so the live sync leaves the value alone. Every editable Settings control
+   * (the text and number fields) routes through here; the master toggle does
+   * not, because it persists itself.
+   */
+  const applySettingsChange = (patch: Record<string, string>) => {
+    setSettings((prev) => ({ ...prev, ...patch }));
+    setSettingsDirty(true);
+  };
+
+  /**
+   * Reveals an EMPTY input so the operator can stage a replacement proxy URI.
+   *
+   * Empty is the whole point: pre-filling the field with the stored value would
+   * put the credential straight back into the DOM, which is the one thing this
+   * control exists to prevent. `proxyDraft` stays `null` until something is
+   * actually typed, so opening the input and saving cannot clear the proxy.
+   */
+  const handleEditProxy = () => {
+    if (!canSee('settings.write')) return;
+    setProxyDraft(null);
+    setProxyEditing(true);
+  };
+
+  /** Abandons a staged replacement without touching the stored credential. */
+  const handleCancelProxyEdit = () => {
+    setProxyDraft(null);
+    setProxyEditing(false);
+  };
+
+  /**
+   * Clears the stored egress-proxy URI, including its embedded `user:pass`.
+   *
+   * Confirmed, and marked dangerous, because it is not really reversible: the
+   * stored credential is the only copy this system has, and re-enabling the rail
+   * means buying or retrieving the proxy credentials again. Receipt verification
+   * also falls back to direct egress from this host, which the Ethiopian bank
+   * portals geoblock - so this is a deliberate, visibly costly action rather than
+   * a routine field edit.
+   */
+  const handleClearProxy = () => {
+    if (!canSee('settings.write')) return;
+    setConfirmModal({
+      title: 'Clear Ethiopian Egress Proxy',
+      message: 'This deletes the stored proxy URI and its embedded credentials. Receipt verification falls back to direct egress from this host, which the Ethiopian bank portals geoblock, so automated verification will start failing until a new proxy is configured. The cleared credentials cannot be recovered from here.',
+      actionLabel: 'Clear Proxy',
+      category: 'danger',
+      isDanger: true,
+      details: [
+        { label: 'Setting', value: 'receipt_ethiopia_proxy_url' },
+        { label: 'Configured Endpoint', value: proxyEndpointHint || '(none)' },
+        { label: 'Effect', value: 'Direct egress - expect geo-blocks' },
+      ],
+      onConfirm: async () => {
+        try {
+          await updateAdminSettingsApi({ receipt_ethiopia_proxy_url: '' });
+          setProxyDraft(null);
+          setProxyEditing(false);
+          showToast('Egress proxy cleared. Receipt verification is back on direct egress.', 'info');
+          loadAllAdminData();
+        } catch (err: unknown) {
+          showToast(err instanceof Error ? err.message : 'Failed to clear the egress proxy', 'error');
+        } finally {
+          setConfirmModal(null);
+        }
+      },
+    });
+  };
+
+  /**
+   * Persists the automated-verification master switch immediately.
+   *
+   * This switch gates live bank-portal traffic, so waiting for a scroll to the
+   * bottom of the tab and a separate "Save Store Settings" click was a trap: the
+   * toggle only moved React state, and the 10s live refresh then overwrote it,
+   * which looks exactly like the server rejecting the change.
+   *
+   * The write is optimistic (the switch moves at once) and self-reverting: if the
+   * PUT fails the previous value is restored and the error surfaced, so the UI
+   * can never claim a state the server does not hold.
+   *
+   * Only the changed key is sent. The endpoint is a per-key upsert, so this
+   * cannot accidentally commit a half-typed field sitting elsewhere in the form,
+   * and cannot be rejected by another field's validation.
+   */
+  const handleToggleAutoVerify = async () => {
+    if (autoVerifyBusy || !canSee('settings.write')) return;
+
+    const previous = settings.receipt_auto_verify_enabled;
+    const wasEnabled = previous === '1' || previous === 'true';
+    const next = wasEnabled ? '0' : '1';
+
+    setSettings((prev) => ({ ...prev, receipt_auto_verify_enabled: next }));
+    setAutoVerifyBusy(true);
+    try {
+      await updateAdminSettingsApi({ receipt_auto_verify_enabled: next });
+      showToast(
+        wasEnabled ? 'Automated verification paused. Receipts go to manual review.' : 'Automated verification enabled.',
+        'success'
+      );
+    } catch (err: unknown) {
+      setSettings((prev) => ({ ...prev, receipt_auto_verify_enabled: previous }));
+      showToast(err instanceof Error ? err.message : 'Failed to update verification engine state', 'error');
+    } finally {
+      setAutoVerifyBusy(false);
+    }
+  };
+
   const handleSaveSettings = async () => {
     if (settingsBusy) return;
 
@@ -748,6 +948,13 @@ export const AdminDashboard: React.FC = () => {
       showToast('Permission denied: requires settings.write.', 'error');
       return;
     }
+
+    // The egress-proxy value is write-only, so it lives in `proxyDraft` and never
+    // in `settings`. `null` (nothing staged) and an all-whitespace draft both
+    // resolve to no value at all, which is what makes Save incapable of silently
+    // clearing the proxy: clearing is only reachable through the confirmed Clear
+    // button, where the consequence is spelled out first.
+    const stagedProxyUrl = proxyDraft !== null && proxyDraft.trim() !== '' ? proxyDraft : null;
 
     // Client-side format validation guards
     if (settings.cbe_account && settings.cbe_account.trim() !== '0000000000000' && !/^\d{13}$/.test(settings.cbe_account.trim())) {
@@ -790,23 +997,34 @@ export const AdminDashboard: React.FC = () => {
         return;
       }
     }
-    if (settings.receipt_ethiopia_proxy_url && settings.receipt_ethiopia_proxy_url.trim()) {
+    if (stagedProxyUrl && !/^https?:\/\/[^\s]+$/.test(stagedProxyUrl)) {
       // Mirrors the server-side validator in settings.service.ts. SOCKS5 is
       // rejected deliberately: the proxy agent speaks HTTP CONNECT only, so a
       // socks5:// URL fails later as a broken tunnel instead of a config error.
-      if (!/^https?:\/\/[^\s]+$/.test(settings.receipt_ethiopia_proxy_url.trim())) {
-        showToast(
-          'Proxy URL must be a valid HTTP or HTTPS URL. SOCKS5 is not supported — front it with an HTTP bridge first.',
-          'error'
-        );
-        return;
-      }
+      // Note this reads the staging field, never `settings`: the read-only
+      // endpoint hint is a bare `host[:port]` and this same regex rejects it,
+      // which is exactly the fail-safe we want. The hint must never reach the API.
+      showToast(
+        'Proxy URL must be a valid HTTP or HTTPS URL. SOCKS5 is not supported - front it with an HTTP bridge first.',
+        'error'
+      );
+      return;
     }
 
     setSettingsBusy(true);
     try {
-      await updateAdminSettingsApi(settings);
+      // The proxy key is spliced in ONLY when a replacement was actually staged.
+      // Sending it unconditionally would mean every settings save re-writes the
+      // credential from a value this browser no longer holds.
+      const payload: Record<string, string> = { ...settings };
+      if (stagedProxyUrl) payload.receipt_ethiopia_proxy_url = stagedProxyUrl;
+      await updateAdminSettingsApi(payload);
       showToast('Store settings updated successfully', 'success');
+      // Persisted: let the live sync own `settings` again, and drop the staged
+      // credential now that the server owns it.
+      setSettingsDirty(false);
+      setProxyDraft(null);
+      setProxyEditing(false);
       loadAllAdminData();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to save settings';
@@ -3116,15 +3334,11 @@ export const AdminDashboard: React.FC = () => {
                           ? 'on'
                           : 'off'
                       }`}
-                      disabled={!canSee('settings.write')}
-                      onClick={() => {
-                        const current =
-                          settings.receipt_auto_verify_enabled === '1' ||
-                          settings.receipt_auto_verify_enabled === 'true';
-                        setSettings({ ...settings, receipt_auto_verify_enabled: current ? '0' : '1' });
-                      }}
-                      title={canSee('settings.write') ? 'Toggle verification engine state' : 'Requires settings.write permission'}
+                      disabled={!canSee('settings.write') || autoVerifyBusy}
+                      onClick={handleToggleAutoVerify}
+                      title={canSee('settings.write') ? 'Toggle verification engine state (saves immediately)' : 'Requires settings.write permission'}
                       aria-label="Toggle auto verification engine"
+                      aria-busy={autoVerifyBusy}
                     >
                       <span className="toggle-switch-handle" />
                     </button>
@@ -3156,7 +3370,7 @@ export const AdminDashboard: React.FC = () => {
                       <input
                         type="text"
                         value={settings.cbe_account || ''}
-                        onChange={(e) => setSettings({ ...settings, cbe_account: e.target.value })}
+                        onChange={(e) => applySettingsChange({ cbe_account: e.target.value })}
                         disabled={!canSee('settings.write')}
                         placeholder="e.g. 1000123456789"
                         maxLength={13}
@@ -3184,7 +3398,7 @@ export const AdminDashboard: React.FC = () => {
                       <input
                         type="text"
                         value={settings.cbe_name || ''}
-                        onChange={(e) => setSettings({ ...settings, cbe_name: e.target.value })}
+                        onChange={(e) => applySettingsChange({ cbe_name: e.target.value })}
                         disabled={!canSee('settings.write')}
                         placeholder="e.g. Bighabesha Shop"
                         style={{
@@ -3215,7 +3429,7 @@ export const AdminDashboard: React.FC = () => {
                       <input
                         type="text"
                         value={settings.telebirr_account || ''}
-                        onChange={(e) => setSettings({ ...settings, telebirr_account: e.target.value })}
+                        onChange={(e) => applySettingsChange({ telebirr_account: e.target.value })}
                         disabled={!canSee('settings.write')}
                         placeholder="e.g. 0911234567 or +251911234567"
                         style={{
@@ -3244,7 +3458,7 @@ export const AdminDashboard: React.FC = () => {
                       <input
                         type="text"
                         value={settings.telebirr_name || ''}
-                        onChange={(e) => setSettings({ ...settings, telebirr_name: e.target.value })}
+                        onChange={(e) => applySettingsChange({ telebirr_name: e.target.value })}
                         disabled={!canSee('settings.write')}
                         placeholder="e.g. Bighabesha Shop"
                         style={{
@@ -3275,7 +3489,7 @@ export const AdminDashboard: React.FC = () => {
                       <input
                         type="text"
                         value={settings.abyssinia_account || ''}
-                        onChange={(e) => setSettings({ ...settings, abyssinia_account: e.target.value })}
+                        onChange={(e) => applySettingsChange({ abyssinia_account: e.target.value })}
                         disabled={!canSee('settings.write')}
                         placeholder="e.g. 12345678"
                         maxLength={16}
@@ -3305,7 +3519,7 @@ export const AdminDashboard: React.FC = () => {
                       <input
                         type="text"
                         value={settings.abyssinia_name || ''}
-                        onChange={(e) => setSettings({ ...settings, abyssinia_name: e.target.value })}
+                        onChange={(e) => applySettingsChange({ abyssinia_name: e.target.value })}
                         disabled={!canSee('settings.write')}
                         placeholder="e.g. Bighabesha Shop"
                         style={{
@@ -3358,7 +3572,7 @@ export const AdminDashboard: React.FC = () => {
                             min="5"
                             max="1440"
                             value={settings.receipt_recency_before_mins || '120'}
-                            onChange={(e) => setSettings({ ...settings, receipt_recency_before_mins: e.target.value })}
+                            onChange={(e) => applySettingsChange({ receipt_recency_before_mins: e.target.value })}
                             disabled={!canSee('settings.write')}
                             style={{
                               width: '100%',
@@ -3385,7 +3599,7 @@ export const AdminDashboard: React.FC = () => {
                             min="5"
                             max="1440"
                             value={settings.receipt_recency_after_mins || '120'}
-                            onChange={(e) => setSettings({ ...settings, receipt_recency_after_mins: e.target.value })}
+                            onChange={(e) => applySettingsChange({ receipt_recency_after_mins: e.target.value })}
                             disabled={!canSee('settings.write')}
                             style={{
                               width: '100%',
@@ -3405,35 +3619,8 @@ export const AdminDashboard: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* CBE Port Selector & Circuit Breaker Threshold */}
+                      {/* Circuit Breaker Threshold */}
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', marginBottom: '14px' }}>
-                        <div>
-                          <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '5px', fontWeight: 600 }}>
-                            CBE Confirmation Gateway Port
-                          </label>
-                          <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-                            <button
-                              type="button"
-                              className={`port-choice-pill ${(settings.receipt_cbe_port || '100') === '100' ? 'active' : ''}`}
-                              disabled={!canSee('settings.write')}
-                              onClick={() => setSettings({ ...settings, receipt_cbe_port: '100' })}
-                            >
-                              Port 100 (Direct Gateway)
-                            </button>
-                            <button
-                              type="button"
-                              className={`port-choice-pill ${settings.receipt_cbe_port === '443' ? 'active' : ''}`}
-                              disabled={!canSee('settings.write')}
-                              onClick={() => setSettings({ ...settings, receipt_cbe_port: '443' })}
-                            >
-                              Port 443 (HTTPS Fallback)
-                            </button>
-                          </div>
-                          <span style={{ fontSize: '10.5px', color: 'var(--admin-text-muted)', marginTop: '4px', display: 'block' }}>
-                            Port 100 provides direct bank ingress; Port 443 routes through reverse proxy.
-                          </span>
-                        </div>
-
                         <div>
                           <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '5px', fontWeight: 600 }}>
                             Circuit Breaker: Error Threshold
@@ -3443,7 +3630,7 @@ export const AdminDashboard: React.FC = () => {
                             min="2"
                             max="20"
                             value={settings.receipt_circuit_breaker_threshold || '5'}
-                            onChange={(e) => setSettings({ ...settings, receipt_circuit_breaker_threshold: e.target.value })}
+                            onChange={(e) => applySettingsChange({ receipt_circuit_breaker_threshold: e.target.value })}
                             disabled={!canSee('settings.write')}
                             style={{
                               width: '100%',
@@ -3474,7 +3661,7 @@ export const AdminDashboard: React.FC = () => {
                             min="10"
                             max="600"
                             value={settings.receipt_circuit_breaker_cooldown_sec || '60'}
-                            onChange={(e) => setSettings({ ...settings, receipt_circuit_breaker_cooldown_sec: e.target.value })}
+                            onChange={(e) => applySettingsChange({ receipt_circuit_breaker_cooldown_sec: e.target.value })}
                             disabled={!canSee('settings.write')}
                             style={{
                               width: '100%',
@@ -3497,26 +3684,99 @@ export const AdminDashboard: React.FC = () => {
                           <label style={{ fontSize: '11.5px', color: 'var(--admin-text-muted)', display: 'block', marginBottom: '5px', fontWeight: 600 }}>
                             Ethiopian Egress Proxy URL (Optional)
                           </label>
-                          <input
-                            type="text"
-                            value={settings.receipt_ethiopia_proxy_url || ''}
-                            onChange={(e) => setSettings({ ...settings, receipt_ethiopia_proxy_url: e.target.value })}
-                            disabled={!canSee('settings.write')}
-                            placeholder="e.g. http://user:pass@proxy.et:8888"
-                            style={{
-                              width: '100%',
-                              background: 'var(--admin-input-bg)',
-                              border: '1px solid var(--admin-border)',
-                              borderRadius: 'var(--admin-radius-md)',
-                              padding: '10px 12px',
-                              color: 'var(--admin-text-pure)',
-                              fontSize: '13px',
-                              fontFamily: 'var(--font-admin-mono)',
-                              boxSizing: 'border-box',
-                            }}
-                          />
+                          {/*
+                            Write-only field. The stored URI embeds the proxy
+                            provider's `user:pass`, so the server filters it out of
+                            every response and reports only `secretStatus.endpoint`
+                            (`host[:port]`). Rendering that as a read-only hint is
+                            what keeps the credential out of the DOM, out of the
+                            ordinary settings payload, and therefore out of the audit
+                            log - while still letting an operator confirm exactly
+                            which proxy the rail is using.
+                          */}
+                          {proxyInputVisible ? (
+                            <>
+                              <input
+                                type="text"
+                                aria-label="Ethiopian Egress Proxy URL"
+                                value={proxyDraft ?? ''}
+                                onChange={(e) => {
+                                  setProxyDraft(e.target.value);
+                                  setProxyEditing(true);
+                                  setSettingsDirty(true);
+                                }}
+                                disabled={!canSee('settings.write')}
+                                placeholder="e.g. http://user:pass@proxy.et:8888"
+                                style={{
+                                  width: '100%',
+                                  background: 'var(--admin-input-bg)',
+                                  border: '1px solid var(--admin-border)',
+                                  borderRadius: 'var(--admin-radius-md)',
+                                  padding: '10px 12px',
+                                  color: 'var(--admin-text-pure)',
+                                  fontSize: '13px',
+                                  fontFamily: 'var(--font-admin-mono)',
+                                  boxSizing: 'border-box',
+                                }}
+                              />
+                              {proxyConfigured && (
+                                <button
+                                  type="button"
+                                  className="btn-secondary-pill"
+                                  style={{ marginTop: '8px', width: '100%' }}
+                                  disabled={!canSee('settings.write')}
+                                  onClick={handleCancelProxyEdit}
+                                >
+                                  Cancel
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <div
+                              data-testid="proxy-endpoint-hint"
+                              style={{
+                                width: '100%',
+                                background: 'var(--admin-input-bg)',
+                                border: '1px dashed var(--admin-border)',
+                                borderRadius: 'var(--admin-radius-md)',
+                                padding: '10px 12px',
+                                color: 'var(--admin-text-pure)',
+                                fontSize: '13px',
+                                fontFamily: 'var(--font-admin-mono)',
+                                boxSizing: 'border-box',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '8px',
+                                flexWrap: 'wrap',
+                              }}
+                            >
+                              <span>
+                                <span style={{ color: 'var(--admin-green)', marginRight: '6px' }}>●</span>
+                                {proxyEndpointHint || 'Configured'}
+                              </span>
+                              <span style={{ display: 'flex', gap: '6px' }}>
+                                <button
+                                  type="button"
+                                  className="btn-secondary-pill"
+                                  disabled={!canSee('settings.write')}
+                                  onClick={handleEditProxy}
+                                >
+                                  Replace
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-secondary-pill"
+                                  disabled={!canSee('settings.write')}
+                                  onClick={handleClearProxy}
+                                >
+                                  Clear
+                                </button>
+                              </span>
+                            </div>
+                          )}
                           <span style={{ fontSize: '10.5px', color: 'var(--admin-text-muted)', marginTop: '3px', display: 'block' }}>
-                            Optional residential proxy to unblock georestricted bank gateways
+                            Optional residential proxy to unblock georestricted bank gateways. Stored write-only: the endpoint is shown, the credentials never are.
                           </span>
                         </div>
                       </div>
@@ -3537,7 +3797,7 @@ export const AdminDashboard: React.FC = () => {
                     <input
                       type="text"
                       value={settings.etb_per_usd || ''}
-                      onChange={(e) => setSettings({ ...settings, etb_per_usd: e.target.value })}
+                      onChange={(e) => applySettingsChange({ etb_per_usd: e.target.value })}
                       disabled={!canSee('settings.write')}
                       style={{ width: '100%', background: 'var(--admin-input-bg)', border: '1px solid var(--admin-border)', borderRadius: 'var(--admin-radius-md)', padding: '10px 12px', color: 'var(--admin-text-pure)', fontSize: '13px', fontFamily: 'var(--font-admin-mono)', boxSizing: 'border-box' }}
                     />
@@ -3554,6 +3814,18 @@ export const AdminDashboard: React.FC = () => {
                 >
                   <span>{settingsBusy ? 'Saving…' : 'Save Store Settings'}</span>
                 </button>
+                {settingsDirty && (
+                  // Without this the only feedback for an unsaved edit was the
+                  // value silently surviving (or, before the dirty-guard, not
+                  // surviving) the 10s refresh.
+                  <span
+                    className="admin-pill-badge"
+                    style={{ background: 'var(--admin-amber-dim)', color: 'var(--admin-amber)' }}
+                    role="status"
+                  >
+                    Unsaved changes
+                  </span>
+                )}
                 {!canSee('settings.write') && (
                   <span style={{ fontSize: '12px', color: 'var(--admin-text-muted)' }}>
                     Settings modification requires <code>settings.write</code> permission.

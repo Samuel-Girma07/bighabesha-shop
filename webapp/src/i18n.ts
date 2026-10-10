@@ -1,5 +1,31 @@
 export type Language = 'en' | 'am';
 
+/**
+ * Placeholder for the storefront's bank-reference field, per rail.
+ *
+ * This copy used to advertise `FT26090123456789` in both languages. That format
+ * is retired: CBE moved to the `mbreciept.cbe.com.et` transaction-detail API,
+ * whose confirmation SMS carries a mixed-case `v2-…` token, and the backend
+ * `cbe.adapter.ts` rejects anything else before it ever leaves the host. A buyer
+ * who typed the example we showed would have been rejected by construction.
+ *
+ * Telebirr still labels a plain alphanumeric invoice number, which is the path
+ * segment of its `transactioninfo.ethiotelecom.et/receipt/...` link, so its
+ * example is shaped accordingly. Anything other than Telebirr falls back to the
+ * CBE shape: those are the only two rails the storefront offers and the only two
+ * the engine can verify.
+ *
+ * The Amharic template is assembled from the exact fragments of the previous
+ * single string (`ለምሳሌ ` / ` ወይም ሙሉ SMS ይገቡ`) with only the example token
+ * swapped — no new Amharic is composed here.
+ */
+export function receiptNotePlaceholder(lang: Language, rail: string | null | undefined): string {
+  const example = rail === 'telebirr' ? 'RA75OD70C2' : 'v2-AbCd3fGh1jKl5MnP9';
+  return lang === 'am'
+    ? `ለምሳሌ ${example} ወይም ሙሉ SMS ይገቡ`
+    : `e.g. ${example} or paste the full SMS`;
+}
+
 export const translations = {
   en: {
     brandName: 'Bighabesha Shop',
@@ -80,7 +106,6 @@ export const translations = {
     tapToUpload: '📸 Tap to Upload Screenshot / Receipt',
     tapToUploadSub: 'Accepts JPG, PNG, or mobile screenshot',
     removeImage: 'Remove / Change Image',
-    paymentNotePlaceholder: 'e.g. FT26090123456789 or paste the full SMS',
     copyUsername: 'Copy @username',
     importantNote: 'Important',
     putUsernameInNote: 'Put your Telegram @username in the transfer reason/note for instant matching.',
@@ -277,7 +302,6 @@ export const translations = {
     tapToUpload: '📸 ደረሰኝ ወይም ስክሪንሾት ለመጫን ይጫኑ',
     tapToUploadSub: 'JPG፣ PNG ወይም የስልክ ስክሪንሾት ይቀበላል',
     removeImage: 'አስወግድ / በድጋሚ ጫን',
-    paymentNotePlaceholder: 'ለምሳሌ FT26090123456789 ወይም ሙሉ SMS ይገቡ',
     copyUsername: 'ዩዘርኔም ቅዳ',
     importantNote: 'አስፈላጊ',
     putUsernameInNote: 'ክፍያው ቶሎ እንዲረጋገጥ የቴሌግራም ዩዘርኔምዎን (@username) በማስታወሻ ላይ ያስገቡ።',
