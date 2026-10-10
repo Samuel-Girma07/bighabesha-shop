@@ -352,7 +352,7 @@ export const DEFAULT_VERIFICATION_SETTINGS: Readonly<Record<string, string>> = {
   telebirr_name: 'Bighabesha Shop',
   abyssinia_account: '0000000000000',
   abyssinia_name: 'Bighabesha Shop',
-  receipt_auto_verify_enabled: '0',
+  receipt_auto_verify_enabled: '1',
   receipt_recency_before_mins: '120',
   receipt_recency_after_mins: '120',
   receipt_circuit_breaker_threshold: '5',

@@ -53,6 +53,7 @@ import { findThreadByTopic, insertSupportMessage, SUPPORT_MAX_MESSAGE_LENGTH } f
 import { setPendingAction } from './session.js';
 import { getProductById, formatPriceETB } from '../services/catalog.service.js';
 import { isUserRegistered, getUserById } from '../services/users.service.js';
+import { getBooleanSetting, setSetting } from '../services/settings.service.js';
 import { getConfig } from '../config/env.js';
 import { escapeHtml, formatFulfillmentDeliveryMessage } from '../utils/html.js';
 import { previewUserText } from '../logger/index.js';
@@ -597,6 +598,14 @@ export function createBot(token: string): Bot {
     } else if (data === 'admin_rates') {
       await renderAdminRates(ctx);
     } else if (data === 'admin_settings') {
+      await renderAdminSettings(ctx);
+    } else if (data === 'admin_toggle_auto_verify') {
+      const current = getBooleanSetting('receipt_auto_verify_enabled', true);
+      const nextVal = current ? '0' : '1';
+      setSetting('receipt_auto_verify_enabled', nextVal);
+      await ctx.answerCallbackQuery({
+        text: nextVal === '1' ? '🟢 Receipt auto-verification enabled' : '🔴 Receipt auto-verification disabled (manual review mode)',
+      }).catch(() => {});
       await renderAdminSettings(ctx);
     } else if (data === 'admin_reseller_balance') {
       await renderResellerBalance(ctx);

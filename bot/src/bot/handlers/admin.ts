@@ -4,7 +4,7 @@ import { ensureAdminRow, roleHasPermission, type Permission } from '../../auth/p
 import { getAllProducts, getProductVariants, getVariantById, formatPriceETB } from '../../services/catalog.service.js';
 import { getResellerProvider, notifyAdminsLowFloatFromResult } from '../../services/reseller.service.js';
 import { getTotalStockCount } from '../../services/stock.service.js';
-import { getNumericSetting, getSetting } from '../../services/settings.service.js';
+import { getNumericSetting, getSetting, getBooleanSetting, setSetting } from '../../services/settings.service.js';
 import { setPendingAction } from '../session.js';
 import { escapeHtml } from '../../utils/html.js';
 import { logger } from '../../logger/index.js';
@@ -189,8 +189,10 @@ export async function renderAdminSettings(ctx: Context): Promise<void> {
   const telebirrAccount = getSetting('telebirr_account', '0000000000');
   const abyssiniaAccount = getSetting('abyssinia_account', '0000000000000');
   const lowStock = getNumericSetting('low_stock_threshold', 5);
+  const autoVerify = getBooleanSetting('receipt_auto_verify_enabled', true);
 
   const text = '🏦 <b>Bank Accounts & General Settings</b>\n\n' +
+    `• <b>Receipt Auto-Verification:</b> ${autoVerify ? '🟢 <b>ENABLED (Auto-Fulfill)</b>' : '🔴 <b>DISABLED (Manual Review)</b>'}\n` +
     `• <b>CBE Account:</b> <code>${escapeHtml(cbeAccount)}</code>\n` +
     `• <b>Telebirr:</b> <code>${escapeHtml(telebirrAccount)}</code>\n` +
     `• <b>Bank of Abyssinia:</b> <code>${escapeHtml(abyssiniaAccount)}</code>\n` +
@@ -198,6 +200,8 @@ export async function renderAdminSettings(ctx: Context): Promise<void> {
     'Tap an item to edit its display information:';
 
   const keyboard = new InlineKeyboard()
+    .text(autoVerify ? '🔴 Disable Auto-Verification' : '🟢 Enable Auto-Verification', 'admin_toggle_auto_verify')
+    .row()
     .text('✏️ Edit CBE Account', 'admin_edit_setting_cbe_account')
     .row()
     .text('✏️ Edit Telebirr Account', 'admin_edit_setting_telebirr_account')

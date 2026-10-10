@@ -81,7 +81,13 @@ export { AUTO_FULFILLABLE_ORDER_STATUSES };
  * never contacts an upstream bank portal. Everything lands in the manual-review queue.
  */
 export function isAutoVerifyEnabled(): boolean {
-  return getBooleanSetting('receipt_auto_verify_enabled', false);
+  const envVal = process.env.RECEIPT_AUTO_VERIFY_ENABLED;
+  if (envVal !== undefined && envVal.trim().length > 0) {
+    const lower = envVal.trim().toLowerCase();
+    if (lower === '1' || lower === 'true' || lower === 'yes' || lower === 'on') return true;
+    if (lower === '0' || lower === 'false' || lower === 'no' || lower === 'off') return false;
+  }
+  return getBooleanSetting('receipt_auto_verify_enabled', true);
 }
 
 interface ExecutionContext {
