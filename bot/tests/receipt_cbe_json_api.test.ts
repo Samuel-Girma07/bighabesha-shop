@@ -454,6 +454,27 @@ describe('CBE adapter classifies upstream errors', () => {
    * down, retry". For a token the bank will never resolve, that is a lie that
    * buries a permanent customer-data error under retryable-outage handling.
    */
+  it('maps HTTP 400 transaction not found to UnconfirmedTransactionError without tripping breaker', async () => {
+    const notFoundBody = JSON.stringify({
+      type: '/problem-with-message',
+      title: 'Bad Request',
+      status: 400,
+      detail: 'transaction not found with id: FT262783W43J',
+      message: 'transaction not found with id: FT262783W43J',
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(notFoundBody, 400)));
+
+    const err = await new CbeBankAdapter()
+      .verify(cbeReference())
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(UnconfirmedTransactionError);
+    expect(err).not.toBeInstanceOf(BankPortalUnavailableError);
+    expect((err as UnconfirmedTransactionError).problemDetails.code).toBe('TRANSACTION_NOT_CONFIRMED');
+    expect((err as UnconfirmedTransactionError).reason).toContain('FT262783W43J');
+  });
+
   it('maps the HTTP 500 invalid-token body to INVALID_RECEIPT_REFERENCE, not BANK_PORTAL_UNAVAILABLE', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(buildCbeInvalidTokenBody(), 500)));
 

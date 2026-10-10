@@ -42,6 +42,7 @@ const CBE_TOKEN_SEGMENT_PATTERN = /^v2-[A-Za-z0-9]{16,24}$/;
  * indistinguishable from a genuine outage.
  */
 const CBE_INVALID_TOKEN_DETAIL_PATTERN = /invalid|tampered/i;
+const CBE_NOT_FOUND_DETAIL_PATTERN = /not found|cannot be found/i;
 
 const NON_AMOUNT_CHARS_PATTERN = /[^0-9.]/g;
 
@@ -282,6 +283,13 @@ export class CbeBankAdapter extends BaseBankAdapter {
 
         if (status < 200 || status >= 300) {
           const upstreamDetail = this.extractProblemDetail(body);
+          if (upstreamDetail && CBE_NOT_FOUND_DETAIL_PATTERN.test(upstreamDetail)) {
+            // CBE returned "transaction not found with id: ...". This happens when a
+            // transfer was executed moments ago and is not yet indexed, or failed/reversed.
+            // Throw UnconfirmedTransactionError so the circuit breaker is NOT tripped and
+            // the order is routed cleanly to admin manual review with the bank's message.
+            throw new UnconfirmedTransactionError(upstreamDetail);
+          }
           if (upstreamDetail && CBE_INVALID_TOKEN_DETAIL_PATTERN.test(upstreamDetail)) {
             // A permanent customer-data fault, not an outage. Handled here
             // rather than in `onError` because the HTTP status itself carries no
@@ -425,9 +433,12 @@ export class CbeBankAdapter extends BaseBankAdapter {
    */
   private extractProblemDetail(body: string): string | null {
     try {
-      const parsed = JSON.parse(body) as { detail?: unknown };
+      const parsed = JSON.parse(body) as { detail?: unknown; message?: unknown };
       if (parsed && typeof parsed.detail === 'string' && parsed.detail.trim().length > 0) {
         return parsed.detail.trim();
+      }
+      if (parsed && typeof parsed.message === 'string' && parsed.message.trim().length > 0) {
+        return parsed.message.trim();
       }
     } catch {
       // Non-JSON error body (HTML error page, plain text): treat as opaque.
