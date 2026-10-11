@@ -108,9 +108,10 @@ describe('Phase 3: Bank Receipt Verification Data Architecture & DAO', () => {
     const settings = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'receipt_%'").all() as { key: string; value: string }[];
     const map = new Map(settings.map((s) => [s.key, s.value]));
 
-    // Automated verification ships OFF so operators can review real receipts before
-    // enabling the bank-portal engine. See migrations/013_preprod_hardening.sql.
-    expect(map.get('receipt_auto_verify_enabled')).toBe('0');
+    // Automated verification ships ON by default: migration 014 flipped this seed from
+    // '0' to '1'. The fail-CLOSED fallback lives in `isAutoVerifyEnabled()` (absent row
+    // reads as disabled), which is a separate concern from this seeded value.
+    expect(map.get('receipt_auto_verify_enabled')).toBe('1');
     expect(map.get('receipt_recency_before_mins')).toBe('120');
     expect(map.get('receipt_recency_after_mins')).toBe('120');
     expect(map.get('receipt_circuit_breaker_threshold')).toBe('5');

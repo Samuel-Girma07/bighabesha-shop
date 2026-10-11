@@ -178,7 +178,7 @@ describe('GET /api/admin/settings excludes secrets', () => {
     const { status, body } = await getSettingsRaw();
 
     expect(status).toBe(200);
-    expect(body.settings.receipt_auto_verify_enabled).toBe('0');
+    expect(body.settings.receipt_auto_verify_enabled).toBe('1');
     expect(body.settings.etb_per_usd).toBeDefined();
   });
 });

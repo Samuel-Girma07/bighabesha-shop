@@ -238,9 +238,12 @@ For zero-maintenance deployments utilizing Render’s Docker Web Service or Hugg
    # Receipt verification:
    RECEIPT_CBE_PORT=100
    TELEBIRR_PROXY_URL=http://user:pass@ethiopia-proxy:8888
-   # NOTE: there is no RECEIPT_AUTO_VERIFY_ENABLED env var. Automated
-   # verification is a runtime setting in the `settings` table, toggled from the
-   # Admin Dashboard (key: `receipt_auto_verify_enabled`, default 0 = OFF).
+   # NOTE: there is no RECEIPT_AUTO_VERIFY_ENABLED env var — it is not read by
+   # the application. Automated verification is a runtime setting in the
+   # `settings` table, toggled from the Admin Dashboard (key:
+   # `receipt_auto_verify_enabled`). Seed value is '1' (ON, migration 014); the
+   # runtime fallback when that row is ABSENT is false (OFF), so a missing row
+   # can never silently enable bank-portal egress.
    ```
 3. Render automatically executes the multi-stage Dockerfile, launches `scripts/run-with-litestream.mjs`, restores the SQLite DB from Backblaze B2 if `/var/data/shop.db` is empty, runs migrations, and serves the application.
 

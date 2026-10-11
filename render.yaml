@@ -9,9 +9,10 @@
 #
 #   * Automated bank-receipt verification is NOT configured here on purpose.
 #     It is a runtime setting stored in the `settings` table and toggled from the
-#     Admin Dashboard (key: `receipt_auto_verify_enabled`, default 0 / OFF).
+#     Admin Dashboard (key: `receipt_auto_verify_enabled`).
 #     There is deliberately no RECEIPT_AUTO_VERIFY_ENABLED env var; adding one
-#     would be another dead knob.
+#     would be another dead knob — and worse, one that silently outranks the
+#     dashboard toggle. Do not add it.
 #   * `region: frankfurt` egresses from a German datacenter, which the Telebirr
 #     portal geo-blocks (HTTP 403/451). Automated verification therefore cannot
 #     succeed from this host even with the switch on. See the proxy notes below.

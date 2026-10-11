@@ -79,15 +79,25 @@ export { AUTO_FULFILLABLE_ORDER_STATUSES };
  *
  * While disabled, the pipeline still ingests, persists and audits the submission, but
  * never contacts an upstream bank portal. Everything lands in the manual-review queue.
+ *
+ * The `false` fallback is a FAIL-CLOSED default and must stay that way. If this row is
+ * absent — a database restored without it, a partially-applied migration, or any future
+ * path that constructs the schema without seeding — an absent row would otherwise read as
+ * ENABLED, silently switching on automated bank-portal egress that the operator never
+ * turned on. "No configuration" must mean "off", never "on".
+ *
+ * The shipped SEED value is `'1'` (migrations 014 + `seed.ts`), which is a deliberate
+ * product decision and is independent of this fallback: an operator who has the row
+ * populated gets auto-verification; an operator whose row is missing does not.
+ *
+ * There is deliberately NO `RECEIPT_AUTO_VERIFY_ENABLED` env override. `render.yaml`,
+ * `.env.example` and `DEPLOYMENT-RUNBOOK.md` all document that the settings table is the
+ * single source of truth, and an env var that silently outranks the dashboard toggle
+ * reintroduces exactly the "dead knob" those documents were written to prevent. An env
+ * override here was removed in this commit for that reason.
  */
 export function isAutoVerifyEnabled(): boolean {
-  const envVal = process.env.RECEIPT_AUTO_VERIFY_ENABLED;
-  if (envVal !== undefined && envVal.trim().length > 0) {
-    const lower = envVal.trim().toLowerCase();
-    if (lower === '1' || lower === 'true' || lower === 'yes' || lower === 'on') return true;
-    if (lower === '0' || lower === 'false' || lower === 'no' || lower === 'off') return false;
-  }
-  return getBooleanSetting('receipt_auto_verify_enabled', true);
+  return getBooleanSetting('receipt_auto_verify_enabled', false);
 }
 
 interface ExecutionContext {

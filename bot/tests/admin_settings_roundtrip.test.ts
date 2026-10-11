@@ -174,7 +174,13 @@ describe('Admin settings GET -> PUT round-trip', () => {
     createReceiptDownloadToken('ORD-ROUNDTRIP-2');
 
     const fetched = await getSettings();
-    expect(fetched.receipt_auto_verify_enabled).toBe('0');
+    // Seeded '1' by migration 014; the round-trip under test is the WRITE to '0'
+    // and back, not the starting value.
+    expect(fetched.receipt_auto_verify_enabled).toBe('1');
+
+    const off = await putSettings({ ...fetched, receipt_auto_verify_enabled: '0' });
+    expect(off.status, await off.clone().text()).toBe(200);
+    expect(readSetting('receipt_auto_verify_enabled')).toBe('0');
 
     const res = await putSettings({ ...fetched, receipt_auto_verify_enabled: '1' });
     expect(res.status, await res.clone().text()).toBe(200);

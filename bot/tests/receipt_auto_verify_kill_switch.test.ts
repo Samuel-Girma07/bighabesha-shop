@@ -80,6 +80,30 @@ describe('Automated verification kill-switch (receipt_auto_verify_enabled)', () 
     expect(isAutoVerifyEnabled()).toBe(true);
   });
 
+  /**
+   * Regression guard for the fail-CLOSED fallback.
+   *
+   * Commit 27a7296 changed this fallback from `false` to `true` while flipping the
+   * SEED to '1'. Those are two different things: the seed is a deliberate product
+   * decision, but the fallback governs what an ABSENT row means. With a `true`
+   * fallback, any database missing this row — restored from a backup taken before
+   * the row existed, migrated without seeding, or corrupted — read as ENABLED, and
+   * the pipeline began contacting bank portals that no operator had switched on.
+   *
+   * Seed and fallback are asserted separately below so neither can silently change
+   * the other again.
+   */
+  it('fails CLOSED when the setting row is absent, independently of the seed', () => {
+    // The seed really does enable verification...
+    expect(getSetting('receipt_auto_verify_enabled')).toBe('1');
+    expect(isAutoVerifyEnabled()).toBe(true);
+
+    // ...but removing the row must disable it, not enable it.
+    db.prepare(`DELETE FROM settings WHERE key = 'receipt_auto_verify_enabled'`).run();
+    expect(getSetting('receipt_auto_verify_enabled')).toBe('');
+    expect(isAutoVerifyEnabled()).toBe(false);
+  });
+
   it('treats missing, empty and unparseable values as disabled (fail-safe)', () => {
     db.prepare(`DELETE FROM settings WHERE key = 'receipt_auto_verify_enabled'`).run();
     expect(isAutoVerifyEnabled()).toBe(false);
@@ -97,6 +121,13 @@ describe('Automated verification kill-switch (receipt_auto_verify_enabled)', () 
   // ==========================================================================
 
   it('routes every submission to administrator review without contacting a bank portal', async () => {
+    // Explicit, rather than relying on the shipped seed. Migration 014 sets this row to
+    // '1' by design; these tests are about what happens when an operator turns it OFF,
+    // so the OFF state must be established deliberately or they would silently stop
+    // exercising the disabled path.
+    setSetting('receipt_auto_verify_enabled', '0');
+    expect(isAutoVerifyEnabled()).toBe(false);
+
     const order = createOrder({
       userId: BUYER_ID,
       productId: 'gemini_pro',
@@ -131,6 +162,8 @@ describe('Automated verification kill-switch (receipt_auto_verify_enabled)', () 
   });
 
   it('does not allocate stock or deliver while disabled', async () => {
+    setSetting('receipt_auto_verify_enabled', '0');
+
     const order = createOrder({
       userId: BUYER_ID,
       productId: 'gemini_pro',
@@ -189,6 +222,7 @@ describe('Automated verification kill-switch (receipt_auto_verify_enabled)', () 
   });
 
   it('honours a runtime toggle on the same orchestrator instance with no restart', async () => {
+    setSetting('receipt_auto_verify_enabled', '0');
     const orchestrator = new ReceiptOrchestrator();
 
     const blocked = createOrder({

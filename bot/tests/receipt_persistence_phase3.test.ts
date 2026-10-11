@@ -148,8 +148,11 @@ describe('Phase 3: Database Persistence, Indexing, and Settings Optimization', (
     }
 
     // Check specific critical defaults
-    // Automated verification defaults OFF (operator kill-switch); see migration 013.
-    expect(allSettings['receipt_auto_verify_enabled']).toBe('0');
+    // Automated verification ships ON by default (migration 014 flipped the seed from
+    // '0' to '1'). Note this is the SEED value only — `isAutoVerifyEnabled()` still
+    // fails CLOSED to false when the row is absent, so a partial restore cannot
+    // silently switch bank-portal egress on.
+    expect(allSettings['receipt_auto_verify_enabled']).toBe('1');
     expect(allSettings['receipt_recency_before_mins']).toBe('120');
     expect(allSettings['receipt_recency_after_mins']).toBe('120');
     expect(allSettings['receipt_circuit_breaker_threshold']).toBe('5');
