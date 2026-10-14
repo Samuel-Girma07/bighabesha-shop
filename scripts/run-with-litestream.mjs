@@ -103,6 +103,13 @@ async function main() {
 
   // Generate temporary Litestream configuration file
   const configPath = path.join(os.tmpdir(), 'litestream.yml');
+  // Trade-off, chosen deliberately: `sync-interval: 1s` is the feature — it is what
+  // makes the replica current rather than a daily dump. It costs one S3 Class-B
+  // transaction per second of wall clock while the bot is running. The retention
+  // block below is the counterweight: snapshots are written hourly and older
+  // replicas are pruned after 72h, so B2 Class-C transaction volume (billed per
+  // GB stored) stays bounded instead of growing with uptime. Shortening
+  // `retention` is the knob if storage cost ever outruns the recovery guarantee.
   const yamlContent = `dbs:
   - path: "${dbPath.replace(/\\/g, '/')}"
     replicas:
@@ -111,6 +118,9 @@ async function main() {
         bucket: "${bucket}"
         path: db
         sync-interval: 1s
+        snapshot-interval: 1h
+        retention: 72h
+        retention-check-interval: 1h
 `;
   fs.writeFileSync(configPath, yamlContent, 'utf8');
 
