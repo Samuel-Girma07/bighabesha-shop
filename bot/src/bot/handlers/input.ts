@@ -2,7 +2,9 @@ import { Context } from 'grammy';
 import { getPendingAction, setPendingAction, clearPendingAction } from '../session.js';
 import { formatPriceETB, updateVariantPrice, getProductById } from '../../services/catalog.service.js';
 import { addStockLink, importStockCSV, getTotalStockCount } from '../../services/stock.service.js';
-import { setSetting, getSetting } from '../../services/settings.service.js';
+import { setSetting, getSetting, isKnownSettingKey, validateVerificationSettings, SECRET_SETTING_KEYS } from '../../services/settings.service.js';
+import { recordSettingsAudit, maskSecret } from '../../services/secrets.service.js';
+import { invalidate } from '../../services/cache.service.js';
 import { AUTO_FULFILLABLE_ORDER_STATUSES, isCircuitBreakerSettingKey } from '../../services/receipt_verifier/constants.js';
 import { isAdmin, renderAdminProducts, renderAdminRates, renderAdminSettings, renderAdminStock } from './admin.js';
 import { submitReceipt, rejectReceipt, getOrderById, fulfillOrderWithProof, refundOrder, sanitizeUsername, InvalidUsernameError, Order } from '../../services/orders.service.js';
@@ -587,11 +589,54 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
     }
 
     case 'admin_edit_setting': {
-      if (!isAdmin(userId)) return false;
+      if (!isAdmin(userId, 'settings.write')) return false;
       const { settingKey } = session.data as { settingKey: string };
 
       clearPendingAction(userId);
+
+      // Defence in depth. `promptEditSetting` already refuses these, but the
+      // pending action is persisted state in `bot_sessions` and an admin could
+      // arm one before an upgrade. Re-checking at the write site means a
+      // session armed by older code still cannot write a secret.
+      if (!isKnownSettingKey(settingKey) || SECRET_SETTING_KEYS.has(settingKey)) {
+        logger.warn({ userId, settingKey }, 'Refused inline settings write for a non-writable key');
+        await ctx.reply(
+          `⚠️ <b>Refused.</b> <code>${escapeHtml(settingKey)}</code> cannot be written from chat.`,
+          { parse_mode: 'HTML' }
+        );
+        return true;
+      }
+
+      // Validate before persisting. The HTTP settings endpoint has always run
+      // `validateVerificationSettings`; the inline path wrote straight to the
+      // database, so a typo'd account number or a malformed lane order was
+      // accepted and would fail later at request time with nothing pointing
+      // back at the change.
+      const validation = validateVerificationSettings({ [settingKey]: text });
+      if (!validation.isValid) {
+        await ctx.reply(
+          `❌ <b>Not saved.</b> ${escapeHtml(validation.errors.join('; '))}`,
+          { parse_mode: 'HTML' }
+        );
+        return true;
+      }
+
       setSetting(settingKey, text);
+      recordSettingsAudit({
+        adminId: userId,
+        key: settingKey,
+        action: 'set',
+        // Inline writes are non-secret by the guard above, so the value itself
+        // is safe to record. Kept masked regardless: this column is read by
+        // the dashboard and a future secret key must not become a leak just
+        // because it was written from chat.
+        maskedValue: maskSecret(text),
+      });
+
+      // The inline path never invalidated the storefront catalog cache, so a
+      // rail or account change made from chat could take up to 20s to appear in
+      // the Mini App. The HTTP route has always done this.
+      invalidate('bootstrap:catalog');
 
       // Circuit breaker thresholds are cached in the live adapter instances; re-apply them so the
       // operator's change takes effect immediately instead of on the next process restart.
@@ -600,7 +645,13 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
         refreshReceiptOrchestratorSettings();
       }
 
-      await ctx.reply(`✅ Setting <code>${escapeHtml(settingKey)}</code> has been updated to: <b>${escapeHtml(text)}</b>`, { parse_mode: 'HTML' });
+      // Secrets are refused above, so this echo can never contain a credential.
+      // The guard is deliberately not `maskSecret(text)` alone: an operator
+      // editing `etb_per_usd` needs to see the number they typed to confirm it.
+      await ctx.reply(
+        `✅ Setting <code>${escapeHtml(settingKey)}</code> has been updated to: <b>${escapeHtml(text)}</b>`,
+        { parse_mode: 'HTML' }
+      );
 
       if (settingKey.startsWith('cbe') || settingKey.startsWith('telebirr') || settingKey.startsWith('abyssinia') || settingKey === 'low_stock_threshold') {
         await renderAdminSettings(ctx);

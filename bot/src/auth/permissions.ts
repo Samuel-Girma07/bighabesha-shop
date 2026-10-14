@@ -11,6 +11,13 @@ export type Permission =
   | 'users.view'
   | 'settings.read'
   | 'settings.write'
+  // Gate for reading and rotating API keys, webhook secrets and the TON
+  // hot-wallet seed. Deliberately NOT implied by `settings.write`: an operator
+  // who can change the FX rate and the beneficiary whitelists should not
+  // automatically be able to read or replace the shop's provider credentials.
+  // `settings.write` covers non-secret configuration; `settings.security`
+  // covers the encrypted secret store and nothing else.
+  | 'settings.security'
   | 'broadcast.send'
   | 'audit.view'
   | 'payouts.manage'
@@ -19,11 +26,16 @@ export type Permission =
 
 export const ALL_PERMISSIONS: Permission[] = [
   'orders.view', 'orders.decide', 'stock.manage', 'users.view',
-  'settings.read', 'settings.write', 'broadcast.send', 'audit.view',
+  'settings.read', 'settings.write', 'settings.security', 'broadcast.send', 'audit.view',
   'payouts.manage', 'analytics.view', 'export.financial',
 ];
 
 export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
+  // Only superadmin holds `settings.security`. The Owner answer was
+  // "ADMIN_IDS only", so no other role receives it until the Owner explicitly
+  // grants it. Every role below is mirrored BY HAND in
+  // `webapp/src/admin/AdminDashboard.tsx` ROLE_PERMS — the two matrices must
+  // stay in step or the UI will hide controls the API actually allows.
   superadmin: [...ALL_PERMISSIONS],
   ops: ['orders.view', 'orders.decide', 'stock.manage', 'users.view', 'settings.read', 'broadcast.send', 'analytics.view'],
   finance: ['orders.view', 'users.view', 'settings.read', 'payouts.manage', 'analytics.view', 'export.financial'],

@@ -27,6 +27,7 @@ import {
   KNOWN_SETTING_KEYS,
   validateVerificationSettings,
 } from '../services/settings.service.js';
+import { ENCRYPTED_SETTING_KEYS } from '../services/secrets.service.js';
 import { refreshReceiptOrchestratorSettings } from '../services/receipt_verifier/index.js';
 import { containsCircuitBreakerSettingKey } from '../services/receipt_verifier/constants.js';
 
@@ -966,17 +967,56 @@ adminRouter.put('/settings', requireAdminAuth, requirePermission('settings.write
     return;
   }
 
-  // `download_link_secret` is service-owned and write-only — the GET response no
-  // longer includes it, but a dashboard tab that was open before that filter
+  // Keys this endpoint refuses to persist, for two different reasons.
+  //
+  //   1. `download_link_secret` is service-owned. `download_tokens.service.ts`
+  //      generates it on first use and it must never be replaced from a
+  //      dashboard form. This is the original explicit `delete` from before
+  //      Phase 0.
+  //
+  //   2. Everything in `ENCRYPTED_SETTING_KEYS` is a credential whose value
+  //      must be ciphertext at rest. `setSettings` writes straight to the
+  //      `value` column, so a credential sent here would be stored in plaintext
+  //      while `settings.is_secret = 1` claims otherwise — and the next
+  //      `getSecret()` would hand the raw key back as though it had decrypted.
+  //      Those go through the `settings.security`-gated routes instead.
+  //
+  // This is a strip and not a reject for a concrete reason: the GET response
+  // filters these keys out, but a dashboard tab opened before that filter
   // shipped still holds the old value in React state and WILL echo it back on
-  // its next save. Strip it silently instead of rejecting the request: a 400
-  // here is precisely the failure mode that, earlier today, made EVERY settings
-  // save fail with `Unknown setting key(s): download_link_secret` and took out
-  // the auto-verification switch, merchant account numbers, FX rate and
-  // whitelists with it. Ignore is not reject. Copy first so `req.body` is left
-  // intact for anything else that inspects it.
+  // its next save. Rejecting is precisely the failure mode that, earlier today,
+  // made EVERY settings save fail with `Unknown setting key(s):
+  // download_link_secret`, taking out the auto-verification switch, merchant
+  // account numbers, FX rate and whitelists with it. Ignore is not reject.
+  //
+  // NOTE: `receipt_ethiopia_proxy_url` is deliberately NOT stripped. It is
+  // sensitive and predates encryption, but it IS legitimately written from this
+  // endpoint, protected by being filtered out of the GET response and redacted
+  // at the `recordAudit` choke point. Stripping it would remove the dashboard's
+  // egress-proxy control entirely.
+  //
+  // Copy first so `req.body` is left intact for anything else that inspects it.
+  const NON_WRITABLE_VIA_THIS_ENDPOINT: ReadonlySet<string> = new Set([
+    'download_link_secret',
+    ...ENCRYPTED_SETTING_KEYS,
+  ]);
   const writableSettings: Record<string, string> = { ...(settings as Record<string, string>) };
-  delete writableSettings.download_link_secret;
+  const strippedSecretKeys: string[] = [];
+  for (const key of Object.keys(writableSettings)) {
+    if (NON_WRITABLE_VIA_THIS_ENDPOINT.has(key)) {
+      strippedSecretKeys.push(key);
+      delete writableSettings[key];
+    }
+  }
+  if (strippedSecretKeys.length > 0) {
+    logger.warn(
+      {
+        adminId: (req as any).adminSession?.adminId ?? 'unknown',
+        strippedSecretKeys,
+      },
+      'Non-writable setting key arrived on the generic settings endpoint and was ignored'
+    );
+  }
 
   // Reject unknown keys outright — a typo'd key would otherwise be stored
   // silently and shadow nothing, while the real knob keeps its old value.

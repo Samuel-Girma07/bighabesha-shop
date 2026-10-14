@@ -70,6 +70,54 @@ export const LOGGER_REDACT_PATHS = [
   '*.ISTAR_API_KEY',
   'RESELLER_API_KEY',
   '*.RESELLER_API_KEY',
+  // Backblaze B2 / Litestream object-storage credentials. These were NOT
+  // redacted before Phase 0. A credential that can write and delete every
+  // object in the backup bucket is worth more than the database it protects:
+  // an attacker holding it can delete every replica, which is the only recovery
+  // path for the encrypted secrets below.
+  'B2_KEY_ID',
+  '*.B2_KEY_ID',
+  'B2_APPLICATION_KEY',
+  '*.B2_APPLICATION_KEY',
+  'LITESTREAM_ACCESS_KEY_ID',
+  '*.LITESTREAM_ACCESS_KEY_ID',
+  'LITESTREAM_SECRET_ACCESS_KEY',
+  '*.LITESTREAM_SECRET_ACCESS_KEY',
+  // ── Payment rebuild encrypted settings ───────────────────────────────────
+  //
+  // NOTE: pino's `redact.paths` does NOT support shell-style prefix wildcards.
+  // A bare `*` means "this property name at any nesting depth", so `*.KEY`
+  // would only match a property literally named `KEY`. Every secret below is
+  // therefore enumerated by its concrete name, plus the `*.name` variant that
+  // covers the same key appearing inside a nested object.
+  //
+  // `SECRET_ENCRYPTION_KEY` is the master key: it decrypts every other value on
+  // this list, so it must never reach a log line under any circumstance.
+  'SECRET_ENCRYPTION_KEY',
+  '*.SECRET_ENCRYPTION_KEY',
+  'verify_links_api_key',
+  '*.verify_links_api_key',
+  'verify_verifyet_api_key',
+  '*.verify_verifyet_api_key',
+  'provider_gramix_api_key',
+  '*.provider_gramix_api_key',
+  'provider_catfee_api_key',
+  '*.provider_catfee_api_key',
+  'provider_catfee_api_secret',
+  '*.provider_catfee_api_secret',
+  'provider_mystars_api_key',
+  '*.provider_mystars_api_key',
+  'provider_mystars_webhook_secret',
+  '*.provider_mystars_webhook_secret',
+  'provider_mystars_wallet_seed',
+  '*.provider_mystars_wallet_seed',
+  // Field-name spellings used by the secret store and the admin routes.
+  'walletSeed',
+  '*.walletSeed',
+  'webhookSecret',
+  '*.webhookSecret',
+  'apiSecret',
+  '*.apiSecret',
   // Egress proxy URIs embed user:pass credentials.
   'proxyUrl',
   '*.proxyUrl',

@@ -137,8 +137,14 @@ describe('Phase 3: Database Persistence, Indexing, and Settings Optimization', (
   // 2. Settings Seed & 18 Verification Keys Audit
   // ==========================================================================
 
-  it('seeds all 18 dashboard verification settings keys with clean defaults', () => {
-    expect(VERIFICATION_SETTING_KEYS.size).toBe(18);
+  it('seeds every dashboard verification settings key with a clean default', () => {
+    // Was 18 before Phase 0 added the payment-rebuild toggles, lane orders,
+    // provider switches and cascade configuration. The count is asserted so a
+    // key cannot be registered for validation without also being seeded — the
+    // failure mode this file exists to catch. It is a tripwire, not a contract:
+    // bump it when a key is legitimately added and keep the per-key assertion
+    // below, which is the part that actually matters.
+    expect(VERIFICATION_SETTING_KEYS.size).toBe(33);
 
     const allSettings = getAllSettings();
 

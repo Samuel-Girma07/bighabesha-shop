@@ -2,6 +2,7 @@ import { getDatabase } from '../db/index.js';
 import { logger } from '../logger/index.js';
 import { purgeOldReceipts } from './receipts.service.js';
 import { cleanupInterruptedBroadcasts } from './broadcast.service.js';
+import { pruneSettingsAudit } from './secrets.service.js';
 
 export interface CleanupResult {
   expiredAdminSessions: number;
@@ -9,7 +10,11 @@ export interface CleanupResult {
   expiredBotSessions: number;
   staleBroadcastDrafts: number;
   purgedReceiptFiles: number;
+  prunedSettingsAuditRows: number;
 }
+
+/** How long settings mutation history is kept. Owner answer: 365 days. */
+const SETTINGS_AUDIT_RETENTION_DAYS = 365;
 
 /**
  * Purges expired authentication/session rows and stale drafts from SQLite.
@@ -55,15 +60,25 @@ export async function purgeExpiredData(retentionDays: number = 90, nowMs: number
     // Interrupted broadcast cleanup failures never block DB cleanup.
   }
 
+  // Settings mutation history rides this sweep rather than getting its own
+  // timer. The sweep already runs and already owns "delete things that are no
+  // longer useful"; a second scheduler for one table would be a new failure
+  // mode for no benefit. `pruneSettingsAudit` swallows its own errors, so this
+  // cannot block the other statements either.
+  const prunedSettingsAuditRows = pruneSettingsAudit(SETTINGS_AUDIT_RETENTION_DAYS);
+
   const result: CleanupResult = {
     expiredAdminSessions: sessions,
     expiredAdminOtps: otps,
     expiredBotSessions: botSessions,
     staleBroadcastDrafts: drafts,
     purgedReceiptFiles: receipts,
+    prunedSettingsAuditRows,
   };
 
-  if (sessions + otps + botSessions + drafts + receipts > 0) {
+  if (
+    sessions + otps + botSessions + drafts + receipts + prunedSettingsAuditRows > 0
+  ) {
     logger.info(result, 'Expired data purge completed');
   }
   return result;

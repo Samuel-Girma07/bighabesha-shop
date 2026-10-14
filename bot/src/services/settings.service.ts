@@ -116,9 +116,46 @@ export function getAllSettings(): Record<string, string> {
  * in exactly one of them, never both. Adding a secret here does not make it
  * public; adding it to `PUBLIC_SETTING_KEYS` would defeat this entirely.
  */
+/**
+ * Settings whose `value` column holds an AES-256-GCM envelope and that must
+ * never leave the process in an API response.
+ *
+ * Two distinct guarantees are implemented here, and they are not the same
+ * thing:
+ *
+ *   1. SENSITIVITY — the denylist below. Enforced by `getAdminVisibleSettings()`
+ *      so the value never reaches a browser, a PUT payload or an audit row.
+ *   2. ENCRYPTION — `settings.is_secret`, maintained in migration 015 and
+ *      enforced by `secrets.service.ts`, so a credential can only be written
+ *      through `setSecret()` and only read through `getSecret()`.
+ *
+ * A key belongs here if it is EITHER sensitive OR encrypted. The keys carrying
+ * `*_api_key`, `*_api_secret`, `*_webhook_secret` and `*_wallet_seed` are
+ * encrypted; the two legacy rows below are sensitive but still hold plaintext
+ * from before migration 015, which `decryptSecret()` passes through unchanged so
+ * they keep working without a forced rotation.
+ *
+ * This denylist is deliberately the inverse of `PUBLIC_SETTING_KEYS`, which is
+ * the allow-list served to unauthenticated Mini App clients: a key must appear
+ * in exactly one of them, never both. Adding a secret here does not make it
+ * public; adding it to `PUBLIC_SETTING_KEYS` would defeat this entirely.
+ */
 export const SECRET_SETTING_KEYS: ReadonlySet<string> = new Set([
+  // Legacy: sensitive, stored plaintext (pre-dates encryption)
   'download_link_secret',
   'receipt_ethiopia_proxy_url',
+  // Verification platform credentials
+  'verify_links_api_key',
+  'verify_verifyet_api_key',
+  // Fulfillment provider credentials
+  'provider_gramix_api_key',
+  'provider_catfee_api_key',
+  'provider_catfee_api_secret',
+  'provider_mystars_api_key',
+  'provider_mystars_webhook_secret',
+  // TON hot-wallet seed. The single most sensitive row in the table: leaking it
+  // drains the wallet, and it is only reachable through getSecret().
+  'provider_mystars_wallet_seed',
 ]);
 
 /** Non-reversible description of a write-only secret, safe for any reader. */
@@ -131,6 +168,8 @@ export interface SecretSettingStatus {
 
 export interface AdminSettingsSecretStatus {
   receipt_ethiopia_proxy_url: SecretSettingStatus;
+  /** Every encrypted key except the proxy, keyed by setting name. */
+  [key: string]: SecretSettingStatus;
 }
 
 export interface AdminVisibleSettings {
@@ -143,8 +182,16 @@ export interface AdminVisibleSettings {
 /**
  * The read path for the admin dashboard: the full settings map minus the
  * secret denylist, plus enough metadata to render the write-only fields
- * honestly — an operator must be able to confirm *which* proxy is live without
- * the credential ever entering a browser, a PUT payload, or an audit row.
+ * honestly — an operator must be able to confirm *which* credential is live
+ * without the credential ever entering a browser, a PUT payload, or an audit
+ * row.
+ *
+ * `secretStatus` is generated from `SECRET_SETTING_KEYS` rather than hardcoded,
+ * so registering a new secret key cannot be forgotten here. The proxy keeps its
+ * `endpoint` field (a credential-free `host[:port]`, which is the one piece of
+ * useful diagnostic info it has); the remaining keys report `configured` only,
+ * because their last-4 characters are already the whole point of a mask and
+ * `sanitizeProxyEndpoint` has no meaningful analogue for them.
  *
  * `endpoint` comes from `sanitizeProxyEndpoint`, which is string-based on
  * purpose: a malformed proxy URI must degrade to a harmless string instead of
@@ -165,15 +212,19 @@ export function getAdminVisibleSettings(): AdminVisibleSettings {
   }
 
   const proxy = all.receipt_ethiopia_proxy_url ?? '';
-  return {
-    settings,
-    secretStatus: {
-      receipt_ethiopia_proxy_url: {
-        configured: proxy.trim().length > 0,
-        endpoint: sanitizeProxyEndpoint(proxy),
-      },
+  const secretStatus: AdminSettingsSecretStatus = {
+    receipt_ethiopia_proxy_url: {
+      configured: proxy.trim().length > 0,
+      endpoint: sanitizeProxyEndpoint(proxy),
     },
   };
+
+  for (const key of SECRET_SETTING_KEYS) {
+    if (key === 'receipt_ethiopia_proxy_url') continue;
+    secretStatus[key] = { configured: (all[key] ?? '').trim().length > 0, endpoint: '' };
+  }
+
+  return { settings, secretStatus };
 }
 
 /**
@@ -307,6 +358,75 @@ export const KNOWN_SETTING_KEYS: ReadonlySet<string> = new Set([
   // strips the value before persisting it. Do not add an admin UI control for
   // it, and never add it to PUBLIC_SETTING_KEYS.
   'download_link_secret',
+  // ── Payment rebuild: method toggles ───────────────────────────────────────
+  // Admin-controlled on/off switches. OFF hides the method in the bot and the
+  // mini app and makes `POST /api/orders` reject it; in-flight orders on a
+  // since-disabled rail still verify and fulfil (plan D4).
+  'payment_method_cbe_enabled',
+  'payment_method_telebirr_enabled',
+  'payment_method_stars_enabled',
+  // ── Payment rebuild: encrypted credentials ────────────────────────────────
+  // Registered here for the SAME reason as `download_link_secret` above: the
+  // dashboard GET filters them out of the response, but a tab opened before the
+  // filter shipped still holds them in React state and will PUT them back.
+  // Registering keeps that round-trip a 200 instead of an HTTP 400 that takes
+  // out every unrelated settings save.
+  //
+  // Registration does NOT make them writable through this endpoint.
+  // `PUT /api/admin/settings` strips every key in `SECRET_SETTING_KEYS` before
+  // validating, so a credential can only be written through the dedicated
+  // `settings.security`-gated routes in `secrets.service.ts`. Do not add an admin
+  // UI control for them here and never add them to PUBLIC_SETTING_KEYS.
+  'verify_links_api_key',
+  'verify_verifyet_api_key',
+  'provider_gramix_api_key',
+  'provider_catfee_api_key',
+  'provider_catfee_api_secret',
+  'provider_mystars_api_key',
+  'provider_mystars_webhook_secret',
+  'provider_mystars_wallet_seed',
+  // ── Payment rebuild: verification lanes ───────────────────────────────────
+  // Credential keys (verify_links_api_key, verify_verifyet_api_key, etc.) are
+  // registered in SECRET_SETTING_KEYS above. They must ALSO be listed here or
+  // `PUT /api/admin/settings` rejects the entire request — see the note on
+  // `download_link_secret` for why an unregistered key breaks every save.
+  'verify_links_enabled',
+  'verify_verifyet_enabled',
+  'verify_cheki_enabled',
+  'verify_request_timeout_ms',
+  // JSON arrays of lane ids. They ship with `direct` FIRST so a deploy does not
+  // change behaviour on day one: the hosted lanes sit behind it, inert, until
+  // the Owner reorders them from the admin surface after each live-test gate.
+  'verify_lane_order_cbe',
+  'verify_lane_order_telebirr',
+  // The direct Telebirr scraper is RETAINED as a disabled last lane. links.et,
+  // verify.et and this adapter all read the same Ethio Telecom receipt page, so
+  // they share one point of failure — when Ethio Telecom changes a label, all
+  // three break at once. A 4th path that runs behind an Ethiopian proxy costs
+  // nothing and restores verification in minutes when that happens.
+  'telebirr_direct_enabled',
+  // ── Payment rebuild: fulfillment providers ───────────────────────────────
+  'provider_gramix_enabled',
+  'provider_catfee_enabled',
+  'provider_mystars_enabled',
+  'provider_cascade_order',
+  'provider_float_cap_usdt',
+]);
+
+/** Lane ids accepted inside `verify_lane_order_*`. */
+export const VERIFICATION_LANE_IDS: ReadonlySet<string> = new Set([
+  'direct',
+  'links',
+  'verifyet',
+  'cheki',
+]);
+
+/** Provider ids accepted inside `provider_cascade_order`. */
+export const FULFILLMENT_PROVIDER_IDS: ReadonlySet<string> = new Set([
+  'gramix',
+  'catfee',
+  'mystars',
+  'istar',
 ]);
 
 export function isKnownSettingKey(key: string): boolean {
@@ -343,6 +463,27 @@ export const VERIFICATION_SETTING_KEYS: ReadonlySet<string> = new Set([
   'receipt_telebirr_beneficiaries',
   'receipt_abyssinia_beneficiaries',
   'receipt_ethiopia_proxy_url',
+  // ── Payment rebuild keys that carry a validation rule below ───────────────
+  // The encrypted credential keys are deliberately NOT here: they have no
+  // format rule (any non-empty string is a valid credential) and they cannot
+  // reach this function anyway, because `PUT /api/admin/settings` strips
+  // SECRET_SETTING_KEYS before validating and the dedicated routes in
+  // secrets.service.ts do not call through here.
+  'payment_method_cbe_enabled',
+  'payment_method_telebirr_enabled',
+  'payment_method_stars_enabled',
+  'verify_links_enabled',
+  'verify_verifyet_enabled',
+  'verify_cheki_enabled',
+  'verify_request_timeout_ms',
+  'verify_lane_order_cbe',
+  'verify_lane_order_telebirr',
+  'telebirr_direct_enabled',
+  'provider_gramix_enabled',
+  'provider_catfee_enabled',
+  'provider_mystars_enabled',
+  'provider_cascade_order',
+  'provider_float_cap_usdt',
 ]);
 
 export const DEFAULT_VERIFICATION_SETTINGS: Readonly<Record<string, string>> = {
@@ -369,11 +510,86 @@ export const DEFAULT_VERIFICATION_SETTINGS: Readonly<Record<string, string>> = {
   receipt_cbe_expected_name: '',
   receipt_telebirr_expected_name: '',
   receipt_abyssinia_expected_name: '',
+  // ── Payment rebuild defaults ───────────────────────────────────────────────
+  // These mirror migration 015 exactly. When the two ever disagree, the
+  // migration is authoritative for an EXISTING database (its ON CONFLICT DO
+  // NOTHING means a stored operator value always wins) and this map is
+  // authoritative for a FRESH one, where seed.ts applies after migrations run.
+  payment_method_cbe_enabled: '1',
+  payment_method_telebirr_enabled: '1',
+  payment_method_stars_enabled: '1',
+  verify_links_enabled: '0',
+  verify_verifyet_enabled: '0',
+  verify_cheki_enabled: '1',
+  verify_request_timeout_ms: '30000',
+  // `direct` first on purpose: a deploy must not change verification behaviour
+  // before any hosted lane has passed its live-test gate.
+  verify_lane_order_cbe: '["direct","links","cheki"]',
+  verify_lane_order_telebirr: '["direct","links","verifyet"]',
+  telebirr_direct_enabled: '0',
+  provider_gramix_enabled: '1',
+  provider_catfee_enabled: '0',
+  provider_mystars_enabled: '0',
+  provider_cascade_order: '["gramix","catfee","mystars"]',
+  provider_float_cap_usdt: '50',
 };
 
 export interface VerificationSettingsValidationResult {
   isValid: boolean;
   errors: string[];
+}
+
+/**
+ * Validate a JSON array of ordered ids (a lane order or a cascade order).
+ *
+ * Empty is allowed and means "not configured yet" — the reading code falls back
+ * to its shipped default in that case, so rejecting `[]` would only block a
+ * half-finished configuration in the dashboard.
+ *
+ * An unknown id is REJECTED rather than silently dropped. Silently dropping it
+ * would leave the operator believing they have a working fallback when the
+ * cascade has quietly lost a slot, and that would only surface during an
+ * outage — the worst possible moment to discover it.
+ */
+function validateOrderedIdList(
+  raw: string,
+  allowed: ReadonlySet<string>,
+  key: string,
+  errors: string[]
+): void {
+  if (raw === '') return;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    errors.push(`${key} contains invalid JSON`);
+    return;
+  }
+
+  if (!Array.isArray(parsed)) {
+    errors.push(`${key} must be a JSON array of id strings`);
+    return;
+  }
+
+  const seen = new Set<string>();
+  for (const entry of parsed) {
+    if (typeof entry !== 'string') {
+      errors.push(`${key} must contain only strings, received ${typeof entry}`);
+      continue;
+    }
+    if (!allowed.has(entry)) {
+      errors.push(
+        `${key} contains unknown id "${entry}". Valid ids: ${[...allowed].sort().join(', ')}`
+      );
+      continue;
+    }
+    if (seen.has(entry)) {
+      errors.push(`${key} lists "${entry}" more than once`);
+      continue;
+    }
+    seen.add(entry);
+  }
 }
 
 /**
@@ -472,6 +688,68 @@ export function validateVerificationSettings(
         if (strVal && !/^https?:\/\/[^\s]+$/.test(strVal)) {
           errors.push(
             `receipt_ethiopia_proxy_url must be empty or a valid HTTP/HTTPS proxy URI (SOCKS5 is not supported: the agent cannot speak the SOCKS5 handshake and would fail as a broken tunnel)`
+          );
+        }
+        break;
+      }
+
+      // ── Payment rebuild: toggles ───────────────────────────────────────────
+      // Booleans are validated here rather than being accepted blindly,
+      // because a typo'd toggle value has to resolve to a definite state. The
+      // accepted set matches `getBooleanSetting`, so the two never disagree.
+      case 'payment_method_cbe_enabled':
+      case 'payment_method_telebirr_enabled':
+      case 'payment_method_stars_enabled':
+      case 'verify_links_enabled':
+      case 'verify_verifyet_enabled':
+      case 'verify_cheki_enabled':
+      case 'telebirr_direct_enabled':
+      case 'provider_gramix_enabled':
+      case 'provider_catfee_enabled':
+      case 'provider_mystars_enabled': {
+        const lower = strVal.toLowerCase();
+        if (!['1', '0', 'true', 'false', 'yes', 'no', 'on', 'off'].includes(lower)) {
+          errors.push(
+            `${key} must be a boolean (1/0, true/false, yes/no, on/off) — received "${strVal}"`
+          );
+        }
+        break;
+      }
+
+      // ── Payment rebuild: lane + cascade ordering ───────────────────────────
+      // An unknown id is rejected rather than ignored. Silently dropping it
+      // would leave the operator believing they have a working fallback when
+      // the cascade has quietly lost a slot — the failure would only surface
+      // during an outage, which is the worst time to discover it.
+      case 'verify_lane_order_cbe':
+      case 'verify_lane_order_telebirr': {
+        validateOrderedIdList(strVal, VERIFICATION_LANE_IDS, key, errors);
+        break;
+      }
+
+      case 'provider_cascade_order': {
+        validateOrderedIdList(strVal, FULFILLMENT_PROVIDER_IDS, key, errors);
+        break;
+      }
+
+      case 'verify_request_timeout_ms': {
+        const num = Number(strVal);
+        // Upper bound is deliberately generous: links.et documents an upstream
+        // slot of up to ~30s, and a timeout below that produces false outages
+        // that trip the breaker on a healthy provider.
+        if (!Number.isInteger(num) || num < 1000 || num > 120000) {
+          errors.push(
+            `${key} must be an integer between 1000 and 120000 milliseconds (received: "${strVal}")`
+          );
+        }
+        break;
+      }
+
+      case 'provider_float_cap_usdt': {
+        const num = Number(strVal);
+        if (!Number.isFinite(num) || num < 0 || num > 100000) {
+          errors.push(
+            `${key} must be a number between 0 and 100000 USDT (received: "${strVal}")`
           );
         }
         break;

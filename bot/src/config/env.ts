@@ -221,6 +221,21 @@ export const EnvSchema = z
     LITESTREAM_ENDPOINT: z.string().optional(),
     LITESTREAM_ACCESS_KEY_ID: z.string().optional(),
     LITESTREAM_SECRET_ACCESS_KEY: z.string().optional(),
+    // Master key for AES-256-GCM encryption of settings secrets
+    // (see services/secrets.service.ts). This is the only credential that stays
+    // in the environment: every API key, webhook secret and the TON hot-wallet
+    // seed are stored encrypted in the `settings` table under this one key.
+    //
+    // There is NO recovery path if it is lost — every secret written through
+    // setSecret() becomes permanently unreadable, including a funded wallet.
+    // Generate with `openssl rand -base64 32` and back it up offline before the
+    // first secret is stored.
+    //
+    // Optional + empty default rather than required, so that dev and the test
+    // suite run without a key. secrets.service.ts throws on a missing key in
+    // production specifically, which is the behaviour that matters: booting and
+    // then failing every secret read at request time would be worse.
+    SECRET_ENCRYPTION_KEY: z.string().optional().default(''),
   })
   .transform((cfg) => {
     const rawDataDir = cfg.DATA_DIR?.trim();

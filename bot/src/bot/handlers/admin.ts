@@ -4,7 +4,7 @@ import { ensureAdminRow, roleHasPermission, type Permission } from '../../auth/p
 import { getAllProducts, getProductVariants, getVariantById, formatPriceETB } from '../../services/catalog.service.js';
 import { getResellerProvider, notifyAdminsLowFloatFromResult } from '../../services/reseller.service.js';
 import { getTotalStockCount } from '../../services/stock.service.js';
-import { getNumericSetting, getSetting, getBooleanSetting, setSetting } from '../../services/settings.service.js';
+import { getNumericSetting, getSetting, getBooleanSetting, setSetting, isKnownSettingKey, SECRET_SETTING_KEYS } from '../../services/settings.service.js';
 import { setPendingAction } from '../session.js';
 import { escapeHtml } from '../../utils/html.js';
 import { logger } from '../../logger/index.js';
@@ -283,9 +283,54 @@ export async function renderResellerBalance(ctx: Context): Promise<void> {
 
 export const renderAdminResellerBalance = renderResellerBalance;
 
+/**
+ * Arm the "type the new value in chat" prompt for a setting.
+ *
+ * Two guards this function did not have before Phase 0, both of which closed a
+ * live hole:
+ *
+ *   1. ALLOW-LIST. The setting key arrives from callback data
+ *      (`bot_edit_setting_<key>`), and nothing validated it. `admin_edit_setting_download_link_secret`
+ *      was reachable from any admin: it would read the 32-byte HMAC key that
+ *      signs every receipt download link and print it into the chat. Now an
+ *      unknown key, or any key in `SECRET_SETTING_KEYS`, is refused outright.
+ *
+ *   2. NO ECHO. The prompt used to render the current value inline, which is
+ *      how a secret would have been displayed even with the key allowed. Values
+ *      are now shown masked for secrets and plainly otherwise.
+ *
+ * Secrets are deliberately NOT editable from the inline admin. The value would
+ * transit Telegram's servers and sit in the admin's message history on every
+ * synced device. The Owner chose to keep inline configuration for toggles and
+ * ordering, and to enter credentials from the dashboard, where the write is
+ * encrypted and validated before it is stored. This refusal is what makes that
+ * split enforceable rather than advisory.
+ */
 export async function promptEditSetting(ctx: Context, settingKey: string): Promise<void> {
   const userId = ctx.from?.id;
-  if (!isAdmin(userId) || !userId) return;
+  if (!isAdmin(userId, 'settings.write') || !userId) return;
+
+  if (!isKnownSettingKey(settingKey)) {
+    logger.warn({ userId, settingKey }, 'Refused inline edit of an unregistered setting key');
+    await ctx.reply(
+      `⚠️ <b>Refused.</b> <code>${escapeHtml(settingKey)}</code> is not a known setting.`,
+      { parse_mode: 'HTML' }
+    );
+    return;
+  }
+
+  if (SECRET_SETTING_KEYS.has(settingKey)) {
+    logger.warn({ userId, settingKey }, 'Refused inline edit of a secret setting key');
+    await ctx.reply(
+      '🔒 <b>Secrets are not editable from chat.</b>\n\n' +
+        'API keys, webhook secrets and the wallet seed must be entered from the Admin ' +
+        'Dashboard, where the value is encrypted before it is stored.\n\n' +
+        'Typing a credential here would send it through Telegram\'s servers and leave it ' +
+        'in your message history on every synced device.',
+      { parse_mode: 'HTML' }
+    );
+    return;
+  }
 
   const currentVal = getSetting(settingKey, '');
 
