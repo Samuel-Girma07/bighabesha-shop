@@ -309,6 +309,31 @@ export class ProxyConfigError extends ReceiptVerificationError {
 }
 
 /**
+ * Raised when an upstream verifier answers 429, or reports its own quota spent.
+ *
+ * `RATE_LIMITED` has existed in the failure-code union since it was declared but
+ * was never thrown, because nothing in the codebase consumed a metered API. It
+ * matters now: links.et's free tier is a hard quota (200 uncached receipts per
+ * month) and verify.et is metered per plan. Exhausting either is an
+ * infrastructure condition, not a customer-data error — the chain falls through
+ * to the next lane rather than sending the order to manual review.
+ */
+export class RateLimitError extends ReceiptVerificationError {
+  constructor(bank: SupportedBank, detail: string, instance?: string) {
+    super(
+      'RATE_LIMITED',
+      429,
+      'Verification Rate Limit Reached',
+      `The ${bank.toUpperCase()} verification service declined the request: ${detail}`,
+      'Verification is temporarily rate limited. Your receipt has been routed to our store administrators for manual review.',
+      instance,
+      { bank }
+    );
+    this.name = 'RateLimitError';
+  }
+}
+
+/**
  * Raised when the bank portal does not positively confirm a completed payment.
  *
  * Two conditions produce this, and both are the absence of proof rather than
@@ -322,6 +347,17 @@ export class ProxyConfigError extends ReceiptVerificationError {
  * with the customer's own claimed reference and amount.
  */
 export class UnconfirmedTransactionError extends ReceiptVerificationError {
+  /**
+   * Why the bank declined to confirm, kept verbatim for the operator audit trail.
+   *
+   * This was previously only reachable through `problemDetails.detail`, which
+   * made it awkward to assert on and easy to lose when a caller inspected the
+   * error directly. The 400 "transaction not found" path in particular carries
+   * the bank transaction id here, and the operator needs it to reconcile against
+   * the customer's SMS.
+   */
+  public readonly reason: string;
+
   constructor(reason: string, instance?: string) {
     super(
       'TRANSACTION_NOT_CONFIRMED',
@@ -330,9 +366,10 @@ export class UnconfirmedTransactionError extends ReceiptVerificationError {
       reason,
       'Our bank could not confirm that this payment completed. An administrator will review it manually — please keep your bank confirmation SMS.',
       instance,
-      undefined
+      { reason }
     );
     this.name = 'UnconfirmedTransactionError';
+    this.reason = reason;
   }
 }
 
